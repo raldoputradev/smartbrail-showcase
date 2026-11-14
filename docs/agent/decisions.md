@@ -16,7 +16,7 @@ Dokumen ini memisahkan keputusan eksplisit pemilik dari fakta implementasi dan u
 
 Ini adalah kondisi implementasi, bukan klaim tentang alasan pemilik:
 
-- Mahasiswa diarahkan ke aplikasi Flutter; portal web mahasiswa dinonaktifkan (`routes/web.php`).
+- Portal web mahasiswa telah diimplementasikan pada 2026-10-24; Flutter dan endpoint mobile tetap tersedia (`routes/web.php`, `routes/api.php`).
 - Laboran dan dosen memakai session web; mahasiswa memakai Bearer token mobile; mesin memakai API key perangkat.
 - Copilot internal saat ini baca-saja melalui `AdminAiToolRegistry::READ_ONLY`.
 - Tap mesin baru mendukung idempotensi `event_id`, sementara kompatibilitas firmware lama tanpa `event_id` dipertahankan.
@@ -97,3 +97,48 @@ Rencana dan dependensi: `development-plan.md`.
 - Kapan pemilik menyetujui pemeriksaan runtime terbatas dan pembentukan baseline Git?
 
 Tidak ada jawaban yang diasumsikan dalam dokumen arsitektur.
+
+
+## 8. Keputusan halaman login gabungan dan registrasi manual web — 2026-11-04
+
+- Satu halaman login web gabungan (`/masuk`) digunakan untuk `Mahasiswa`, `Dosen`, dan `Admin / Laboran` (urutan dropdown tersebut, default `Mahasiswa`), menggantikan halaman login mahasiswa terpisah.
+- Pendaftaran mandiri via web untuk admin/laboran dan dosen dihapus dari UI, pengaturan admin, dan dinonaktifkan pada endpoint backend; akun dibuat melalui import admin dan alur aktivasi kode sekali pakai (`/aktivasi`).
+- Registrasi mandiri mahasiswa via APK mobile (`POST /api/mobile/register` dan pengaturan `RegistrationGate` untuk `mahasiswa`) tetap dipertahankan di luar cakupan perubahan ini.
+- Nama route `mahasiswa.login` dipertahankan untuk kompatibilitas (`GET /mahasiswa/masuk` redirect ke `/masuk?role=mahasiswa`, `POST /mahasiswa/masuk` delegasi ke autentikasi gabungan). File `resources/views/student/auth/login.blade.php` dipertahankan sementara sebagai kandidat pembersihan pasca-verifikasi.
+
+
+## 9. Keputusan alur akun mahasiswa hasil import — 2026-11-04
+
+- Alur akun mahasiswa hasil import disederhanakan menjadi: import oleh admin/laboran → mahasiswa login dengan NIM + password sementara unik (`XXXX-XXXX-XXXX`) → wajib membuat password pribadi baru (`/mahasiswa/ganti-password`) → langsung masuk ke beranda (`/mahasiswa/beranda`) → pengisian/verifikasi email & nomor HP bersifat opsional dengan pengingat di beranda yang dapat ditutup per sesi.
+- Status wajib ganti password disimpan secara eksplisit melalui kolom `users.must_change_password` (`boolean`, `default(false)`), bukan diinferensikan dari log untuk akun aktif biasa.
+- Pemulihan password mandiri via OTP email hanya diizinkan bagi akun yang sudah memiliki `email` terverifikasi (`email_verified_at !== null`); mahasiswa yang belum mengisi/memverifikasi email melakukan reset password melalui admin/laboran (`POST /admin/users/{user}/activation-code` dengan izin `users.update`).
+- Alur aktivasi `/aktivasi` untuk `dosen` dan `laboran` hasil import tetap dipertahankan.
+
+
+## 10. Keputusan pembaruan Portal Mahasiswa & aturan jadwal absensi 3 hari (9 SKS) — 2026-11-04
+
+- Kerangka navigasi portal mahasiswa menggunakan sidebar kiri yang dapat diperkecil (drawer di mobile) dengan 3 menu utama (`Beranda`, `Absensi Saya`, `Riwayat Bantuan`). Menu `Tim PBL` disembunyikan sementara dari navigasi dan beranda tanpa menghapus data/fungsi backend PBL.
+- Notifikasi diakses dari ikon lonceng topbar (panel slide-over + modal detail aksesibel yang menandai baca per item saat dibuka) tanpa menu navigasi utama terpisah.
+- Jadwal absensi mendukung aturan mingguan per hari (termasuk skema 3 hari / 9 SKS: Rabu `07:50–17:00`, Kamis `07:50–17:00`, Jumat `07:50–12:00`) dengan tanggal efektif (`effective_from`) agar riwayat sebelum tanggal tersebut tidak berubah otomatis, serta kalender pengecualian (`libur`/`batal_wajib`, `perubahan_jam`/`ubah_jam`, dan `ujian`/`informasi` dengan dampak `tetap_wajib` yang tidak otomatis membatalkan kewajiban absensi).
+- Tap awal, terlambat, dan pulang lebih awal (`pulang_cepat`) tetap dicatat oleh backend; penilaian **Kelengkapan** (`Lengkap`, `Tidak Lengkap`, `Alfa`) dipisahkan dari **Ketepatan Waktu**, dan tap pulang melewati jam jadwal ditampilkan sebagai `"Melewati jam jadwal"` (bukan `"Lembur"`) pada permukaan mahasiswa.
+- Indikator `slot_lab` (`10 x 55 menit`) dipertahankan sebagai informasi sekunder waktu masuk sesi pagi (bukan 10 kali wajib tap); rincian jumlah slot khusus hari Jumat (`07:50–12:00`) dapat dikonfirmasi pemilik tanpa menghambat jadwal efektif harian.
+- Chat AI bantuan mahasiswa bersifat informatif/read-only dan terpisah tegas dari pengiriman laporan resmi yang memerlukan konfirmasi mahasiswa dan menghasilkan nomor referensi tiket (`#ID`).
+- Mahasiswa yang sudah login dapat mengganti password secara mandiri dengan verifikasi `current_password` tanpa perlu persetujuan admin atau OTP.
+
+## 11. Rencana (disetujui sebagai konsep): Grup Chat Tim PBL — 2026
+- Pemilik menyetujui grup chat tim PBL sebagai **rancangan/improvement** dulu, bukan implementasi.
+- Peserta yang direncanakan: manpro/co-manpro, ketua tim, wakil, dan anggota tim.
+- Saat ini hanya item sidebar "Grup Chat Tim" bertanda `Soon` yang memunculkan SweetAlert.
+- Bila diimplementasikan kelak: backend realtime (Reverb), pesan per proyek PBL, otorisasi via PblTeamService/managesProject; jangan bypass hak manpro.
+
+## 12. Git baseline + workflow GitHub dua repo — 2026-11-14
+
+- Project disimpan di GitHub atas akun `raldoputradev` dengan dua repo terpisah:
+  - `raldoputradev/smartbrail` (**private**) = repo kerja; seluruh development + histori detail di sini.
+  - `raldoputradev/smartbrail-showcase` (**public**) = etalase untuk CV/HR; disinkron dari `main` per milestone atas permintaan pemilik.
+- Model kolaborasi (dipilih pemilik): **Fork + PR ketat** — anggota tim fork repo private, membuka PR kembali; hanya pemilik yang merge ke `main`. (Ruleset wajib-review tidak tersedia di tier gratis untuk repo private; model fork membuat main secara teknis tidak bisa ditulis anggota.)
+- Identitas commit lokal: `Rayendra Aldo Putra <raldoputradev@users.noreply.github.com>` (noreply GitHub agar email asli tidak tersebar di repo public).
+- Atribusi AI: commit oleh Devin di repo private boleh membawa penanda `Co-Authored-By: Devin`; di repo **public** penanda dibersihkan agar histori tampil atas nama pemilik (keputusan eksplisit pemilik).
+- Konvensi commit: prefix `feat:`/`fix:`/`ui:`/`docs:`/`chore:` Bahasa Indonesia. Panduan tim di `CONTRIBUTING.md`, template PR di `.github/pull_request_template.md`.
+- Remote lokal: `origin` → private, `showcase` → public. Baseline commit pertama: `chore: baseline SmartBrail` (tanpa trailer Devin karena snapshot milik pemilik).
+- Keamanan: `.gitignore` mengecualikan `.env`, `vendor`, `node_modules`, `public/build`, `storage/*.key`; audit pre-push menemukan 0 secrets ter-stage.
