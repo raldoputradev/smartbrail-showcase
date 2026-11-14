@@ -1,58 +1,71 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
-
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <img src="public/branding/app-logo.png" width="110" alt="SmartBrail">
 </p>
 
-## About Laravel
+<h1 align="center">SmartBrail</h1>
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+<p align="center">
+  Sistem manajemen laboratorium pintar — absensi sidik jari ESP32, akses ruangan IoT,<br>
+  manajemen PBL, dan portal multi-peran untuk BRAIL, Politeknik Negeri Batam.
+</p>
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+<p align="center">
+  <img src="https://img.shields.io/badge/Laravel-12-FF2D20?logo=laravel&logoColor=white" alt="Laravel">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React">
+  <img src="https://img.shields.io/badge/Inertia.js-9553E9" alt="Inertia">
+  <img src="https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white" alt="MySQL">
+  <img src="https://img.shields.io/badge/Reverb-realtime-0ea5e9" alt="Reverb">
+</p>
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Tentang
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+SmartBrail adalah platform operasional laboratorium yang menyatukan **hardware IoT (ESP32 + sensor sidik jari)** dengan **portal web dan aplikasi mobile**. Sistem menangani absensi biometrik harian, kontrol akses ruangan berbasis jadwal/izin, pengelolaan tim Project-Based Learning (PBL), serta pelaporan periodik untuk empat peran pengguna.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Fitur Utama
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+| Modul | Ringkasan |
+|---|---|
+| **Absensi biometrik** | Tap sidik jari di mesin ESP32, sinkronisasi real-time, deteksi terlambat/pulang cepat, penilaian lengkap–tidak lengkap–alfa |
+| **Akses ruangan** | Permintaan akses oleh mahasiswa/tim PBL & cleaning service, persetujuan laboran, audit setiap percobaan buka pintu, akses bebas untuk staf |
+| **Manajemen PBL** | Proyek tim dengan manpro/co-manpro, ketua & anggota, foto/deskripsi, jejak audit append-only (`pbl_activity_logs`) |
+| **Laporan periodik** | Rekap rentang tanggal profesional (Word/Excel) sesuai template, ekspor untuk admin, laboran, dan dosen ter-scope |
+| **Portal multi-peran** | Admin · Laboran · Dosen · Mahasiswa — masing-masing dengan dashboard, izin, dan asisten AI sendiri |
+| **Realtime & monitoring** | Laravel Reverb (WebSocket) untuk notifikasi live, Pusat Kendali admin (pengguna online, mesin down, antrian approval, aktivitas PBL), presence heartbeat |
+| **Asisten AI** | Copilot kontekstual per peran (Gemini + fallback lokal), chatbot mahasiswa toleran typo/slang dengan dashboard pelatihan |
+| **Import akun** | Template Excel multi-sheet per peran (laboran, mahasiswa, dosen, cleaning service), kartu kredensial sekali-tampil |
 
-## Agentic Development
+## Peran Pengguna
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+- **Admin** — manajemen akun/import, kebijakan, konfigurasi ruangan & perangkat, Pusat Kendali.
+- **Laboran** — persetujuan ruangan, jadwal & aturan, operasi fingerprint, laporan, status perangkat.
+- **Dosen** — rekap absensi ter-scope, supervisi kelas/tim PBL, pengumuman, feedback.
+- **Mahasiswa** — absensi & jadwal pribadi, profil, laporan, permintaan ruangan tim PBL.
+- **Cleaning Service** — non-portal; jadwal akses disinkron ke mesin.
 
-```bash
-composer require laravel/boost --dev
+## Stack
 
-php artisan boost:install
+**Backend:** Laravel 12 (PHP 8.3) · MySQL · Laravel Reverb (WebSocket) · Sanctum (API mobile)
+**Frontend:** Inertia.js + React 19 + TypeScript · Vite · Tailwind · Blade (legacy shells)
+**IoT/Mobile:** ESP32 + sensor sidik jari · REST API ter-autentikasi token perangkat · Flutter app
+**AI:** Google Gemini (streaming) + toolchain lokal & fallback
+
+## Struktur Proyek
+
+```
+app/            Kode backend (controllers, services, models, support)
+resources/js/   Shell React per peran (admin, dosen, student, public-site)
+resources/views/ Blade legacy & template laporan cetak
+routes/         web.php · api.php · channels.php (broadcast Reverb)
+docs/agent/     Dokumentasi agent: current-state, architecture, decisions
+public/js,css/  Aset shell Blade & chart
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Kolaborasi
 
-## Contributing
+Repo kerja bersifat **private** — kontribusi melalui fork + pull request (lihat [CONTRIBUTING.md](CONTRIBUTING.md)). Histori commit di repo ini menampilkan progres pengerjaan nyata.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+<p align="center"><sub>BRAIL — Barelang Robotics and Artificial Intelligence Lab, Politeknik Negeri Batam</sub></p>
