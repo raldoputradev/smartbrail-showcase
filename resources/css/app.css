@@ -1,0 +1,120 @@
+@import 'tailwindcss';
+
+/* Class-based dark mode (toggle manual, bukan prefers-color-scheme saja) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer components {
+  .input-field {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 caret-rose-600 outline-none transition placeholder:text-slate-400 focus:border-rose-400 focus:bg-white focus:ring-2 focus:ring-rose-100;
+  }
+
+  /* Tombol Unduh — getar lembut berkala biar lebih notice */
+  .btn-unduh-attention {
+    animation: unduh-nudge 2.75s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  .btn-unduh-attention:hover,
+  .btn-unduh-attention:focus-visible {
+    animation: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn-unduh-attention {
+      animation: none;
+    }
+  }
+}
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@source '../**/*.jsx';
+
+@theme {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+    --color-surface: #f6f8fb;
+    --color-surface-elevated: #ffffff;
+    --color-surface-dark: #141b2d;
+    --color-surface-dark-elevated: #1c2540;
+    --color-ink: #1e293b;
+    --color-ink-muted: #64748b;
+    --color-brand: #2563eb;
+    --color-brand-teal: #0d9488;
+    --animate-marquee: marquee 45s linear infinite;
+    --animate-marquee-reverse: marquee-reverse 45s linear infinite;
+    --animate-ticker: marquee 32s linear infinite;
+}
+
+@utility scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+@keyframes marquee {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+@keyframes marquee-reverse {
+    from {
+        transform: translateX(-50%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes unduh-nudge {
+    0%,
+    82%,
+    100% {
+        transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    86% {
+        transform: translate3d(-4px, 0, 0) rotate(-1.5deg);
+    }
+    90% {
+        transform: translate3d(4px, 0, 0) rotate(1.5deg);
+    }
+    94% {
+        transform: translate3d(-3px, 0, 0) rotate(-1deg);
+    }
+    97% {
+        transform: translate3d(2px, 0, 0) rotate(0.5deg);
+    }
+}
+
+@keyframes soft-pulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.45);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(0.92);
+        box-shadow: 0 0 0 6px rgba(225, 29, 72, 0);
+    }
+}
+
+@utility animate-soft-pulse {
+    animation: soft-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-soft-pulse {
+        animation: none !important;
+    }
+}
