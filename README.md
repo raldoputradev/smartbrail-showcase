@@ -23,6 +23,61 @@
 
 SmartBrail adalah platform operasional laboratorium yang menyatukan **hardware IoT (ESP32 + sensor sidik jari)** dengan **portal web dan aplikasi mobile**. Sistem menangani absensi biometrik harian, kontrol akses ruangan berbasis jadwal/izin, pengelolaan tim Project-Based Learning (PBL), serta pelaporan periodik untuk empat peran pengguna.
 
+## Tampilan
+
+<p align="center">
+  <img src=".github/screenshots/admin-dashboard.png" alt="Dashboard Admin SmartBrail" width="100%">
+</p>
+<p align="center"><sub><b>Dashboard Admin</b> — ringkasan operasional, statistik pengguna, dan aktivitas terbaru</sub></p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/admin-pusat-kendali.png" alt="Pusat Kendali"><br>
+      <sub><b>Pusat Kendali</b> — pengguna online, mesin bermasalah, antrian, aktivitas PBL</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/admin-pbl-projects.png" alt="Manajemen Proyek PBL"><br>
+      <sub><b>Manajemen PBL</b> — proyek tim, pembimbing, dan progres berjalan</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/admin-room-approval.jpg" alt="Persetujuan Pengajuan Ruangan"><br>
+      <sub><b>Persetujuan Ruangan</b> — antrian keputusan laboran dengan audit tersimpan</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/admin-asisten-ai.png" alt="Asisten AI Admin"><br>
+      <sub><b>Asisten AI Admin</b> — copilot kontekstual untuk operasional laboratorium</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/student-dashboard-ai.png" alt="Portal Mahasiswa & Chatbot"><br>
+      <sub><b>Portal Mahasiswa + Chatbot</b> — beranda, jadwal, dan asisten bawaan</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/student-room-request.jpg" alt="Ajukan Ruangan"><br>
+      <sub><b>Ajukan Ruangan</b> — pilih jadwal & peserta tim, ajukan ke laboran</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/student-room-history.jpg" alt="Riwayat Pengajuan"><br>
+      <sub><b>Riwayat Pengajuan</b> — status keputusan laboran secara real-time</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/login-desktop.png" alt="Halaman Login"><br>
+      <sub><b>Login Multi-peran</b> — admin, laboran, dosen, dan mahasiswa</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src=".github/screenshots/login-mobile.jpg" alt="Tampilan Mobile" width="320">
+</p>
+<p align="center"><sub><b>Responsif</b> — portal nyaman dibuka dari ponsel</sub></p>
+
 ## Fitur Utama
 
 | Modul | Ringkasan |
