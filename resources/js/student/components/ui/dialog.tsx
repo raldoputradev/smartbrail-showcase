@@ -1,5 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 export const Dialog = DialogPrimitive.Root;
@@ -12,7 +13,7 @@ export function DialogContent({
     title,
     description,
     ...props
-}: DialogPrimitive.DialogContentProps & { title?: string; description?: string }) {
+}: DialogPrimitive.DialogContentProps & { title?: ReactNode; description?: string }) {
     return (
         <DialogPrimitive.Portal>
             <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-sb-navy-2/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />

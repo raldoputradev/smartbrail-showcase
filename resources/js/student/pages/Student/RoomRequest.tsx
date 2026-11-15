@@ -785,10 +785,17 @@ function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
             )}
 
             <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
-                <DialogContent title={`Pengajuan #${detail?.id}`} description={detail ? statusLabel(detail) : ''}>
+                <DialogContent
+                    title={
+                        <span className="flex items-center gap-3 pr-6">
+                            Pengajuan #{detail?.id}
+                            {detail && <StatusStamp status={detail.status_efektif} />}
+                        </span>
+                    }
+                    description={detail ? statusLabel(detail) : ''}
+                >
                     {detail && (
-                        <div className="relative space-y-4 px-5 py-4">
-                            <StatusStamp status={detail.status_efektif} />
+                        <div className="space-y-4 px-5 py-4">
                             <Stepper status={detail.status_efektif} />
                             <dl className="grid grid-cols-2 gap-2.5 text-[12.5px]">
                                 {[
