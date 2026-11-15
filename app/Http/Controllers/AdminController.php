@@ -2240,7 +2240,8 @@ class AdminController extends Controller
             'integrations' => [
                 ['label' => 'Email (SMTP/mailer)', 'detail' => 'Driver: ' . (string) config('mail.default', 'log'), 'configured' => config('mail.default') !== 'log'],
                 ['label' => 'Asisten AI (Gemini)', 'detail' => 'Model: ' . (string) config('services.gemini.model', '-'), 'configured' => ! empty(config('services.gemini.api_key'))],
-                ['label' => 'Push notifikasi (FCM)', 'detail' => 'Notifikasi balasan saran ke pengguna', 'configured' => ! empty(config('services.fcm.server_key'))],
+                ['label' => 'Push notifikasi (FCM)', 'detail' => 'Kanal aplikasi mobile — belum diperlukan (APK nonaktif)', 'configured' => ! empty(config('services.fcm.server_key'))],
+                ['label' => 'Web Push (browser)', 'detail' => 'Notifikasi sistem ke browser semua role via VAPID', 'configured' => ! empty(config('services.webpush.public_key')) && ! empty(config('services.webpush.private_key'))],
                 ['label' => 'reCAPTCHA login', 'detail' => 'Proteksi form login publik', 'configured' => ! empty(config('services.recaptcha.site_key'))],
                 ['label' => 'Sinkronisasi fingerprint', 'detail' => 'Antrian sync template ke mesin absensi', 'configured' => true],
             ],
