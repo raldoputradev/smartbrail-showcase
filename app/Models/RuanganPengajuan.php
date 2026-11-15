@@ -11,7 +11,7 @@ class RuanganPengajuan extends Model
 {
     protected $table = 'ruangan_pengajuan';
 
-    protected $appends = ['status_efektif'];
+    protected $appends = ['status_efektif', 'alasan_status'];
 
     public const STATUS_DIAJUKAN = 'diajukan';
     public const STATUS_MENUNGGU_PENERIMAAN = 'menunggu_penerimaan';
@@ -133,6 +133,32 @@ class RuanganPengajuan extends Model
                 $this->selesaiAt()->copy()->addMinutes(15),
             ])
             ->exists();
+    }
+
+    /**
+     * Penjelasan mengapa pengajuan berakhir pada statusnya — diturunkan dari
+     * kolom status tersimpan (status efektif 'kedaluwarsa' tidak disimpan,
+     * jadi penyebabnya dibaca dari status asal + bukti kehadiran).
+     */
+    public function alasanStatus(): ?string
+    {
+        return match ($this->statusEfektif()) {
+            self::STATUS_KEDALUWARSA => match ($this->status) {
+                self::STATUS_DISETUJUI => 'Sudah disetujui, tetapi tidak ada tap akses di mesin ruangan selama jadwal berlangsung — dianggap tidak hadir.',
+                self::STATUS_MENUNGGU_PENERIMAAN => 'Tawaran waktu pengganti dari petugas tidak diterima sampai jadwal peminjaman terlewat.',
+                self::STATUS_DIAJUKAN => 'Tidak ada keputusan dari petugas sampai jadwal peminjaman terlewat.',
+                default => 'Jadwal peminjaman terlewat tanpa penyelesaian.',
+            },
+            self::STATUS_DIBATALKAN => $this->diputus_oleh
+                ? 'Dicabut oleh petugas — lihat catatan keputusan.'
+                : 'Dibatalkan oleh pemohon.',
+            default => null,
+        };
+    }
+
+    public function getAlasanStatusAttribute(): ?string
+    {
+        return $this->alasanStatus();
     }
 
     private ?bool $memoKedatangan = null;

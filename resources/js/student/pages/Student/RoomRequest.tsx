@@ -797,6 +797,12 @@ function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
                     {detail && (
                         <div className="space-y-4 px-5 py-4">
                             <Stepper status={detail.status_efektif} />
+                            {detail.alasan_status && (
+                                <p className="rounded-[10px] border border-sb-border bg-sb-surface2 px-3.5 py-2.5 text-[12.5px] text-sb-text2">
+                                    <span className="font-bold text-sb-text">Kenapa {statusLabel(detail).toLowerCase()}? </span>
+                                    {detail.alasan_status}
+                                </p>
+                            )}
                             <dl className="grid grid-cols-2 gap-2.5 text-[12.5px]">
                                 {[
                                     ['Ruangan', detail.ruangan?.nama ?? '—'],

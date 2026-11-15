@@ -83,6 +83,7 @@ export interface Pengajuan {
     pengganti_selesai: string | null;
     pengganti_catatan: string | null;
     alasan_keputusan: string | null;
+    alasan_status?: string | null;
     diputus_pada: string | null;
     diputus_oleh_nama?: string | null;
     diputus_oleh_role?: string | null;
