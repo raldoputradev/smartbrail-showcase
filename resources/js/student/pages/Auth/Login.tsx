@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Head, usePage } from '@inertiajs/react';
 import {
     ArrowLeft, CalendarClock, ChevronDown, Eye, EyeOff, Fingerprint, FlaskConical,
-    GraduationCap, Info, Loader2, Lock, LogIn, Mail, ShieldCheck, User, Users,
+    GraduationCap, Info, Loader2, Lock, LogIn, Mail, MailCheck, Send, ShieldCheck, User, Users,
 } from 'lucide-react';
 import { asset } from '@/lib/asset';
 import type { SharedProps } from '@/types';
@@ -74,7 +74,15 @@ function initialRole(raw: string | null | undefined): RoleKey {
 export default function Login({ panel, selectedRole, old, csrf, recaptchaSiteKey }: Props) {
     const { errors, flash, branding } = usePage<Props>().props;
     const brandLogo = branding?.logo_url || asset('branding/smartbrail-logo.jpg');
-    const [view, setView] = useState<'login' | 'forgot'>(panel === 'forgot' ? 'forgot' : 'login');
+    const [view, setViewState] = useState<'login' | 'forgot'>(panel === 'forgot' ? 'forgot' : 'login');
+    // ?panel=forgot di URL — refresh tetap di panel lupa password (deep-link sudah didukung server).
+    const setView = (v: 'login' | 'forgot') => {
+        setViewState(v);
+        const url = new URL(window.location.href);
+        if (v === 'forgot') url.searchParams.set('panel', 'forgot');
+        else url.searchParams.delete('panel');
+        window.history.replaceState({}, '', url.toString());
+    };
     const [role, setRole] = useState<RoleKey>(initialRole(old.role ?? selectedRole));
     const [showPw, setShowPw] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -240,7 +248,9 @@ export default function Login({ panel, selectedRole, old, csrf, recaptchaSiteKey
     );
 }
 
-/** Panel Lupa Password — POST ke alur yang sudah ada (forgot-password.post). */
+type FgCheck = { state: 'idle' | 'checking' | 'found' | 'no_account' | 'no_email' | 'error'; email?: string };
+
+/** Panel Lupa Password bertahap: NIM → email tersamarkan → captcha → kirim. */
 function ForgotPanel({ csrf, siteKey, oldIdentifier, flashSuccess, error, onBack }: {
     csrf: string;
     siteKey: string | null;
@@ -250,35 +260,91 @@ function ForgotPanel({ csrf, siteKey, oldIdentifier, flashSuccess, error, onBack
     onBack: () => void;
 }) {
     const [submitting, setSubmitting] = useState(false);
+    const [identifier, setIdentifier] = useState(oldIdentifier);
+    const [check, setCheck] = useState<FgCheck>({ state: 'idle' });
+    const [captchaOk, setCaptchaOk] = useState(false);
     const recapRef = useRef<HTMLDivElement>(null);
     const tokenRef = useRef<HTMLInputElement>(null);
+    const widgetRef = useRef<number | null>(null);
+    const reqSeq = useRef(0);
 
-    // reCAPTCHA hanya dimuat bila dikonfigurasi backend — lazy saat panel dibuka.
+    // Cek NIM/username → petunjuk email terikat (disamarkan). Debounce + abaikan respons basi.
     useEffect(() => {
-        if (!siteKey || !recapRef.current) return;
-        const render = () => {
+        const id = identifier.trim();
+        if (id.length < 4) {
+            reqSeq.current += 1;
+            setCheck({ state: 'idle' });
+            return;
+        }
+        const seq = ++reqSeq.current;
+        const t = setTimeout(() => {
+            setCheck({ state: 'checking' });
+            fetch(route('forgot-password.cek'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ identifier: id }),
+            })
+                .then((r) => r.json())
+                .then((d) => {
+                    if (seq !== reqSeq.current) return;
+                    if (d?.state === 'found') setCheck({ state: 'found', email: d.email_masked });
+                    else if (d?.state === 'no_email') setCheck({ state: 'no_email' });
+                    else if (d?.state === 'no_account') setCheck({ state: 'no_account' });
+                    else setCheck({ state: 'error' });
+                })
+                .catch(() => { if (seq === reqSeq.current) setCheck({ state: 'error' }); });
+        }, 500);
+        return () => clearTimeout(t);
+    }, [identifier, csrf]);
+
+    // Captcha baru muncul setelah email terkonfirmasi; reset saat status berubah.
+    useEffect(() => {
+        if (check.state !== 'found') {
+            setCaptchaOk(false);
+            widgetRef.current = null;
+            if (tokenRef.current) tokenRef.current.value = '';
+            return;
+        }
+        if (!siteKey || widgetRef.current != null) return;
+        const tryRender = () => {
             const g = (window as any).grecaptcha;
-            if (!g || !recapRef.current) return;
-            g.render(recapRef.current, {
+            if (!g?.render || !recapRef.current || widgetRef.current != null) return;
+            widgetRef.current = g.render(recapRef.current, {
                 sitekey: siteKey,
                 hl: 'id',
-                callback: (t: string) => { if (tokenRef.current) tokenRef.current.value = t; },
-                'expired-callback': () => { if (tokenRef.current) tokenRef.current.value = ''; },
+                callback: (t: string) => {
+                    if (tokenRef.current) tokenRef.current.value = t;
+                    setCaptchaOk(true);
+                },
+                'expired-callback': () => {
+                    if (tokenRef.current) tokenRef.current.value = '';
+                    setCaptchaOk(false);
+                },
+                'error-callback': () => setCaptchaOk(false),
             });
         };
-        if ((window as any).grecaptcha?.render) { render(); return; }
-        (window as any).__sbRecaptchaOnload = render;
-        const s = document.createElement('script');
-        s.src = 'https://www.google.com/recaptcha/api.js?render=explicit&hl=id&onload=__sbRecaptchaOnload';
-        s.async = true;
-        document.head.appendChild(s);
-    }, [siteKey]);
+        if ((window as any).grecaptcha?.render) { tryRender(); return; }
+        (window as any).__sbRecaptchaOnload = tryRender;
+        if (!document.querySelector('script[data-sb-recaptcha]')) {
+            const s = document.createElement('script');
+            s.src = 'https://www.google.com/recaptcha/api.js?render=explicit&hl=id&onload=__sbRecaptchaOnload';
+            s.async = true;
+            s.dataset.sbRecaptcha = '1';
+            document.head.appendChild(s);
+        }
+    }, [check.state, siteKey]);
+
+    const canSubmit = check.state === 'found' && (!siteKey || captchaOk) && !submitting;
 
     return (
         <>
             <h2 className="sb-auth-card-title">Lupa Password</h2>
             <p className="sb-auth-card-sub">
-                Masukkan NIM atau email terdaftar. Tautan atur ulang password dikirim ke email yang terikat pada akun Anda.
+                Masukkan NIM atau username — kami tampilkan email yang terikat (disamarkan) untuk Anda konfirmasi.
             </p>
 
             {flashSuccess && (
@@ -290,20 +356,23 @@ function ForgotPanel({ csrf, siteKey, oldIdentifier, flashSuccess, error, onBack
 
             <form method="POST" action={route('forgot-password.post')}
                 onSubmit={(e) => {
-                    if (submitting) { e.preventDefault(); return; }
-                    if (!e.currentTarget.checkValidity()) return;
+                    if (!canSubmit || !e.currentTarget.checkValidity()) {
+                        e.preventDefault();
+                        return;
+                    }
                     setSubmitting(true);
                 }}
             >
                 <input type="hidden" name="_token" value={csrf} />
                 <div className="sb-auth-field">
-                    <label htmlFor="fg-id">NIM atau Email</label>
+                    <label htmlFor="fg-id">NIM / Username</label>
                     <div className="sb-auth-input-wrap">
-                        <Mail size={17} className="sb-auth-input-icon" aria-hidden />
+                        <User size={17} className="sb-auth-input-icon" aria-hidden />
                         <input id="fg-id" name="identifier" type="text" required
                             autoComplete="username" maxLength={255}
-                            defaultValue={oldIdentifier}
-                            placeholder="NIM atau email terdaftar"
+                            value={identifier}
+                            onChange={(e) => setIdentifier(e.target.value)}
+                            placeholder="NIM atau username akun"
                             className="sb-auth-input" />
                     </div>
                 </div>
@@ -314,17 +383,38 @@ function ForgotPanel({ csrf, siteKey, oldIdentifier, flashSuccess, error, onBack
                     <input type="text" name="website" tabIndex={-1} autoComplete="off" />
                 </div>
 
-                {siteKey && (
-                    <>
-                        <div ref={recapRef} className="sb-auth-recap" />
-                        <input ref={tokenRef} type="hidden" name="g-recaptcha-response" />
-                    </>
+                {check.state !== 'idle' && (
+                    <div className={cn('sb-auth-hint', `sb-auth-hint--${check.state}`)} role="status">
+                        {check.state === 'found'
+                            ? <MailCheck size={19} aria-hidden />
+                            : check.state === 'checking'
+                                ? <Loader2 size={19} className="sb-spin" aria-hidden />
+                                : <Info size={19} aria-hidden />}
+                        <div>
+                            {check.state === 'checking' && <span>Memeriksa akun…</span>}
+                            {check.state === 'found' && (
+                                <>
+                                    <strong>Email terdaftar</strong>
+                                    <code>{check.email}</code>
+                                    <span>Benar email Anda? Centang verifikasi di bawah lalu kirim.</span>
+                                </>
+                            )}
+                            {check.state === 'no_account' && <span>NIM/username ini tidak terdaftar — periksa kembali penulisannya.</span>}
+                            {check.state === 'no_email' && <span>Akun ditemukan, tetapi belum memiliki email — minta admin/laboran menambahkan email Anda.</span>}
+                            {check.state === 'error' && <span>Gagal memeriksa — periksa koneksi lalu coba lagi.</span>}
+                        </div>
+                    </div>
                 )}
 
-                <button type="submit" className="sb-auth-submit" disabled={submitting}>
+                {check.state === 'found' && siteKey && (
+                    <div ref={recapRef} className="sb-auth-recap" />
+                )}
+                <input ref={tokenRef} type="hidden" name="g-recaptcha-response" />
+
+                <button type="submit" className="sb-auth-submit" disabled={!canSubmit}>
                     {submitting
                         ? <Loader2 size={17} className="sb-spin" aria-hidden />
-                        : <Mail size={17} aria-hidden />}
+                        : <Send size={17} aria-hidden />}
                     <span>{submitting ? 'Mengirim…' : 'Kirim Tautan Reset'}</span>
                 </button>
             </form>

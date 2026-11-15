@@ -316,6 +316,20 @@
 .sb-auth-alert--err { @apply border-sb-danger/30 bg-sb-danger-bg text-sb-danger; }
 .sb-auth-alert--ok { @apply border-sb-ok/30 bg-sb-ok-bg text-sb-ok; }
 
+.sb-auth-hint {
+    @apply mb-4 flex items-start gap-2.5 rounded-[11px] border px-3.5 py-3 text-[12.5px] leading-relaxed;
+    @apply border-sb-border bg-sb-surface2 text-sb-text2;
+    animation: sb-fade .22s ease-out;
+}
+.sb-auth-hint svg { @apply mt-0.5 shrink-0; }
+.sb-auth-hint strong { @apply block text-[11px] font-bold uppercase tracking-wide text-sb-muted; }
+.sb-auth-hint code { @apply my-0.5 block font-mono text-[14px] font-bold text-sb-text break-all; }
+.sb-auth-hint span { @apply block; }
+.sb-auth-hint--found { @apply border-sb-ok/30 bg-sb-ok-bg text-sb-ok; }
+.sb-auth-hint--found svg, .sb-auth-hint--found strong { @apply text-sb-ok; }
+.sb-auth-hint--no_email, .sb-auth-hint--error { @apply border-sb-warn/30 bg-sb-warn-bg text-sb-warn; }
+.sb-auth-hint--no_account { @apply border-sb-danger/30 bg-sb-danger-bg text-sb-danger; }
+
 .sb-auth-back {
     @apply mt-5 inline-flex items-center gap-1.5 text-[13px] font-bold text-sb-primary transition hover:text-sb-primary-hover;
 }
