@@ -16,6 +16,12 @@ const CHECKS = [
     'Mengecek duplikasi data',
     'Menyiapkan hasil validasi',
 ];
+const APPLY_CHECKS = [
+    'Membuat akun pengguna',
+    'Menerbitkan password sementara',
+    'Menautkan tim PBL',
+    'Menyusun laporan & kartu aktivasi',
+];
 const ROLE_DESC: Record<string, string> = {
     mahasiswa: 'NIM, nama, kelas, tim, angkatan, semester, shift, prodi',
     dosen: 'NIDN / NITK dan nama lengkap',
@@ -46,6 +52,34 @@ function Stepper({ step }: { step: number }) {
     );
 }
 
+function Processing({ icon, title, sub, checks, progress }: {
+    icon: React.ReactNode; title: string; sub: string; checks: string[]; progress: number;
+}) {
+    const checkCount = Math.round((progress / 100) * checks.length);
+    return (
+        <>
+            <span className="ad-imp-val__ic" aria-hidden>{icon}</span>
+            <h2 className="ad-imp-h2">{title}</h2>
+            <p className="ad-imp-sub">{sub}</p>
+            <div className="ad-imp-bar" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100}>
+                <div className="ad-imp-bar__fill" style={{ width: `${progress}%` }} />
+            </div>
+            <span className="ad-imp-bar__pct">{Math.round(progress)}%</span>
+            <ul className="ad-imp-checks">
+                {checks.map((c, i) => {
+                    const st = i < checkCount ? 'done' : i === checkCount ? 'run' : 'todo';
+                    return (
+                        <li key={c} className={`ad-imp-checks__item ad-imp-checks__item--${st}`}>
+                            {st === 'done' ? <CheckCircle2 size={15} /> : st === 'run' ? <span className="ad-imp-spin" /> : <span className="ad-imp-checks__dot" />}
+                            {c}
+                        </li>
+                    );
+                })}
+            </ul>
+        </>
+    );
+}
+
 export default function AdminImport(props: AdminImportProps) {
     const { errors } = usePage().props as unknown as { errors: Record<string, string> };
     const applied = props.payload?.state === 'applied';
@@ -56,6 +90,7 @@ export default function AdminImport(props: AdminImportProps) {
     const [file, setFile] = useState<File | null>(null);
     const [drag, setDrag] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [applying, setApplying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [tab, setTab] = useState<'all' | 'siap' | 'duplikat' | 'gagal'>('all');
     const [page, setPage] = useState(1);
@@ -71,12 +106,12 @@ export default function AdminImport(props: AdminImportProps) {
         }
     }, [props.payload?.token, props.payload?.state, props.mode]);
 
-    // Animasi progres validasi selama POST berjalan (maks 92%, penuh saat server merespons).
+    // Animasi progres validasi/pembuatan selama POST berjalan (maks 92%, penuh saat server merespons).
     useEffect(() => {
-        if (step !== 3 || !busy) return;
+        if (!((step === 3 && busy) || applying)) return;
         const t = setInterval(() => setProgress((p) => Math.min(92, p + Math.max(1, (92 - p) * 0.06))), 120);
         return () => clearInterval(t);
-    }, [step, busy]);
+    }, [step, busy, applying]);
 
     const totals = props.payload?.totals;
     const rows = useMemo(() => props.payload?.rows ?? [], [props.payload]);
@@ -111,12 +146,15 @@ export default function AdminImport(props: AdminImportProps) {
     const submitApply = () => {
         if (!props.result_urls) return;
         setBusy(true);
-        router.post(props.result_urls.apply, {}, { onFinish: () => setBusy(false) });
+        setApplying(true);
+        setProgress(8);
+        router.post(props.result_urls.apply, {}, {
+            onFinish: () => { setBusy(false); setApplying(false); },
+        });
     };
 
     const labels = props.labels ?? {};
     const siap = totals?.siap ?? 0;
-    const checkCount = Math.round((progress / 100) * CHECKS.length);
 
     return (
         <AdminShell menu={props.menu} notif={props.notif}
@@ -250,24 +288,9 @@ export default function AdminImport(props: AdminImportProps) {
             {/* ============ 3. Proses Validasi ============ */}
             {step === 3 && (
                 <section className="ad-imp-panel ad-imp-panel--center">
-                    <span className="ad-imp-val__ic" aria-hidden><FileSpreadsheet size={44} /></span>
-                    <h2 className="ad-imp-h2">Memvalidasi Data…</h2>
-                    <p className="ad-imp-sub">Sistem sedang memeriksa format, kelengkapan, dan duplikasi data.</p>
-                    <div className="ad-imp-bar" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100}>
-                        <div className="ad-imp-bar__fill" style={{ width: `${progress}%` }} />
-                    </div>
-                    <span className="ad-imp-bar__pct">{Math.round(progress)}%</span>
-                    <ul className="ad-imp-checks">
-                        {CHECKS.map((c, i) => {
-                            const st = i < checkCount ? 'done' : i === checkCount ? 'run' : 'todo';
-                            return (
-                                <li key={c} className={`ad-imp-checks__item ad-imp-checks__item--${st}`}>
-                                    {st === 'done' ? <CheckCircle2 size={15} /> : st === 'run' ? <span className="ad-imp-spin" /> : <span className="ad-imp-checks__dot" />}
-                                    {c}
-                                </li>
-                            );
-                        })}
-                    </ul>
+                    <Processing icon={<FileSpreadsheet size={44} />} title="Memvalidasi Data…"
+                        sub="Sistem sedang memeriksa format, kelengkapan, dan duplikasi data."
+                        checks={CHECKS} progress={progress} />
                 </section>
             )}
 
@@ -345,6 +368,12 @@ export default function AdminImport(props: AdminImportProps) {
             {/* ============ 5. Konfirmasi Pembuatan Akun ============ */}
             {step === 5 && props.payload && totals && (
                 <section className="ad-imp-panel ad-imp-panel--center">
+                    {applying ? (
+                        <Processing icon={<Users size={44} />} title="Membuat Akun…"
+                            sub="Sistem sedang membuat akun, menerbitkan kredensial, dan menyiapkan kartu aktivasi."
+                            checks={APPLY_CHECKS} progress={progress} />
+                    ) : (
+                        <>
                     <h2 className="ad-imp-h2">Konfirmasi Pembuatan Akun</h2>
                     <p className="ad-imp-sub">Pastikan kembali data yang akan dibuat akunnya.</p>
 
@@ -375,12 +404,14 @@ export default function AdminImport(props: AdminImportProps) {
                             </button>
                             : <span className="ad-imp-warnline"><AlertTriangle size={13} /> Anda tidak berwenang membuat akun {props.type_label}.</span>}
                     </div>
+                        </>
+                    )}
                 </section>
             )}
 
             {/* ============ 6. Selesai — Laporan ============ */}
             {step === 6 && props.payload && totals && (
-                <section className="ad-imp-panel ad-imp-panel--center">
+                <section className="ad-imp-panel ad-imp-panel--center ad-imp-panel--done">
                     <span className="ad-imp-done" aria-hidden><CheckCircle2 size={64} /><PartyPopper size={22} className="ad-imp-done__pop" /></span>
                     <h2 className="ad-imp-h2">Import Akun Berhasil!</h2>
                     <p className="ad-imp-sub">Proses import telah selesai dan {totals.dibuat} akun berhasil dibuat.</p>
