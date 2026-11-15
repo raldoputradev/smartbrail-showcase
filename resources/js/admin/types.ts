@@ -1124,7 +1124,7 @@ export interface UsersProps {
     role_page: string | null;
     urls: {
         index: string; role_base: string; store: string;
-        user_base: string; import: string; profiles_base: string;
+        user_base: string; import: string; profiles_base: string; riwayat?: string;
     };
 }
 

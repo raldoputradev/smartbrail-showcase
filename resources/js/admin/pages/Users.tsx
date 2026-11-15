@@ -627,6 +627,9 @@ export default function Users(props: UsersProps) {
                     <section className="ad-panel">
                         <div className="ad-usr-h3row">
                             <h3 className="ad-usr-h3">Aktivitas Terbaru</h3>
+                            {props.urls.riwayat && (
+                                <a href={props.urls.riwayat} className="ad-usr-feed__all">Riwayat lengkap →</a>
+                            )}
                         </div>
                         <div className="ad-usr-feed">
                             {props.aktivitas.length === 0 && <div className="ad-empty">Belum ada aktivitas.</div>}

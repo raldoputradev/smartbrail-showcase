@@ -640,8 +640,10 @@ class AdminController extends Controller
             ];
         })->values()->all();
 
+        $logAction = (string) $request->query('log_action', '');
         $aktivitas = AccountApprovalLog::query()
             ->with('actor:id,nama_lengkap,role')
+            ->when($logAction !== '', fn ($q) => $q->where('action', $logAction))
             ->latest()
             ->limit(6)
             ->get()
@@ -711,6 +713,7 @@ class AdminController extends Controller
                 'store' => route('admin.users.store'),
                 'user_base' => rtrim(route('admin.users.update', 0), '0'),
                 'import' => route('admin.users.import'),
+                'riwayat' => route('admin.notifications'),
                 'profiles_base' => rtrim(route('profiles.show', 0), '0'),
             ],
         ]);
@@ -2373,9 +2376,6 @@ class AdminController extends Controller
 
         $activityLogs = AccountApprovalLog::query()
             ->with(['actor:id,nama_lengkap,role'])
-            ->whereIn('action', [
-                'registered', 'admin_created', 'email_verified', 'approved', 'rejected', 'updated_pending', 'deleted',
-            ])
             ->latest()
             ->paginate(10, ['*'], 'activity_page')
             ->withQueryString();
