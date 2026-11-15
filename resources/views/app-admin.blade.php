@@ -75,5 +75,6 @@
             if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
         } catch (e) {}
     </script>
+    @include('partials.session-idle-guard')
 </body>
 </html>

@@ -445,5 +445,6 @@
 
     <script src="{{ asset('js/student-shell.js') }}?v=20261114c" defer></script>
     @stack('scripts')
+    @include('partials.session-idle-guard')
 </body>
 </html>
