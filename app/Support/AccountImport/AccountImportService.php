@@ -686,10 +686,24 @@ class AccountImportService
         $prodiInput = $raw['program_studi'] ?? '';
         $prodiId = null;
         if ($prodiInput !== '') {
-            $needle = mb_strtolower($prodiInput);
+            // Terima kode, nama, atau format gabungan "kode - nama" dari dropdown template.
+            $candidates = [mb_strtolower($prodiInput)];
+            if (str_contains($prodiInput, ' - ')) {
+                foreach (explode(' - ', $prodiInput, 2) as $part) {
+                    $part = mb_strtolower(trim($part));
+                    if ($part !== '') {
+                        $candidates[] = $part;
+                    }
+                }
+            }
             $prodiId = ProgramStudi::query()
                 ->where('aktif', true)
-                ->where(fn ($q) => $q->whereRaw('LOWER(kode) = ?', [$needle])->orWhereRaw('LOWER(nama) = ?', [$needle]))
+                ->where(function ($q) use ($candidates) {
+                    foreach (array_unique($candidates) as $needle) {
+                        $q->orWhereRaw('LOWER(kode) = ?', [$needle])
+                            ->orWhereRaw('LOWER(nama) = ?', [$needle]);
+                    }
+                })
                 ->value('id');
             if (!$prodiId) {
                 $errors[] = "program_studi \"{$prodiInput}\" tidak ditemukan/aktif";
@@ -726,41 +740,54 @@ class AccountImportService
             $lines = implode(', ', array_map(fn ($i) => $rows[$i]['line'], $indexes));
             foreach ($indexes as $i) {
                 $rows[$i]['status'] = 'duplikat';
-                $rows[$i]['reason'] = "Identitas sama muncul lebih dari sekali di file (baris {$lines}); semua dilewati agar tidak salah pilih.";
+                $rows[$i]['reason'] = "Identitas \"{$rows[$i]['identifier']}\" muncul lebih dari sekali di file (baris {$lines}); semua dilewati agar tidak salah pilih.";
                 $rows[$i]['values'] = [];
             }
         }
 
+        // Cek ke database: baris 'siap' MAUPUN 'gagal' — akun yang sudah ada
+        // tetap ditandai duplikat walau barisnya punya masalah validasi lain.
         $keys = [];
         foreach ($rows as $row) {
-            if ($row['status'] === 'siap') {
-                $keys[] = $this->rowKey($row);
+            if (in_array($row['status'], ['siap', 'gagal'], true)) {
+                $key = mb_strtolower($row['identifier'] ?? '');
+                if ($key !== '') {
+                    $keys[] = $key;
+                }
             }
         }
         $existing = [];
         if ($type === 'petugas') {
             foreach (array_chunk($keys, 500) as $chunk) {
                 $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-                foreach (RuanganPetugas::query()->whereRaw("LOWER(id_internal) IN ({$placeholders})", $chunk)->pluck('id_internal') as $id) {
-                    $existing[mb_strtolower($id)] = true;
+                foreach (RuanganPetugas::query()->whereRaw("LOWER(id_internal) IN ({$placeholders})", $chunk)->get(['id_internal', 'nama']) as $p) {
+                    $existing[mb_strtolower($p->id_internal)] = ['label' => 'petugas', 'nama' => (string) $p->nama];
                 }
             }
         } else {
             foreach (array_chunk($keys, 500) as $chunk) {
                 $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-                foreach (User::query()->whereRaw("LOWER(nitk_nidn) IN ({$placeholders})", $chunk)->pluck('nitk_nidn') as $id) {
-                    $existing[mb_strtolower($id)] = true;
+                foreach (User::query()->whereRaw("LOWER(nitk_nidn) IN ({$placeholders})", $chunk)->get(['nitk_nidn', 'nama_lengkap', 'role']) as $u) {
+                    $existing[mb_strtolower($u->nitk_nidn)] = ['label' => (string) $u->role, 'nama' => (string) $u->nama_lengkap];
                 }
             }
         }
+        $idLabel = strtoupper(AccountImportTemplate::identifierColumn($type));
         foreach ($rows as $i => $row) {
-            if ($row['status'] === 'siap' && isset($existing[$this->rowKey($row)])) {
-                $rows[$i]['status'] = 'duplikat';
-                $rows[$i]['reason'] = $type === 'petugas'
-                    ? 'ID internal sudah dipakai petugas lain; data tidak diubah.'
-                    : 'Sudah terdaftar di SIMALAS; akun existing tidak diubah.';
-                $rows[$i]['values'] = [];
+            if (! in_array($row['status'], ['siap', 'gagal'], true)) {
+                continue;
             }
+            $key = mb_strtolower($row['identifier'] ?? '');
+            if ($key === '' || ! isset($existing[$key])) {
+                continue;
+            }
+            $hit = $existing[$key];
+            $who = $type === 'petugas'
+                ? "ID {$row['identifier']} sudah dipakai petugas {$hit['nama']}"
+                : "{$idLabel} {$row['identifier']} sudah terdaftar sebagai {$hit['label']} ({$hit['nama']})";
+            $rows[$i]['status'] = 'duplikat';
+            $rows[$i]['reason'] = "{$who}; data tidak diubah.";
+            $rows[$i]['values'] = [];
         }
     }
 
