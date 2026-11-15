@@ -64,17 +64,17 @@ export default function Navbar({ urls, variant = 'landing', apkAvailable = true 
           <img
             src={urls?.logoLockup || urls?.logoMark || `${import.meta.env.BASE_URL}branding/app-logo.png`}
             alt="SmartBrail"
-            className="h-12 w-auto max-w-[min(42vw,180px)] object-contain sm:h-14"
+            className="h-10 w-auto max-w-[min(34vw,150px)] object-contain sm:h-14 sm:max-w-[180px]"
           />
           <span
-            className="hidden h-10 w-px shrink-0 bg-blue-200 lg:block"
+            className="hidden h-10 w-px shrink-0 bg-blue-200 sm:block"
             aria-hidden
           />
-          <span className="hidden min-w-0 flex-col leading-tight lg:flex">
+          <span className="flex min-w-0 flex-col leading-tight">
             <span className="bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-[15px] font-extrabold italic tracking-tight text-transparent">
               SmartBrail
             </span>
-            <span className="truncate text-[11px] font-medium text-slate-500">
+            <span className="hidden truncate text-[11px] font-medium text-slate-500 sm:block">
               BRAIL · Politeknik Negeri Batam
             </span>
           </span>
