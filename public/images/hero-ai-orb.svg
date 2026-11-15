@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none" role="img" aria-label="Asisten AI SmartBrail">
+  <defs>
+    <radialGradient id="orbCore" cx="0.5" cy="0.42" r="0.65">
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset="0.35" stop-color="#7dd3fc"/>
+      <stop offset="0.7" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </radialGradient>
+    <radialGradient id="orbHalo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#60a5fa" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#3b82f6" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ringTilt" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#38bdf8" stop-opacity="0.95"/>
+      <stop offset="0.5" stop-color="#818cf8" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="sparkGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#bae6fd"/>
+    </linearGradient>
+    <filter id="orbShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#2563eb" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <circle cx="100" cy="96" r="88" fill="url(#orbHalo)"/>
+
+  <ellipse cx="100" cy="96" rx="76" ry="26" stroke="url(#ringTilt)" stroke-width="2.5" transform="rotate(-18 100 96)" opacity="0.85"/>
+  <ellipse cx="100" cy="96" rx="76" ry="26" stroke="url(#ringTilt)" stroke-width="1.5" transform="rotate(22 100 96)" opacity="0.45"/>
+
+  <circle cx="100" cy="96" r="46" fill="url(#orbCore)" filter="url(#orbShadow)"/>
+  <circle cx="84" cy="78" r="12" fill="#ffffff" opacity="0.35"/>
+  <circle cx="76" cy="86" r="5" fill="#ffffff" opacity="0.4"/>
+
+  <path d="M100 66 L105.5 87 L126 96 L105.5 105 L100 126 L94.5 105 L74 96 L94.5 87 Z" fill="url(#sparkGrad)"/>
+  <circle cx="100" cy="96" r="5.5" fill="#0ea5e9"/>
+
+  <circle cx="156" cy="62" r="4" fill="#67e8f9"/>
+  <circle cx="47" cy="132" r="3" fill="#a5b4fc"/>
+  <circle cx="140" cy="146" r="2.5" fill="#7dd3fc"/>
+  <path d="M160 118 l2.4 6 6 2.4 -6 2.4 -2.4 6 -2.4 -6 -6 -2.4 6 -2.4 z" fill="#e0f2fe" opacity="0.9"/>
+  <path d="M38 74 l1.8 4.5 4.5 1.8 -4.5 1.8 -1.8 4.5 -1.8 -4.5 -4.5 -1.8 4.5 -1.8 z" fill="#bae6fd" opacity="0.8"/>
+</svg>

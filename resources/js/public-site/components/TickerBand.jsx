@@ -1,6 +1,6 @@
 const ITEMS = [
   { icon: '◆', text: 'Absensi biometrik ESP32-S3' },
-  { icon: '◆', text: 'Loker pintar terintegrasi' },
+  { icon: '◆', text: 'Akses ruangan pintar terintegrasi' },
   { icon: '◆', text: 'Aplikasi mobile mahasiswa' },
   { icon: '◆', text: 'BRAIL Polibatam' },
   { icon: '◆', text: 'HTTPS & APK terverifikasi' },

@@ -85,7 +85,7 @@
 <body>
     <nav class="navbar">
         <a href="/" class="brand">
-            <span class="brand-logo"><img src="{{ asset('branding/aiot-simalas-mark-s.png') }}?v=4" alt="AIoT SIMALAS"></span>
+            <span class="brand-logo"><img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/aiot-simalas-mark-s.png')) }}" alt="AIoT SIMALAS"></span>
             <span class="brand-name">AIoT SIMALAS</span>
         </a>
         <div class="user-info">

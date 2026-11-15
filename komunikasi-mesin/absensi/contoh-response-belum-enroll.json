@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "message": "Sidik jari belum enroll. Scan enroll di mesin terlebih dahulu (menu e).",
+  "code": "BELUM_ENROLL"
+}

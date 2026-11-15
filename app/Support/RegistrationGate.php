@@ -6,7 +6,7 @@ use App\Models\SystemSetting;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Buka/tutup pendaftaran mandiri (dosen via web, mahasiswa via APK).
+ * Buka/tutup pendaftaran mandiri (mahasiswa via APK; dosen via web dinonaktifkan).
  * Tidak memengaruhi login akun aktif maupun aktivasi akun hasil import.
  */
 class RegistrationGate
@@ -24,27 +24,25 @@ class RegistrationGate
             $stored = is_array($value) ? $value : [];
         }
 
-        $flags = [];
-        foreach (self::ROLES as $role) {
-            $flags[$role] = array_key_exists($role, $stored) ? (bool) $stored[$role] : true;
-        }
-
-        return $flags;
+        return [
+            'dosen' => false,
+            'mahasiswa' => array_key_exists('mahasiswa', $stored) ? (bool) $stored['mahasiswa'] : true,
+        ];
     }
 
     public static function isOpen(string $role): bool
     {
-        return self::flags()[$role] ?? true;
+        // Registrasi publik ditutup permanen — akun dibuat admin lewat import.
+        return false;
     }
 
     /** @param  array{dosen?: bool, mahasiswa?: bool}  $flags */
     public static function save(array $flags): void
     {
         $current = self::flags();
-        foreach (self::ROLES as $role) {
-            if (array_key_exists($role, $flags)) {
-                $current[$role] = (bool) $flags[$role];
-            }
+        $current['dosen'] = false;
+        if (array_key_exists('mahasiswa', $flags)) {
+            $current['mahasiswa'] = (bool) $flags['mahasiswa'];
         }
         SystemSetting::setValue(self::KEY, $current);
     }

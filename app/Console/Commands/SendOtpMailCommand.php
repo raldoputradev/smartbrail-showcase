@@ -54,7 +54,8 @@ class SendOtpMailCommand extends Command
             return self::SUCCESS;
         } catch (\Throwable $e) {
             Log::warning("simalas:send-otp-mail FAILED for {$email}: " . $e->getMessage());
-            Log::info("SIMALAS Fallback OTP for {$email}: {$otp}");
+            // Kode OTP tidak dicatat — rahasia tidak boleh masuk log.
+            Log::info("SIMALAS Fallback OTP gagal terkirim untuk {$email} (type={$type}); minta kirim ulang.");
             return self::FAILURE;
         }
     }

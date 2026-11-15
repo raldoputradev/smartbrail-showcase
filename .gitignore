@@ -56,3 +56,18 @@ komunikasi-mesin/absensi/firmware/contoh-skeleton-minimal/app_config.h
 /simalas_mobile/build/
 /simalas_mobile/.flutter-plugins-dependencies
 /coverage/
+
+# Deployment/ops scripts — berisi kredensial & IP produksi (jangan commit)
+/scripts/
+
+# Windows reserved-name artifact dari redirect shell
+nul
+
+# Upload runtime komunikasi mesin (template & docs tetap ikut)
+komunikasi-mesin/uploads/incoming/*
+komunikasi-mesin/uploads/archive/*
+!komunikasi-mesin/uploads/incoming/.gitkeep
+!komunikasi-mesin/uploads/incoming/README.md
+!komunikasi-mesin/uploads/incoming/contoh-log-sudah-diisi.json
+!komunikasi-mesin/uploads/archive/.gitkeep
+!komunikasi-mesin/uploads/archive/README.md

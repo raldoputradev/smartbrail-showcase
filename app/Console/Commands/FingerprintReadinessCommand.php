@@ -63,7 +63,7 @@ class FingerprintReadinessCommand extends Command
 
         $this->newLine();
         $this->line('Target software (backend + firmware sketch): ~100% selesai.');
-        $this->line('Target operasional penuh: flash ESP32 + re-enroll + uji tap absensi/loker.');
+        $this->line('Target operasional penuh: flash ESP32 + re-enroll + uji tap absensi.');
 
         return self::SUCCESS;
     }

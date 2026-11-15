@@ -40,16 +40,6 @@ class DashboardStatLabels
     }
 
     /**
-     * Keterangan kartu akses loker.
-     */
-    public static function aksesLokerMeta(int $delta, int $previousCount, string $mode): string
-    {
-        $scope = self::currentPeriodShort($mode);
-
-        return 'Akses buka/tutup ' . $scope . ' · ' . self::countComparePhrase($delta, $previousCount, $mode, 'kali akses');
-    }
-
-    /**
      * Keterangan kartu % kehadiran (dosen).
      */
     public static function persenHadirMeta(float $delta): string

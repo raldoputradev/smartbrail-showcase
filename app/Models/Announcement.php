@@ -108,8 +108,8 @@ class Announcement extends Model
 
     public function scopeForRole($query, string $role)
     {
-        // Laboran (admin) melihat semua pengumuman karena merekalah yang mengelola.
-        if ($role === 'laboran') {
+        // Laboran/admin melihat semua pengumuman karena merekalah yang mengelola.
+        if (in_array($role, ['laboran', 'admin'], true)) {
             return $query;
         }
         return $query->where(function ($q) use ($role) {
@@ -161,18 +161,25 @@ class Announcement extends Model
         $tim = strtolower(trim((string) ($user->tim ?? '')));
         $userId = (string) $user->id;
 
-        return $query->where(function ($q) use ($tim, $userId) {
+        return $query->where(function ($q) use ($tim, $userId, $user) {
             $q->where(function ($inner) use ($userId) {
                 $inner->where('channel', self::CHANNEL_NOTIFIKASI_AKUN)
                     ->where('target_tim', $userId);
-            })->orWhere(function ($inner) use ($tim) {
+            })->orWhere(function ($inner) use ($tim, $user) {
                 $inner->where(function ($ch) {
                     $ch->where('channel', '!=', self::CHANNEL_NOTIFIKASI_AKUN)
                         ->orWhereNull('channel');
-                })->where(function ($tt) use ($tim) {
+                })->where(function ($tt) use ($tim, $user) {
                     $tt->whereNull('target_tim')
                         ->orWhere('target_tim', '')
-                        ->orWhereRaw('LOWER(TRIM(target_tim)) = ?', [$tim]);
+                        ->orWhereRaw('LOWER(TRIM(target_tim)) = ?', [$tim])
+                        // Anggota resmi di pbl_team_members (bila users.tim belum tersinkron).
+                        ->orWhereExists(function ($sub) use ($user) {
+                            $sub->from('pbl_team_members as ptm')
+                                ->join('pbl_projects as pp', 'pp.id', '=', 'ptm.pbl_project_id')
+                                ->where('ptm.user_id', $user->id)
+                                ->whereRaw('LOWER(TRIM(pp.nama)) = LOWER(TRIM(announcements.target_tim))');
+                        });
                 });
             });
         })->visibleSinceUserJoined($user);

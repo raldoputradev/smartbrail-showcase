@@ -32,6 +32,14 @@ class ActivationController extends Controller
             ]));
         }
 
+        // Mahasiswa tidak lagi memakai aktivasi panjang; akunnya login dengan NIM + password sementara.
+        if ($user->role === 'mahasiswa') {
+            AccountActivation::endSession($request);
+
+            return redirect()->route('login', ['role' => 'mahasiswa'])->with('info',
+                'Akun mahasiswa masuk melalui halaman login memakai NIM dan password sementara dari admin. Tidak perlu aktivasi.');
+        }
+
         $step = AccountActivation::nextStep($user);
         if ($step === 'selesai') {
             return $this->finish($request, $user);
@@ -60,6 +68,12 @@ class ActivationController extends Controller
 
         $nitk = trim($data['nitk_nidn']);
         $user = $this->guard($request, $loginSecurity, $nitk, 'kode_aktivasi');
+
+        if ($user && $user->role === 'mahasiswa') {
+            throw ValidationException::withMessages([
+                'kode_aktivasi' => 'Akun mahasiswa tidak memakai aktivasi. Masuk di halaman login dengan NIM dan password sementara Anda.',
+            ]);
+        }
 
         $valid = $user
             && $user->isAwaitingActivation()
@@ -95,6 +109,12 @@ class ActivationController extends Controller
 
         $nitk = trim($data['nitk_nidn']);
         $user = $this->guard($request, $loginSecurity, $nitk, 'resume_password');
+
+        if ($user && $user->role === 'mahasiswa') {
+            throw ValidationException::withMessages([
+                'resume_password' => 'Akun mahasiswa tidak memakai aktivasi. Masuk di halaman login dengan NIM dan password Anda.',
+            ]);
+        }
 
         if (!$user || !Hash::check($data['password'], (string) $user->password)) {
             if ($user && $user->isAwaitingActivation() && !AccountActivation::passwordSetSinceLastCode($user)

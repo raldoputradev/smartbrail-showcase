@@ -77,8 +77,8 @@ const FEATURES = [
     iconColor: 'text-white',
   },
   {
-    title: 'Loker Pintar',
-    desc: 'Buka dan kelola loker laboratorium lewat aplikasi mobile.',
+    title: 'Akses Ruangan Pintar',
+    desc: 'Kelola akses ruangan laboratorium lewat aplikasi mobile.',
     Icon: IconLock,
     tone: 'from-orange-500 to-amber-500',
     glow: 'group-hover:shadow-orange-500/25',

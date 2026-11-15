@@ -78,10 +78,26 @@ class AnnouncementObserver
         }
 
         if ($announcement->target === 'mahasiswa') {
-            return User::query()
+            $mhs = User::query()
                 ->where('role', 'mahasiswa')
-                ->where('is_active', true)
-                ->pluck('id')
+                ->where('is_active', true);
+
+            // target_tim = nama tim PBL → hanya anggota tim itu, bukan broadcast global.
+            // Anggota dikenali lewat users.tim ATAU record pbl_team_members.
+            $tim = strtolower(trim((string) $announcement->target_tim));
+            if ($tim !== '') {
+                $mhs->where(function ($q) use ($tim) {
+                    $q->whereRaw('LOWER(TRIM(tim)) = ?', [$tim])
+                        ->orWhereExists(function ($sub) use ($tim) {
+                            $sub->from('pbl_team_members as ptm')
+                                ->join('pbl_projects as pp', 'pp.id', '=', 'ptm.pbl_project_id')
+                                ->whereColumn('ptm.user_id', 'users.id')
+                                ->whereRaw('LOWER(TRIM(pp.nama)) = ?', [$tim]);
+                        });
+                });
+            }
+
+            return $mhs->pluck('id')
                 ->map(fn ($id) => (int) $id)
                 ->all();
         }

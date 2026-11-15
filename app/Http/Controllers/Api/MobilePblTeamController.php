@@ -47,6 +47,7 @@ class MobilePblTeamController extends Controller
                     'manpro' => $p->manproUser?->nama_lengkap,
                     'manpro_user' => $this->personPayload($p->manproUser),
                     'is_current' => $current && (int) $current->id === (int) $p->id,
+                    'foto_url' => \App\Support\PblProjectMeta::card($p)['foto_url'],
                 ])->values(),
             ],
         ]);
@@ -173,7 +174,7 @@ class MobilePblTeamController extends Controller
                     'shift_sesi' => $project->shift_sesi,
                     'manpro' => $project->manproUser?->nama_lengkap ?? $project->manpro,
                     'co_manpro' => $project->coManproUser?->nama_lengkap ?? $project->co_manpro,
-                ],
+                ] + \App\Support\PblProjectMeta::card($project),
                 'manpro_user' => $manproUser,
                 'co_manpro_user' => $coManproUser,
                 'ketua' => $ketua ? $this->memberPayload($ketua) : null,

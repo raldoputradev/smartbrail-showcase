@@ -31,9 +31,30 @@ class AbsensiSesiSetting extends Model
         ];
     }
 
+    /** Memo per-request: forShift dipanggil puluhan kali per halaman kalender/absensi. */
+    private static array $shiftMemo = [];
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::$shiftMemo = []);
+        static::deleted(fn () => self::$shiftMemo = []);
+    }
+
+    private static function memoKey(string $shift): string
+    {
+        $req = app('request');
+
+        return ($req ? spl_object_id($req) : 'cli') . '|' . $shift;
+    }
+
     public static function forShift(string $shift): ?self
     {
-        return static::query()->where('shift', $shift)->where('aktif', true)->first();
+        $key = self::memoKey($shift);
+        if (! array_key_exists($key, self::$shiftMemo)) {
+            self::$shiftMemo[$key] = static::query()->where('shift', $shift)->where('aktif', true)->first();
+        }
+
+        return self::$shiftMemo[$key];
     }
 
     public function timezoneCarbon(?Carbon $at = null): Carbon

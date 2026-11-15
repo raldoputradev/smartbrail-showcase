@@ -71,10 +71,9 @@ class PeriodicReportBuilder
                 ->when($filter['tim'] !== '', fn ($q) => $q->where('tim', $filter['tim']))
                 ->count(),
             'dosen' => $dosen ? 0 : User::query()->where('role', 'dosen')->count(),
-            'hadir' => $filter['aktivitas'] !== 'loker' ? $statusCounts['hadir'] : 0,
-            'tidak_lengkap' => $filter['aktivitas'] !== 'loker' ? $statusCounts['tidak_lengkap'] : 0,
-            'alfa' => $filter['aktivitas'] !== 'loker' ? $statusCounts['alfa'] : 0,
-            'loker' => 0,
+            'hadir' => $statusCounts['hadir'],
+            'tidak_lengkap' => $statusCounts['tidak_lengkap'],
+            'alfa' => $statusCounts['alfa'],
             'mesin_online' => MesinIot::online()->count(),
         ];
 
@@ -87,14 +86,11 @@ class PeriodicReportBuilder
             ->orderBy('tanggal')
             ->get();
 
-        $lokerPerHari = collect();
-
         $normalizeDate = static fn ($value): string => Carbon::parse($value)->toDateString();
 
         $hadirMap = $statusPerHari->mapWithKeys(fn ($row) => [$normalizeDate($row->tanggal) => (int) $row->hadir]);
         $tidakLengkapMap = $statusPerHari->mapWithKeys(fn ($row) => [$normalizeDate($row->tanggal) => (int) $row->tidak_lengkap]);
         $alfaMap = $statusPerHari->mapWithKeys(fn ($row) => [$normalizeDate($row->tanggal) => (int) $row->alfa]);
-        $lokerMap = $lokerPerHari->mapWithKeys(fn ($row) => [$normalizeDate($row->tanggal) => (int) $row->total]);
 
         // Isi label harian agar grafik selalu tampil (bukan kosong meski data tipis).
         $daySpan = max(1, $start->diffInDays($end) + 1);
@@ -106,12 +102,7 @@ class PeriodicReportBuilder
                 $cursor->addDay();
             }
         } else {
-            $chartLabels = match ($filter['aktivitas']) {
-                'absensi' => collect($statusPerHari)->map(fn ($row) => $normalizeDate($row->tanggal)),
-                'loker' => collect($lokerPerHari)->map(fn ($row) => $normalizeDate($row->tanggal)),
-                default => collect($statusPerHari)->map(fn ($row) => $normalizeDate($row->tanggal))
-                    ->merge(collect($lokerPerHari)->map(fn ($row) => $normalizeDate($row->tanggal))),
-            };
+            $chartLabels = collect($statusPerHari)->map(fn ($row) => $normalizeDate($row->tanggal));
             $chartLabels = $chartLabels->unique()->sort()->values();
             if ($chartLabels->isEmpty()) {
                 $chartLabels = collect([$start->toDateString(), $end->toDateString()]);
@@ -123,7 +114,6 @@ class PeriodicReportBuilder
             'hadir' => $chartLabels->map(fn ($date) => (int) ($hadirMap[$date] ?? 0))->all(),
             'tidak_lengkap' => $chartLabels->map(fn ($date) => (int) ($tidakLengkapMap[$date] ?? 0))->all(),
             'alfa' => $chartLabels->map(fn ($date) => (int) ($alfaMap[$date] ?? 0))->all(),
-            'loker' => $chartLabels->map(fn ($date) => (int) ($lokerMap[$date] ?? 0))->all(),
         ];
 
         $topAbsensiMachines = (clone $absensiQuery)
@@ -134,19 +124,12 @@ class PeriodicReportBuilder
             ->get()
             ->map(fn ($row) => ['aktivitas' => 'Absensi', 'id_mesin' => $row->id_mesin, 'total' => (int) $row->total]);
 
-        $topLokerMachines = collect();
-
-        $topMachines = (match ($filter['aktivitas']) {
-            'absensi' => $topAbsensiMachines,
-            'loker' => $topLokerMachines,
-            default => $topAbsensiMachines->merge($topLokerMachines),
-        })
+        $topMachines = $topAbsensiMachines
             ->sortByDesc('total')
             ->take(8)
             ->values();
 
-        $recentAbsensi = $filter['aktivitas'] !== 'loker'
-            ? (clone $absensiQuery)->latest('waktu_tap')->limit(8)->get()->map(fn ($row) => [
+        $recentAbsensi = (clone $absensiQuery)->latest('waktu_tap')->limit(8)->get()->map(fn ($row) => [
                 'aktivitas' => 'Absensi',
                 'waktu' => $row->waktu_tap,
                 'nama' => $row->user->nama_lengkap ?? '-',
@@ -156,13 +139,9 @@ class PeriodicReportBuilder
                 'id_mesin' => $row->id_mesin,
                 'tap_jenis' => $row->jenis ?: 'tap',
                 'status' => self::tapJenisLabel($row->jenis),
-            ])
-            : collect();
+            ]);
 
-        $recentLoker = collect();
-
-        $recentActivities = $recentAbsensi
-            ->merge($recentLoker)
+        $recentActivities = collect($recentAbsensi)
             ->sortByDesc('waktu')
             ->take(12)
             ->values();
@@ -177,25 +156,18 @@ class PeriodicReportBuilder
             ->get()
             ->keyBy('user_id');
 
-        $lokerByUser = collect();
-
         $studentRecaps = (clone $mahasiswaBaseQuery)
             ->when($filter['kelas'] !== '', fn ($q) => $q->where('kelas', $filter['kelas']))
             ->when($filter['tim'] !== '', fn ($q) => $q->where('tim', $filter['tim']))
             ->orderBy('nama_lengkap')
             ->get(['id', 'nama_lengkap', 'nitk_nidn', 'kelas', 'tim'])
-            ->map(function (User $student) use ($harianByUser, $lokerByUser, $filter) {
+            ->map(function (User $student) use ($harianByUser, $filter) {
                 $harian = $harianByUser->get($student->id);
-                $hadir = $filter['aktivitas'] !== 'loker' ? (int) ($harian->hadir ?? 0) : 0;
-                $tidakLengkap = $filter['aktivitas'] !== 'loker' ? (int) ($harian->tidak_lengkap ?? 0) : 0;
-                $alfa = $filter['aktivitas'] !== 'loker' ? (int) ($harian->alfa ?? 0) : 0;
-                $lokerRow = $lokerByUser->get($student->id);
-                $lokerTotal = $filter['aktivitas'] !== 'absensi' ? (int) ($lokerRow->total ?? 0) : 0;
+                $hadir = (int) ($harian->hadir ?? 0);
+                $tidakLengkap = (int) ($harian->tidak_lengkap ?? 0);
+                $alfa = (int) ($harian->alfa ?? 0);
                 $lastHarian = $harian?->terakhir_tanggal
                     ? Carbon::parse($harian->terakhir_tanggal)->endOfDay()
-                    : null;
-                $lastLoker = $lokerRow?->terakhir
-                    ? Carbon::parse($lokerRow->terakhir)
                     : null;
 
                 return [
@@ -207,17 +179,15 @@ class PeriodicReportBuilder
                     'hadir' => $hadir,
                     'tidak_lengkap' => $tidakLengkap,
                     'alfa' => $alfa,
-                    'loker' => $lokerTotal,
-                    'terakhir' => collect([$lastHarian, $lastLoker])->filter()->sortDesc()->first(),
+                    'terakhir' => $lastHarian,
                 ];
             })
-            ->sortByDesc(fn ($row) => $row['hadir'] + $row['tidak_lengkap'] + $row['alfa'] + $row['loker'])
+            ->sortByDesc(fn ($row) => $row['hadir'] + $row['tidak_lengkap'] + $row['alfa'])
             ->values();
 
         // Export & rekor: fokus mahasiswa yang punya jejak absensi di periode (bukan dump semua).
         $studentRecapsActive = $studentRecaps
-            ->filter(fn ($row) => ((int) $row['hadir'] + (int) $row['tidak_lengkap'] + (int) $row['alfa']) > 0
-                || ($filter['aktivitas'] !== 'absensi' && (int) $row['loker'] > 0))
+            ->filter(fn ($row) => ((int) $row['hadir'] + (int) $row['tidak_lengkap'] + (int) $row['alfa']) > 0)
             ->values();
 
         $rankings = self::buildRankings(
@@ -227,8 +197,7 @@ class PeriodicReportBuilder
             $filter['aktivitas']
         );
 
-        $detailAbsensi = $filter['aktivitas'] !== 'loker'
-            ? (clone $absensiQuery)->latest('waktu_tap')->limit(250)->get()->map(fn ($row) => [
+        $detailAbsensi = (clone $absensiQuery)->latest('waktu_tap')->limit(250)->get()->map(fn ($row) => [
                 'aktivitas' => 'Absensi',
                 'waktu' => $row->waktu_tap,
                 'nama' => $row->user->nama_lengkap ?? '-',
@@ -241,22 +210,14 @@ class PeriodicReportBuilder
                 'status_meta' => ($row->menit_terlambat ?? 0) > 0
                     ? 'Terlambat ' . (int) $row->menit_terlambat . ' menit'
                     : 'Tepat waktu',
-            ])
-            : collect();
+            ]);
 
-        $detailLoker = collect();
-
-        $detailRows = $detailAbsensi
-            ->merge($detailLoker)
+        $detailRows = collect($detailAbsensi)
             ->sortByDesc('waktu')
             ->take(250)
             ->values();
 
-        $activityLabel = match ($filter['aktivitas']) {
-            'absensi' => 'Absensi',
-            'loker' => 'Loker',
-            default => 'Absensi + Loker',
-        };
+        $activityLabel = 'Absensi';
 
         $periodeLabel = match ($filter['periode']) {
             'minggu_ini' => 'Minggu ini',
@@ -397,27 +358,6 @@ class PeriodicReportBuilder
             ],
         };
 
-        if ($aktivitas === 'loker') {
-            $items = $rows
-                ->filter(fn ($r) => (int) ($r['loker'] ?? 0) > 0)
-                ->sortByDesc(fn ($r) => (int) $r['loker'])
-                ->take($limit)
-                ->values()
-                ->map(fn ($r, $i) => self::rankItem($i + 1, $r['nama'], ($r['nim'] ?? '-') . ' · ' . ($r['kelas'] ?? '-') . ' / ' . ($r['tim'] ?? '-'), (int) $r['loker'], number_format((int) $r['loker']) . ' akses', $r['user_id'] ?? null, [
-                    'hadir' => 0, 'tidak_lengkap' => 0, 'alfa' => 0, 'loker' => (int) $r['loker'],
-                ]))
-                ->all();
-
-            return [
-                'category' => $category,
-                'group' => $group,
-                'title' => 'Akses loker terbanyak',
-                'subtitle' => 'Mode loker — terpisah dari rekap hadir/alfa',
-                'metric' => 'Loker',
-                'items' => $items,
-            ];
-        }
-
         // Pecah dulu berdasarkan tipe (kelas / tim), pakai metrik yang dipilih.
         if (in_array($group, ['kelas', 'tim'], true)) {
             $groupKey = $group;
@@ -442,7 +382,6 @@ class PeriodicReportBuilder
                             'hadir' => $hadir,
                             'tidak_lengkap' => $tl,
                             'alfa' => $alfa,
-                            'loker' => 0,
                         ],
                         '_sort' => $metricVal,
                     ];
@@ -501,7 +440,6 @@ class PeriodicReportBuilder
                     'hadir' => (int) $r['hadir'],
                     'tidak_lengkap' => (int) $r['tidak_lengkap'],
                     'alfa' => (int) $r['alfa'],
-                    'loker' => 0,
                 ]
             );
         })->all();
@@ -517,7 +455,7 @@ class PeriodicReportBuilder
     }
 
     /**
-     * @param  array{hadir:int,tidak_lengkap:int,alfa:int,loker:int}  $bars
+     * @param  array{hadir:int,tidak_lengkap:int,alfa:int}  $bars
      * @return array<string, mixed>
      */
     private static function rankItem(int $rank, string $label, string $meta, int $value, string $valueLabel, $userId, array $bars): array
@@ -579,6 +517,7 @@ class PeriodicReportBuilder
 
         if ($dosen) {
             $query->where('is_active', true);
+            return DosenKelasScope::applySupervisedMahasiswaQuery($query, $dosen);
         }
 
         return $query;

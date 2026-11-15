@@ -95,7 +95,7 @@ export default function DownloadPage({
               Unduh AIoT SIMALAS
             </h1>
             <p className="mx-auto mt-3 max-w-lg text-slate-600">
-              Aplikasi Android untuk mahasiswa — absensi biometrik, loker pintar, dan pengumuman
+              Aplikasi Android untuk mahasiswa — absensi biometrik, akses ruangan, dan pengumuman
               laboratorium.
             </p>
           </motion.div>

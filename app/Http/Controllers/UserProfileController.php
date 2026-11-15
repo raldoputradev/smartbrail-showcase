@@ -25,6 +25,55 @@ class UserProfileController extends Controller
 
 {
 
+    /**
+     * Kartu profil ringkas (JSON) untuk popup — hanya field non-sensitif.
+     * Akses: admin/laboran/dosen boleh lihat siapa pun; mahasiswa hanya
+     * sesama anggota tim PBL-nya atau dirinya sendiri.
+     */
+    public function ringkas(Request $request, User $user): \Illuminate\Http\JsonResponse
+    {
+        $viewer = $request->user();
+        if (! $viewer || ! in_array($viewer->role, ['admin', 'laboran', 'dosen', 'mahasiswa'], true)) {
+            abort(403);
+        }
+
+        if ($viewer->role === 'mahasiswa' && $viewer->id !== $user->id) {
+            $sameTim = filled($viewer->tim) && $viewer->tim === $user->tim;
+            if (! $sameTim) {
+                abort(403);
+            }
+        }
+
+        $user->loadMissing('programStudi:id,nama');
+
+        $roleLabel = [
+            'admin' => 'Administrator', 'laboran' => 'Laboran',
+            'dosen' => 'Dosen', 'mahasiswa' => 'Mahasiswa',
+        ][$user->role] ?? ucfirst((string) $user->role);
+
+        $profil = [
+            'nama' => $user->nama_lengkap,
+            'identitas' => $user->nitk_nidn,
+            'role' => $roleLabel,
+            'kelas' => $user->kelas,
+            'prodi' => $user->programStudi?->nama,
+            'semester' => $user->semester,
+            'tim' => $user->role === 'mahasiswa' ? $user->tim : null,
+            'shift' => $user->shift,
+            'foto' => $user->profile_photo_url ?? null,
+            'status' => $user->is_active ? 'Aktif' : 'Nonaktif',
+            'terdaftar' => $user->created_at?->format('d M Y'),
+        ];
+
+        // Status online/aktivitas terakhir hanya untuk admin — bukan role lain.
+        if ($viewer->role === 'admin') {
+            $profil['online'] = $user->isOnline();
+            $profil['last_seen'] = $user->last_seen_label;
+        }
+
+        return response()->json(['ok' => true, 'profil' => $profil]);
+    }
+
     public function show(Request $request, User $user)
 
     {
@@ -43,7 +92,7 @@ class UserProfileController extends Controller
 
         }
 
-        if (!in_array($viewer->role, ['laboran', 'dosen', 'mahasiswa'], true)) {
+        if (!in_array($viewer->role, ['admin', 'laboran', 'dosen', 'mahasiswa'], true)) {
 
             abort(403, 'Anda tidak memiliki akses untuk melihat profil ini.');
 
@@ -52,6 +101,16 @@ class UserProfileController extends Controller
 
 
         $user->load(['approvedBy:id,nama_lengkap', 'programStudi']);
+
+        // Modal OTP verifikasi email tersedia di profil sendiri (banner strip
+        // disupres via email_verify_optional — verifikasi lewat tombol di
+        // kartu Status Akun, tanpa pemaksaan).
+        if ($viewer->id === $user->id && ! $user->email_verified_at) {
+            $request->session()->now('email_verification_pending', true);
+            $request->session()->now('account_verify_needs_email', blank($user->email));
+            $request->session()->now('account_verify_user_id', $user->id);
+            $request->session()->now('email_verify_optional', true);
+        }
 
 
 
@@ -78,8 +137,6 @@ class UserProfileController extends Controller
         $stats = null;
 
         $recentAbsensi = collect();
-
-        $recentLoker = collect();
 
 
 
@@ -113,7 +170,7 @@ class UserProfileController extends Controller
 
         $isOwnProfile = $viewer->id === $user->id;
 
-        $canUploadPhoto = $isOwnProfile && in_array($viewer->role, ['laboran', 'dosen', 'mahasiswa'], true);
+        $canUploadPhoto = $isOwnProfile && in_array($viewer->role, ['admin', 'laboran', 'dosen', 'mahasiswa'], true);
 
 
 
@@ -133,11 +190,16 @@ class UserProfileController extends Controller
 
             'recentAbsensi' => $recentAbsensi,
 
-            'recentLoker' => $recentLoker,
-
             'canUploadPhoto' => $canUploadPhoto,
 
+            'isOwnProfile' => $isOwnProfile,
+
             'isStaffProfile' => $user->isDosen() || $user->isLaboran(),
+
+            'presence' => $viewer->role === 'admin' ? [
+                'online' => $user->isOnline(),
+                'last_seen' => $user->last_seen_label,
+            ] : null,
 
         ]);
 
@@ -151,7 +213,7 @@ class UserProfileController extends Controller
 
         $user = $request->user();
 
-        if (!$user || !in_array($user->role, ['laboran', 'dosen', 'mahasiswa'], true)) {
+        if (!$user || !in_array($user->role, ['admin', 'laboran', 'dosen', 'mahasiswa'], true)) {
 
             abort(403, 'Anda tidak memiliki akses untuk mengganti foto profil.');
 
@@ -213,7 +275,7 @@ class UserProfileController extends Controller
 
         $user = $request->user();
 
-        if (!$user || !in_array($user->role, ['laboran', 'dosen', 'mahasiswa'], true)) {
+        if (!$user || !in_array($user->role, ['admin', 'laboran', 'dosen', 'mahasiswa'], true)) {
 
             abort(403, 'Anda tidak memiliki akses untuk menghapus foto profil.');
 
@@ -239,6 +301,52 @@ class UserProfileController extends Controller
 
         return back()->with('success', 'Foto profil berhasil dihapus. Avatar kembali ke default.');
 
+    }
+
+    /**
+     * Pengguna memperbarui nomor HP-nya sendiri dari halaman profil.
+     * Email tetap lewat alur OTP (account-email.post), bukan di sini.
+     */
+    public function updateOwnContact(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'no_hp' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{8,30}$/'],
+        ], [
+            'no_hp.regex' => 'Nomor HP harus 8–30 karakter berisi angka (boleh +, spasi, -, atau kurung).',
+        ]);
+
+        $user->forceFill(['no_hp' => $validated['no_hp'] ?: null])->save();
+
+        return back()->with('success', 'Nomor HP berhasil diperbarui.');
+    }
+
+    /**
+     * Staf (admin/laboran/dosen) mengganti PIN akses ruangan mereka sendiri.
+     * PIN permanen — berlaku selama akun aktif; mahasiswa memakai PIN per-izin.
+     */
+    public function updateOwnAccessPin(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user || ! in_array($user->role, ['admin', 'laboran', 'dosen'], true)) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'akses_pin' => ['required', 'string', 'digits:6'],
+        ], [
+            'akses_pin.digits' => 'PIN akses harus tepat 6 digit angka.',
+        ]);
+
+        $user->forceFill(['akses_pin' => \Illuminate\Support\Facades\Hash::make($validated['akses_pin'])])->save();
+
+        return back()->with('success', 'PIN akses ruangan berhasil diperbarui.');
     }
 
 }

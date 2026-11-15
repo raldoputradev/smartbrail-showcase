@@ -40,3 +40,16 @@ Kode dan konfigurasi aktual tetap menjadi sumber kebenaran implementasi. Dokumen
 - Tambahkan keputusan pemilik baru ke `decisions.md`; jangan mengubah usulan menjadi keputusan.
 - Tambahkan catatan singkat di `docs/agent/history/` untuk perubahan arsitektur atau pemetaan besar.
 - Jangan menduplikasi rincian yang sama ke semua dokumen; tautkan ke dokumen utama.
+
+## Komunikasi dan efisiensi
+
+- Jawab ringkas dalam bahasa Indonesia.
+- Mulai dari hasil, keputusan, atau hambatan.
+- Jangan mengulang permintaan pengguna atau konteks yang sudah diketahui.
+- Untuk laporan rutin gunakan:
+  Hasil | File berubah | Test | Hambatan.
+- Maksimal sekitar 200 kata kecuali diminta penjelasan mendalam.
+- Baca checkpoint dan kode terkait saja; jangan audit ulang repository.
+- Jangan menampilkan isi file atau output panjang jika ringkasan cukup.
+- Pertahankan detail keamanan, error, dan batas verifikasi yang penting.
+- Kerjakan dalam cakupan izin; tanyakan hanya keputusan yang menghambat.

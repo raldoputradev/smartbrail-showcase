@@ -1,0 +1,27 @@
+{
+  "_petunjuk": "Salin file ini ke uploads/incoming/ lalu isi setelah ada insiden / tes mesin. Ganti API key dengan ***.",
+  "tanggal": "2026-05-15T14:30:00+07:00",
+  "jenis": "absensi",
+  "id_mesin": "MESIN_ABSENSI_01",
+  "arah": "mesin_ke_server",
+  "endpoint": "POST /api/mesin/tap",
+  "http_status": 200,
+  "request": {
+    "headers": {
+      "X-API-KEY": "***",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "id_mesin": "MESIN_ABSENSI_01",
+      "finger_id": 1
+    }
+  },
+  "response": {
+    "success": true,
+    "message": "Absensi tersimpan.",
+    "data": {}
+  },
+  "catatan": "Contoh: tap berhasil / gagal karena jadwal / finger tidak dikenal",
+  "gejala": "",
+  "langkah_sudah_dicoba": []
+}

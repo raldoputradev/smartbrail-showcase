@@ -837,3 +837,325 @@
         border-radius: 16px;
     }
 }
+
+/* ── Info (?) di pojok kiri modal ── */
+.ev-modal-info {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 2;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 12px;
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+.ev-modal-info:hover,
+.ev-modal-info[aria-expanded="true"] {
+    background: rgba(74, 166, 255, 0.16);
+    color: #4aa6ff;
+}
+
+.ev-info-pop {
+    position: absolute;
+    top: 58px;
+    left: 14px;
+    z-index: 3;
+    width: min(320px, calc(100% - 28px));
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-card);
+    box-shadow: 0 18px 44px rgba(8, 15, 30, 0.4);
+    font-size: 12.5px;
+    color: var(--text-dark);
+    text-align: left;
+    animation: ev-sheet-up 0.18s ease forwards;
+}
+.ev-info-pop strong {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+.ev-info-pop ol {
+    margin: 0 0 8px;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.ev-info-pop > span {
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-subtle);
+}
+
+/* ── Error email inline ── */
+.ev-email-error {
+    margin: -4px 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+    color: #f87171;
+}
+.ev-email-error::before {
+    content: '⚠ ';
+}
+
+@keyframes ev-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+.ev-email-wrap.is-shake {
+    animation: ev-shake 0.45s ease;
+}
+
+/* ── reCAPTCHA terkunci: redup sampai email valid + S&K disetujui ── */
+.ev-recaptcha-wrap:not(.is-unlocked) .ev-captcha-widget {
+    filter: grayscale(0.35) opacity(0.6);
+}
+
+/* ── Header sheet S&K dengan tombol tutup ── */
+.ev-terms-sheet__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+.ev-terms-close {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 10px;
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+.ev-terms-close:hover {
+    background: rgba(239, 68, 68, 0.14);
+    color: #f87171;
+}
+
+/* ── Pernyataan persetujuan di dalam teks S&K ── */
+.ev-terms-agree {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(74, 166, 255, 0.4);
+    background: rgba(74, 166, 255, 0.07);
+}
+.ev-terms-agree h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-dark);
+}
+.ev-terms-agree p {
+    margin: 0 0 12px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+}
+.ev-terms-agree .ev-terms-check {
+    margin: 0;
+}
+
+/* ══ S&K dua kolom ala mockup ══ */
+.ev-terms-sheet__panel--split {
+    width: min(920px, 100%);
+    max-height: min(86vh, 720px);
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    padding: 0;
+    overflow: hidden;
+    margin-top: 0;
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.ev-terms-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 26px 24px;
+    background:
+        radial-gradient(120% 60% at 0% 0%, rgba(74, 166, 255, 0.18), transparent 60%),
+        linear-gradient(180deg, rgba(12, 31, 71, 0.95), rgba(10, 21, 38, 0.98));
+    border-right: 1px solid var(--border-subtle);
+    color: #e8effc;
+    overflow-y: auto;
+}
+.ev-terms-side__brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.ev-terms-side__brand img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    background: #ffffff;
+    border-radius: 11px;
+    padding: 5px;
+    box-shadow: 0 6px 16px rgba(4, 10, 24, 0.35);
+}
+.ev-terms-side__brand strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 800;
+}
+.ev-terms-side__brand span {
+    font-size: 11px;
+    color: rgba(232, 239, 252, 0.55);
+}
+.ev-terms-side__art {
+    margin: 6px 0 2px;
+    opacity: 0.95;
+}
+.ev-terms-side__art svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.ev-terms-side__title {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+}
+.ev-terms-side__lead {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: rgba(232, 239, 252, 0.6);
+}
+.ev-terms-side__points {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 12px;
+}
+.ev-terms-side__points li {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(74, 166, 255, 0.07);
+    border: 1px solid rgba(74, 166, 255, 0.14);
+}
+.ev-terms-side__ico {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(74, 166, 255, 0.14);
+    color: #7cc0ff;
+}
+.ev-terms-side__ico svg,
+.ev-terms-side__ico i {
+    width: 16px;
+    height: 16px;
+}
+.ev-terms-side__points li > div {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+.ev-terms-side__points li > div strong {
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+}
+.ev-terms-side__points li > div span {
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(232, 239, 252, 0.6);
+}
+
+.ev-terms-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+.ev-terms-main .ev-terms-sheet__scroll {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Blok bernomor + ikon */
+.ev-terms-block {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+.ev-terms-block__num {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(74, 166, 255, 0.16);
+    color: #7cc0ff;
+    font-size: 11px;
+    font-weight: 800;
+}
+.ev-terms-block__ico {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(74, 166, 255, 0.12);
+    color: #7cc0ff;
+}
+.ev-terms-block__ico svg,
+.ev-terms-block__ico i {
+    width: 16px;
+    height: 16px;
+}
+.ev-terms-block > div {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Responsif: panel kiri disembunyikan di layar sempit */
+@media (max-width: 720px) {
+    .ev-terms-sheet__panel--split {
+        grid-template-columns: 1fr;
+    }
+    .ev-terms-side {
+        display: none;
+    }
+}

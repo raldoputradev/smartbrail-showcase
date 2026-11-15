@@ -82,7 +82,7 @@ export default function SocialContact() {
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-600">
               Tim BRAIL Polibatam siap membantu terkait aplikasi mobile, absensi biometrik,
-              loker pintar, dan penggunaan sistem. Kanal WhatsApp, Instagram, Telegram, dan Discord sedang
+              akses ruangan pintar, dan penggunaan sistem. Kanal WhatsApp, Instagram, Telegram, dan Discord sedang
               disiapkan — sementara gunakan AI Helpdesk di pojok kanan bawah, atau datang langsung ke lab.
             </p>
           </div>

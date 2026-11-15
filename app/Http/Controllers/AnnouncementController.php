@@ -11,64 +11,144 @@ use Illuminate\View\View;
 
 class AnnouncementController extends Controller
 {
-    public function index(Request $request): View
-    {
-        $query = Announcement::query()
-            ->pengumumanSaja()
-            ->with('author:id,nama_lengkap,role');
+    use Concerns\AdminShellProps;
 
-        if ($request->filled('q')) {
-            $kw = trim((string) $request->q);
+    public function index(Request $request)
+    {
+        \Inertia\Inertia::setRootView('app-admin');
+        $user = $request->user();
+        $now = now();
+
+        $perPage = in_array((int) $request->query('per_page', 10), [10, 20, 50], true)
+            ? (int) $request->query('per_page', 10) : 10;
+        $filters = [
+            'q' => trim((string) $request->query('q', '')),
+            'target' => (string) $request->query('target', ''),
+            'prioritas' => (string) $request->query('prioritas', ''),
+            'status' => (string) $request->query('status', ''),
+            'from' => (string) $request->query('from', ''),
+            'to' => (string) $request->query('to', ''),
+            'per_page' => $perPage,
+        ];
+
+        $query = Announcement::query()->pengumumanSaja()->with('author:id,nama_lengkap,role');
+
+        if ($filters['q'] !== '') {
+            $kw = $filters['q'];
             $query->where(function ($qb) use ($kw) {
                 $qb->where('judul', 'like', "%{$kw}%")
                     ->orWhere('isi', 'like', "%{$kw}%");
             });
         }
-
-        if ($request->filled('target') && in_array($request->target, ['semua', 'dosen', 'mahasiswa'], true)) {
-            $query->where('target', $request->target);
+        if (in_array($filters['target'], ['semua', 'dosen', 'mahasiswa'], true)) {
+            $query->where('target', $filters['target']);
+        }
+        if (in_array($filters['prioritas'], ['normal', 'penting', 'urgent'], true)) {
+            $query->where('prioritas', $filters['prioritas']);
+        }
+        if ($filters['status'] === 'aktif') {
+            $query->where('is_active', true)
+                ->where(fn ($qb) => $qb->whereNull('expires_at')->orWhere('expires_at', '>', $now));
+        } elseif ($filters['status'] === 'draft') {
+            $query->where('is_active', false);
+        } elseif ($filters['status'] === 'kadaluarsa') {
+            $query->where('is_active', true)->whereNotNull('expires_at')->where('expires_at', '<=', $now);
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['from'])) {
+            $query->whereDate('created_at', '>=', $filters['from']);
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['to'])) {
+            $query->whereDate('created_at', '<=', $filters['to']);
         }
 
-        if ($request->filled('prioritas') && in_array($request->prioritas, ['normal', 'penting', 'urgent'], true)) {
-            $query->where('prioritas', $request->prioritas);
-        }
+        $paginator = $query->latest()->paginate($perPage)->withQueryString();
+        $this->markVisibleAsRead($paginator->getCollection()->pluck('id'), $user);
 
-        $items = $query->latest()->paginate(30)->withQueryString();
+        $targetLabel = ['semua' => 'Semua Pengguna', 'dosen' => 'Dosen', 'mahasiswa' => 'Mahasiswa'];
+        $rows = $paginator->getCollection()->map(function (Announcement $a) use ($now, $targetLabel) {
+            $expired = $a->expires_at && $a->expires_at->lte($now);
+            $status = ! $a->is_active ? 'draft' : ($expired ? 'kadaluarsa' : 'aktif');
+            return [
+                'id' => $a->id,
+                'judul' => $a->judul,
+                'isi' => $a->isi,
+                'preview' => \Illuminate\Support\Str::limit(strip_tags((string) $a->isi), 80),
+                'target' => $a->target,
+                'target_label' => $targetLabel[$a->target] ?? ucfirst((string) $a->target),
+                'prioritas' => $a->prioritas,
+                'status' => $status,
+                'author' => $a->author?->nama_lengkap ?? 'Admin',
+                'created' => $a->created_at?->translatedFormat('d M Y, H:i'),
+                'expires' => $a->expires_at?->translatedFormat('d M Y, H:i'),
+                'expires_input' => $a->expires_at?->format('Y-m-d\TH:i'),
+            ];
+        })->values()->all();
 
-        $this->markVisibleAsRead($items->pluck('id'), $request->user());
+        $bulanIni = Announcement::query()->pengumumanSaja()
+            ->whereBetween('created_at', [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()])->count();
+        $bulanLalu = Announcement::query()->pengumumanSaja()
+            ->whereBetween('created_at', [$now->copy()->subMonth()->startOfMonth(), $now->copy()->subMonth()->endOfMonth()])->count();
 
-        $selected = null;
-        $composerMode = 'create';
-
-        if ($request->boolean('new')) {
-            $composerMode = 'create';
-        } elseif ($request->filled('id')) {
-            $selected = Announcement::query()
-                ->pengumumanSaja()
-                ->with('author:id,nama_lengkap,role')
-                ->find((int) $request->id);
-            $composerMode = $selected ? 'edit' : 'create';
-        }
-
-        $now = now();
-        $counts = [
-            'total'      => Announcement::query()->pengumumanSaja()->count(),
-            'aktif'      => Announcement::query()
-                ->pengumumanSaja()
-                ->where('is_active', true)
-                ->where(function ($q) use ($now) {
-                    $q->whereNull('expires_at')->orWhere('expires_at', '>', $now);
-                })
-                ->count(),
-            'draft'      => Announcement::query()->pengumumanSaja()->where('is_active', false)->count(),
-            'kadaluarsa' => Announcement::query()
-                ->pengumumanSaja()
-                ->whereNotNull('expires_at')
-                ->where('expires_at', '<=', $now)
-                ->count(),
+        $stats = [
+            'total' => Announcement::query()->pengumumanSaja()->count(),
+            'aktif' => Announcement::query()->pengumumanSaja()->where('is_active', true)
+                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', $now))->count(),
+            'draft' => Announcement::query()->pengumumanSaja()->where('is_active', false)->count(),
+            'kadaluarsa' => Announcement::query()->pengumumanSaja()
+                ->where('is_active', true)->whereNotNull('expires_at')->where('expires_at', '<=', $now)->count(),
+            'bulan_ini' => $bulanIni,
+            'delta_vs_bulan_lalu' => $bulanIni - $bulanLalu,
         ];
+        $stats['aktif_pct'] = $stats['total'] > 0 ? round($stats['aktif'] / $stats['total'] * 100) : 0;
+        $stats['kadaluarsa_pct'] = $stats['total'] > 0 ? round($stats['kadaluarsa'] / $stats['total'] * 100) : 0;
 
-        return view('admin.announcements', compact('items', 'selected', 'composerMode', 'counts'));
+        // Tab arsip: draft + kadaluarsa (item yang tidak lagi tayang).
+        $arsip = Announcement::query()->pengumumanSaja()->with('author:id,nama_lengkap')
+            ->where(function ($qb) use ($now) {
+                $qb->where('is_active', false)
+                    ->orWhere(fn ($q2) => $q2->whereNotNull('expires_at')->where('expires_at', '<=', $now));
+            })
+            ->latest()->limit(12)->get()
+            ->map(fn (Announcement $a) => [
+                'id' => $a->id,
+                'judul' => $a->judul,
+                'target_label' => $targetLabel[$a->target] ?? ucfirst((string) $a->target),
+                'status' => $a->is_active ? 'kadaluarsa' : 'draft',
+                'created' => $a->created_at?->translatedFormat('d M Y'),
+                'expires' => $a->expires_at?->translatedFormat('d M Y, H:i'),
+                'author' => $a->author?->nama_lengkap ?? 'Admin',
+            ])->values()->all();
+
+        return \Inertia\Inertia::render('Pengumuman', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'filters' => $filters,
+            'stats' => $stats,
+            'items' => [
+                'data' => $rows,
+                'meta' => [
+                    'page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'total' => $paginator->total(),
+                    'per_page' => $paginator->perPage(),
+                    'from' => $paginator->firstItem() ?? 0,
+                    'to' => $paginator->lastItem() ?? 0,
+                ],
+            ],
+            'arsip' => $arsip,
+            'can' => [
+                'create' => \App\Support\PermissionRegistry::canCurrent('announcements', 'create'),
+                'update' => \App\Support\PermissionRegistry::canCurrent('announcements', 'update'),
+                'delete' => \App\Support\PermissionRegistry::canCurrent('announcements', 'delete'),
+            ],
+            'urls' => [
+                'index' => $request->attributes->get('dev_preview')
+                    ? route('dev.preview.admin', 'pengumuman')
+                    : route('admin.announcements.index'),
+                'store' => route('admin.announcements.store'),
+                'base' => route('admin.announcements.index') . '/',
+            ],
+        ]);
     }
 
     private function markVisibleAsRead($announcementIds, $user): void
@@ -112,6 +192,15 @@ class AnnouncementController extends Controller
             'is_active' => $publish,
             'dibuat_oleh' => auth()->id(),
         ]);
+
+        // Bangunkan semua klien yang tersambung — lonceng menyegarkan diri.
+        if ($publish) {
+            try {
+                broadcast(new \App\Events\NotifikasiBaru('pengumuman', broadcastSemua: true, broadcastStaff: true));
+            } catch (\Throwable $e) {
+                // Broadcast opsional — kegagalan Reverb tidak menggagalkan simpan.
+            }
+        }
 
         return $this->redirectToComposer($request, $row->id)
             ->with('success', $publish ? 'Pengumuman dipublikasikan.' : 'Draft pengumuman disimpan.');

@@ -20,9 +20,9 @@
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>AIoT SIMALAS - @yield('title', 'Dashboard')</title>
+    <title>Smart BRAIL - @yield('title', 'Dashboard')</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,14 +35,14 @@
             --accent-amber: #ff7a00;
             --accent-rose: #f43f5e;
             --bg-dark: #0f1a2f;
-            --bg-sidebar: #dbeafe;
-            --sidebar-ink: #0f172a;
-            --sidebar-ink-muted: #475569;
-            --sidebar-hover-bg: rgba(14, 165, 233, 0.12);
-            --sidebar-active-bg: rgba(14, 165, 233, 0.2);
-            --sidebar-active-ink: #0369a1;
-            --sidebar-border: rgba(14, 165, 233, 0.22);
-            --bg-main: #f8fafc;
+            --bg-sidebar: #0c1f47;
+            --sidebar-ink: #e8effc;
+            --sidebar-ink-muted: rgba(232, 239, 252, 0.55);
+            --sidebar-hover-bg: rgba(255, 255, 255, 0.07);
+            --sidebar-active-bg: rgba(56, 189, 248, 0.16);
+            --sidebar-active-ink: #7dd3fc;
+            --sidebar-border: rgba(255, 255, 255, 0.08);
+            --bg-main: #f3f6fb;
             --bg-card: #ffffff;
             --text-white: #f8fafc;
             --text-muted: #8aa0bc;
@@ -54,7 +54,7 @@
             --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
             --radius: 12px;
             --radius-sm: 8px;
-            --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             --sidebar-width: 260px;
             --sidebar-width-collapsed: 88px;
@@ -62,15 +62,15 @@
         }
         [data-theme="dark"] {
             --bg-dark: #0b1322;
-            --bg-sidebar: #0f1d35;
-            --sidebar-ink: #f1f5f9;
-            --sidebar-ink-muted: #94a3b8;
-            --sidebar-hover-bg: rgba(255, 255, 255, 0.06);
-            --sidebar-active-bg: linear-gradient(135deg, rgba(74, 144, 217, 0.15), rgba(45, 212, 191, 0.1));
-            --sidebar-active-ink: #5eead4;
-            --sidebar-border: rgba(255, 255, 255, 0.06);
-            --bg-main: #171f2f;
-            --bg-card: #1b2538;
+            --bg-sidebar: #0a1526;
+            --sidebar-ink: #e8effc;
+            --sidebar-ink-muted: rgba(232, 239, 252, 0.55);
+            --sidebar-hover-bg: rgba(255, 255, 255, 0.07);
+            --sidebar-active-bg: rgba(56, 189, 248, 0.16);
+            --sidebar-active-ink: #7dd3fc;
+            --sidebar-border: rgba(255, 255, 255, 0.08);
+            --bg-main: #0b1322;
+            --bg-card: #111d33;
             --text-white: #f1f5f9;
             --text-muted: #7f92b0;
             --text-dark: #e7edf5;
@@ -120,16 +120,11 @@
             flex-shrink: 0;
             transition: var(--transition);
         }
-        .sidebar-edge-toggle {
-            position: absolute;
-            top: 50%;
-            right: 0;
-            transform: translate(50%, -50%);
-            z-index: 120;
-            width: 30px;
-            height: 52px;
+        .topbar-burger {
+            width: 38px;
+            height: 38px;
             padding: 0;
-            border-radius: 999px;
+            border-radius: 10px;
             border: 1px solid var(--border-subtle);
             background: var(--bg-card);
             color: var(--text-label);
@@ -137,15 +132,15 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+            flex-shrink: 0;
             transition: var(--transition);
         }
-        .sidebar-edge-toggle:hover {
+        .topbar-burger:hover {
             background: var(--bg-main);
             border-color: var(--soft-blue);
             color: var(--soft-blue);
         }
-        .sidebar-edge-toggle .icon-wrap svg {
+        .topbar-burger svg {
             width: 18px;
             height: 18px;
         }
@@ -207,11 +202,26 @@
             letter-spacing: 0.5px;
             line-height: 1.15;
         }
+        /* Wordmark gaya logo: biru elektrik miring */
+        .sidebar-brand-name {
+            font-size: 16px;
+            font-weight: 800;
+            font-style: italic;
+            letter-spacing: .02em;
+            background: linear-gradient(115deg, #7dd3fc 5%, #38bdf8 35%, #2563eb 75%, #1d4ed8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            white-space: nowrap;
+        }
         .sidebar-brand-sub {
             font-size: 11px;
             color: var(--sidebar-ink-muted);
             font-weight: 400;
-            margin-top: 2px;
+            margin-left: 2px;
+            padding-left: 10px;
+            border-left: 1px solid rgba(148, 163, 184, 0.22);
+            white-space: nowrap;
         }
         .dashboard-layout.sidebar-collapsed .sidebar-header {
             padding: 0 10px;
@@ -220,6 +230,16 @@
         .dashboard-layout.sidebar-collapsed .sidebar-brand {
             justify-content: center;
             width: auto;
+        }
+        /* Logo lockup SmartBrail (ikon S3 + wordmark) */
+        .sidebar-brand-logo {
+            height: 28px;
+            width: auto;
+            display: block;
+            flex-shrink: 0;
+        }
+        .dashboard-layout.sidebar-collapsed .sidebar-brand-logo {
+            height: 22px;
         }
         .dashboard-layout.sidebar-collapsed .sidebar-brand-text,
         .dashboard-layout.sidebar-collapsed .sidebar-brand-sub {
@@ -250,47 +270,67 @@
             background: rgba(148,163,184,0.48);
         }
         .sidebar-section {
-            margin-bottom: 24px;
+            margin-bottom: 0;
+        }
+        /* Garis horizontal tipis pemisah antar seksi utama sidebar */
+        .sidebar-sep {
+            border: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            margin: 9px 10px;
         }
         .sidebar-section-title {
             font-size: 10px;
-            font-weight: 700;
-            color: var(--text-muted);
+            font-weight: 800;
+            color: var(--sidebar-ink-muted);
             text-transform: uppercase;
-            letter-spacing: 1.2px;
-            padding: 0 12px;
-            margin-bottom: 8px;
+            letter-spacing: .1em;
+            padding: 0 10px 6px;
+            margin-bottom: 6px;
         }
         .sidebar-link {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 10px 12px;
-            border-radius: var(--radius-sm);
-            color: var(--sidebar-ink-muted);
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 9px;
+            color: var(--sidebar-ink);
             text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 600;
+            opacity: .88;
             transition: var(--transition);
             margin-bottom: 2px;
         }
         .sidebar-link:hover {
             background: var(--sidebar-hover-bg);
-            color: var(--sidebar-ink);
+            opacity: 1;
         }
         .sidebar-link.active {
             background: var(--sidebar-active-bg);
             color: var(--sidebar-active-ink);
-            font-weight: 700;
+            opacity: 1;
         }
         .sidebar-link-icon {
-            font-size: 18px;
-            width: 24px;
-            text-align: center;
+            font-size: 0;
+            display: inline-flex;
             flex-shrink: 0;
         }
-        .dashboard-layout.sidebar-collapsed .sidebar-section-title,
-        .dashboard-layout.sidebar-collapsed .sidebar-link-badge {
+        .sidebar-link-icon svg {
+            width: 17px;
+            height: 17px;
+        }
+        /* Aksen warna ikon menu — sama dengan sidebar React (data-accent 0–9) */
+        .sidebar-link[data-accent="0"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="0"] .sidebar-link-icon { color: #38bdf8; }
+        .sidebar-link[data-accent="1"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="1"] .sidebar-link-icon { color: #a78bfa; }
+        .sidebar-link[data-accent="2"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="2"] .sidebar-link-icon { color: #34d399; }
+        .sidebar-link[data-accent="3"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="3"] .sidebar-link-icon { color: #fbbf24; }
+        .sidebar-link[data-accent="4"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="4"] .sidebar-link-icon { color: #fb7185; }
+        .sidebar-link[data-accent="5"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="5"] .sidebar-link-icon { color: #22d3ee; }
+        .sidebar-link[data-accent="6"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="6"] .sidebar-link-icon { color: #818cf8; }
+        .sidebar-link[data-accent="7"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="7"] .sidebar-link-icon { color: #2dd4bf; }
+        .sidebar-link[data-accent="8"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="8"] .sidebar-link-icon { color: #fb923c; }
+        .sidebar-link[data-accent="9"] .sidebar-link-icon, .sidebar-group-toggle[data-accent="9"] .sidebar-link-icon { color: #f472b6; }
+        .dashboard-layout.sidebar-collapsed .sidebar-section-title {
             display: none;
         }
         .dashboard-layout.sidebar-collapsed .sidebar-link {
@@ -298,10 +338,28 @@
             padding: 10px 8px;
             gap: 0;
             font-size: 0;
+            position: relative;
         }
-        .dashboard-layout.sidebar-collapsed .sidebar-link-icon {
-            font-size: 20px;
-            width: auto;
+        /* Mode rail: badge/tag jadi titik indikator di sudut ikon — tetap terlihat */
+        .dashboard-layout.sidebar-collapsed .sidebar-link-badge,
+        .dashboard-layout.sidebar-collapsed .sidebar-link-tag,
+        .dashboard-layout.sidebar-collapsed .sidebar-group-badge {
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            min-width: 0;
+            width: 8px;
+            height: 8px;
+            padding: 0;
+            font-size: 0;
+            border-radius: 50%;
+            margin: 0;
+        }
+        .dashboard-layout.sidebar-collapsed .sidebar-link-tag { background: #a78bfa; }
+        .dashboard-layout.sidebar-collapsed .sidebar-group-toggle { position: relative; }
+        .dashboard-layout.sidebar-collapsed .sidebar-link-icon svg {
+            width: 20px;
+            height: 20px;
         }
         .sidebar-link-badge {
             margin-left: auto;
@@ -312,6 +370,27 @@
             padding: 2px 7px;
             border-radius: 10px;
         }
+        .sidebar-link-tag {
+            margin-left: auto;
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+            font-size: 9.5px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 999px;
+        }
+        .sidebar-link-tag + .sidebar-link-badge { margin-left: 6px; }
+        .sidebar-link-tag--new {
+            background: rgba(52, 211, 153, 0.16);
+            color: #6ee7b7;
+            animation: sidebarTagPulse 2.4s ease-in-out infinite;
+        }
+        @keyframes sidebarTagPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+            50% { box-shadow: 0 0 10px 1px rgba(52, 211, 153, 0.45); }
+        }
         .sidebar-group {
             margin-bottom: 8px;
         }
@@ -320,43 +399,80 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 10px 12px;
+            padding: 8px 10px;
             border: 0;
-            border-radius: var(--radius-sm);
-            background: rgba(255,255,255,0.03);
-            color: var(--text-muted);
+            border-radius: 9px;
+            background: transparent;
+            color: var(--sidebar-ink);
             font: inherit;
-            font-size: 12px;
-            font-weight: 800;
+            font-size: 13px;
+            font-weight: 600;
             text-align: left;
+            opacity: .88;
             cursor: pointer;
             transition: var(--transition);
         }
-        .sidebar-group-toggle:hover,
-        .sidebar-group.open > .sidebar-group-toggle {
+        .sidebar-group-toggle:hover {
             background: var(--sidebar-hover-bg);
-            color: var(--sidebar-ink);
+            opacity: 1;
+        }
+        .sidebar-group[data-active-group] > .sidebar-group-toggle {
+            color: var(--sidebar-active-ink);
+            opacity: 1;
         }
         .sidebar-group-label {
             flex: 1;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
+        }
+        /* Penanda angka di judul grup — muncul bila submenu punya badge aktif */
+        .sidebar-group-badge {
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            flex-shrink: 0;
+            border-radius: 999px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 800;
+            display: grid;
+            place-items: center;
+            line-height: 1;
         }
         .sidebar-group-caret {
             font-size: 12px;
-            transition: transform 0.2s ease;
+            color: var(--sidebar-ink-muted);
+            transition: transform 0.3s ease;
         }
         .sidebar-group.open .sidebar-group-caret {
             transform: rotate(90deg);
         }
+        /* Sub-menu grup: animasi tinggi+fade saat accordion buka/tutup */
         .sidebar-submenu {
-            display: none;
-            margin: 6px 0 10px 10px;
-            padding-left: 8px;
-            border-left: 1px solid rgba(148,163,184,0.18);
+            display: block;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            margin: 0 0 0 19px;
+            padding-left: 10px;
+            border-left: 1px solid transparent;
+            transition: max-height .42s ease, opacity .34s ease,
+                        margin .42s ease, border-color .3s ease;
         }
         .sidebar-group.open .sidebar-submenu {
-            display: block;
+            max-height: 420px;
+            opacity: 1;
+            margin: 4px 0 8px 19px;
+            border-left-color: rgba(255,255,255,0.13);
+        }
+        /* Sub-menu: teks lebih kecil & lebih ringan dari induknya */
+        .sidebar-submenu .sidebar-link {
+            font-size: 12.5px;
+            padding: 7px 10px;
+            opacity: .8;
+        }
+        .sidebar-submenu .sidebar-link.active { opacity: 1; }
+        .dashboard-layout.sidebar-collapsed .sidebar-sep {
+            margin: 10px 4px;
         }
         .dashboard-layout.sidebar-collapsed .sidebar-group-label,
         .dashboard-layout.sidebar-collapsed .sidebar-group-caret,
@@ -369,10 +485,18 @@
         }
 
         /* ── Sidebar Footer ── */
-        .sidebar-footer {
-            padding: 16px;
-            border-top: 1px solid var(--sidebar-border);
+        .sidebar-art {
             margin-top: auto;
+        }
+        .dashboard-layout.sidebar-collapsed .sidebar-art {
+            display: none;
+        }
+        @media (max-height: 680px) {
+            .sidebar-art { display: none; }
+        }
+        .sidebar-footer {
+            padding: 12px 16px 16px;
+            border-top: 1px solid var(--sidebar-border);
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
@@ -419,7 +543,7 @@
             gap: 12px;
             padding: 10px;
             border-radius: var(--radius-sm);
-            background: rgba(255, 255, 255, 0.55);
+            background: rgba(255, 255, 255, 0.05);
             cursor: pointer;
             text-align: left;
             transition: var(--transition);
@@ -427,9 +551,6 @@
         .sidebar-user:hover {
             background: var(--sidebar-hover-bg);
             transform: translateY(-1px);
-        }
-        [data-theme="dark"] .sidebar-user {
-            background: rgba(255, 255, 255, 0.04);
         }
         .sidebar-avatar {
             width: 38px;
@@ -469,7 +590,6 @@
             color: var(--sidebar-ink-muted);
         }
         .sidebar-copy {
-            margin-top: 10px;
             text-align: center;
             font-size: 10px;
             color: var(--sidebar-ink-muted);
@@ -590,6 +710,23 @@
         .profile-popover-close {
             background: var(--bg-main);
             color: var(--text-dark);
+        }
+        .profile-popover-logout {
+            flex: 1;
+            height: 40px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            border: 1px solid rgba(190, 18, 60, 0.25);
+            background: rgba(190, 18, 60, 0.08);
+            color: #e11d48;
+        }
+        .profile-popover-logout:hover {
+            background: rgba(190, 18, 60, 0.14);
         }
 
         /* ── Popup foto profil ── */
@@ -1064,6 +1201,10 @@
             font-weight: 700;
             color: var(--text-dark);
             line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
         .notif-item-badge {
             font-size: 9.5px;
@@ -1082,6 +1223,10 @@
             color: var(--text-label);
             line-height: 1.45;
             margin: 4px 0 6px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .notif-item-meta {
             display: flex;
@@ -1111,231 +1256,9 @@
         .sidebar-link-badge.pulsing {
             animation: notifPulse 2s ease-out infinite;
         }
-        .access-modal-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(15,23,42,0.62);
-            backdrop-filter: blur(6px);
-            z-index: 500;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-        }
-        .access-modal-backdrop.show {
-            display: flex;
-        }
-        .access-modal {
-            width: min(980px, 100%);
-            max-height: min(82vh, 760px);
-            overflow-y: auto;
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 22px;
-            box-shadow: 0 24px 80px rgba(15,23,42,0.38);
-        }
-        .access-modal-hero {
-            padding: 24px 26px;
-            color: #fff;
-            background: linear-gradient(135deg, #1e3a5f 0%, #4a90d9 48%, #8b5cf6 100%);
-            display: flex;
-            justify-content: space-between;
-            gap: 18px;
-            align-items: flex-start;
-        }
-        .access-modal-title {
-            font-size: 22px;
-            font-weight: 800;
-            margin-bottom: 6px;
-        }
-        .access-modal-subtitle {
-            font-size: 13px;
-            opacity: 0.86;
-            max-width: 680px;
-            line-height: 1.55;
-        }
-        .access-modal-close {
-            width: 36px;
-            height: 36px;
-            border: 1px solid rgba(255,255,255,0.26);
-            border-radius: 999px;
-            background: rgba(255,255,255,0.12);
-            color: #fff;
-            cursor: pointer;
-            font-size: 18px;
-            flex-shrink: 0;
-        }
-        .access-user-strip {
-            margin-top: 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            border-radius: 14px;
-            background: rgba(255,255,255,0.12);
-            border: 1px solid rgba(255,255,255,0.18);
-        }
-        .access-user-avatar {
-            width: 52px;
-            height: 52px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.18);
-            border: 2px solid rgba(255,255,255,0.42);
-            font-size: 18px;
-            font-weight: 800;
-        }
-        .access-user-name {
-            font-weight: 800;
-            font-size: 15px;
-        }
-        .access-user-meta {
-            margin-top: 2px;
-            font-size: 12px;
-            opacity: 0.86;
-        }
-        .access-modal-body {
-            padding: 22px;
-        }
-        .access-modal-footer {
-            padding: 14px 22px 18px;
-            border-top: 1px solid var(--border-subtle);
-            background: rgba(74,144,217,0.05);
-        }
-        .access-modal-footer-link {
-            font-size: 13px;
-            font-weight: 800;
-            color: var(--soft-blue);
-            text-decoration: none;
-        }
-        .access-modal-footer-link:hover { text-decoration: underline; }
-        .access-modal-footer-hint {
-            margin: 6px 0 0;
-            font-size: 11px;
-            line-height: 1.45;
-            color: var(--text-muted);
-        }
-        .access-role-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 16px;
-        }
-        .access-role-card {
-            border: 1px solid var(--border-subtle);
-            border-radius: 18px;
-            background: var(--bg-card);
-            box-shadow: var(--shadow-sm);
-            overflow: hidden;
-            position: relative;
-        }
-        .access-role-card.active {
-            border-color: rgba(74,144,217,0.7);
-            box-shadow: 0 12px 36px rgba(74,144,217,0.2);
-        }
-        .access-role-top {
-            padding: 18px;
-            border-top: 4px solid var(--soft-blue);
-        }
-        .access-role-card.accent-green .access-role-top { border-top-color: #22c55e; }
-        .access-role-card.accent-amber .access-role-top { border-top-color: var(--accent-amber); }
-        .access-role-icon {
-            width: 46px;
-            height: 46px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(74,144,217,0.12);
-            margin-bottom: 12px;
-        }
-        .access-role-icon svg {
-            width: 22px;
-            height: 22px;
-        }
         .sidebar-toggle-btn .icon-wrap svg {
             width: 20px;
             height: 20px;
-        }
-        .access-role-card.accent-green .access-role-icon { background: rgba(34,197,94,0.12); }
-        .access-role-card.accent-amber .access-role-icon { background: rgba(245,158,11,0.14); }
-        .access-role-title {
-            font-size: 15px;
-            font-weight: 800;
-            color: var(--text-dark);
-        }
-        .access-role-subtitle {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 2px;
-            line-height: 1.45;
-        }
-        .access-current-badge {
-            display: inline-flex;
-            margin-top: 10px;
-            padding: 4px 9px;
-            border-radius: 999px;
-            background: rgba(45,212,191,0.13);
-            color: var(--accent-teal);
-            font-size: 11px;
-            font-weight: 800;
-        }
-        .access-role-content {
-            padding: 0 18px 18px;
-        }
-        .access-role-summary {
-            font-size: 12.5px;
-            color: var(--text-label);
-            line-height: 1.55;
-            margin-bottom: 12px;
-        }
-        .access-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin: 0 0 12px;
-            padding: 0;
-        }
-        .access-list li {
-            display: flex;
-            gap: 8px;
-            align-items: flex-start;
-            font-size: 12px;
-            color: var(--text-dark);
-            line-height: 1.45;
-        }
-        .access-list .access-check { color: #16a34a; font-weight: 800; }
-        .access-list .access-cross { color: var(--accent-rose); font-weight: 800; }
-        .access-active-menus {
-            padding-top: 10px;
-            border-top: 1px solid var(--border-subtle);
-        }
-        .access-active-title {
-            font-size: 11px;
-            color: var(--text-muted);
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 8px;
-        }
-        .access-chip-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-        .access-chip {
-            padding: 4px 8px;
-            border-radius: 999px;
-            background: var(--bg-main);
-            border: 1px solid var(--border-subtle);
-            font-size: 11px;
-            color: var(--text-label);
-        }
-        @media (max-width: 960px) {
-            .access-role-grid { grid-template-columns: 1fr; }
-            .access-modal-hero { flex-direction: column; }
         }
         .btn-logout-top {
             display: none;
@@ -1810,7 +1733,8 @@
             .sidebar { display: none; }
             .topbar { padding: 0 16px; gap: 12px; height: 72px; --topbar-height: 72px; }
             .topbar-search { max-width: none; flex: 1 1 auto; min-width: 0; }
-            .topbar-left > div:first-child { display: none; }
+            .topbar-left > div:first-of-type { display: none; }
+            .topbar-burger { display: none; }
             .main-content { padding: 16px; }
             .stats-grid { grid-template-columns: 1fr 1fr; }
             .theme-switch { width: 56px; height: 32px; }
@@ -1971,11 +1895,9 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <a href="{{ Auth::user()->role === 'dosen' ? route('dosen.dashboard') : route('admin.dashboard') }}" class="sidebar-brand">
-                    <div class="sidebar-brand-icon"><img src="{{ asset('branding/aiot-simalas-mark.png') }}?v=7" alt="AIoT SIMALAS"></div>
-                    <div>
-                        <div class="sidebar-brand-text">AIoT SIMALAS</div>
-                        <div class="sidebar-brand-sub">Smart Lab System</div>
-                    </div>
+                    <img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/smartbrail-logo.png')) }}" alt="SmartBrail" class="sidebar-brand-logo">
+                    <span class="sidebar-brand-text sidebar-brand-name">{{ \App\Support\Branding::appName() }}</span>
+                    <div class="sidebar-brand-sub">Portal {{ ['admin' => 'Admin', 'laboran' => 'Laboran', 'dosen' => 'Dosen'][Auth::user()->role] ?? 'Staf' }}</div>
                 </a>
             </div>
 
@@ -1983,7 +1905,36 @@
                 @yield('sidebar-nav')
             </nav>
 
+            <div class="sidebar-art" aria-hidden="true" style="pointer-events:none;height:120px;opacity:.5;flex-shrink:0;overflow:hidden;">
+                <svg viewBox="0 0 252 150" style="width:100%;height:100%;" preserveAspectRatio="xMidYMax slice" fill="none" strokeLinecap="round">
+                    <path d="M-30 58 Q 55 30 130 52 T 290 46" stroke="rgba(34,211,238,.45)" stroke-width="1.8"/>
+                    <path d="M-30 72 Q 65 46 145 64 T 290 56" stroke="rgba(34,211,238,.25)" stroke-width="1.4"/>
+                    <g stroke="rgba(147,197,253,.5)" stroke-width="1.3">
+                        <path d="M8 150 V108 h30 v-12 l10-8 10 8 v12 h22 V150"/>
+                        <path d="M16 116h14M16 126h14M16 136h14"/>
+                        <path d="M60 116h12M60 126h12M60 136h12"/>
+                    </g>
+                    <g stroke="rgba(147,197,253,.65)" stroke-width="1.4">
+                        <path d="M108 150 V64 h36 v-12 l14-10 14 10 v12 h36 V150"/>
+                        <path d="M158 42 V28"/>
+                        <circle cx="158" cy="24" r="3" stroke="rgba(34,211,238,.7)"/>
+                        <path d="M116 76h8M116 86h8M116 96h8M116 106h8M116 116h8M116 126h8"/>
+                        <path d="M132 76h8M132 86h8M132 96h8M132 106h8M132 116h8M132 126h8"/>
+                        <path d="M178 76h8M178 86h8M178 96h8M178 106h8M178 116h8M178 126h8"/>
+                        <path d="M194 76h8M194 86h8M194 96h8M194 106h8M194 116h8M194 126h8"/>
+                        <path d="M150 150 v-16 q8-10 16 0 v16"/>
+                    </g>
+                    <g stroke="rgba(147,197,253,.5)" stroke-width="1.3">
+                        <path d="M214 150 V96 h26 v-10 l8-7 8 7 v10 h18 v54"/>
+                        <path d="M222 104h12M222 114h12M222 124h12M222 134h12"/>
+                        <path d="M256 104h10M256 114h10M256 124h10M256 134h10"/>
+                    </g>
+                    <path d="M0 150 H252" stroke="rgba(147,197,253,.4)" stroke-width="1.5"/>
+                </svg>
+            </div>
+
             <div class="sidebar-footer">
+                <div class="sidebar-copy">SmartBrail v2.1.0 · by AIOT 2026</div>
                 <button type="button" class="sidebar-user" id="sidebarProfileToggle" title="Lihat profil singkat">
                     <div class="sidebar-avatar">
                         @if(Auth::user()->profile_photo_url)
@@ -1997,21 +1948,12 @@
                         <div class="sidebar-user-role">{{ Auth::user()->role_display }}</div>
                     </div>
                 </button>
-                <button type="button" class="sidebar-logout-btn" onclick="confirmLogout()" title="Logout">
+                <button type="button" class="sidebar-logout-btn" onclick="confirmLogout()" title="Keluar">
                     <i data-lucide="log-out"></i>
-                    <span>Logout</span>
+                    <span>Keluar</span>
                 </button>
-                <div class="sidebar-copy">by AIOT SIMALAS 2026</div>
             </div>
         </aside>
-        <button type="button"
-            class="sidebar-edge-toggle"
-            id="sidebarToggle"
-            title="Perkecil sidebar"
-            aria-label="Perkecil sidebar"
-            aria-expanded="true">
-            @include('components.icon', ['name' => 'chevron-left'])
-        </button>
         </div>
 
         <!-- ══════ MAIN AREA ══════ -->
@@ -2019,6 +1961,14 @@
             <!-- Top Bar -->
             <header class="topbar">
                 <div class="topbar-left">
+                    <button type="button"
+                        class="topbar-burger"
+                        id="sidebarToggle"
+                        title="Perkecil sidebar"
+                        aria-label="Perkecil sidebar"
+                        aria-expanded="true">
+                        <i data-lucide="menu"></i>
+                    </button>
                     <div>
                         <div class="topbar-title">@yield('page-title', 'Dashboard')</div>
                         <div class="topbar-subtitle">@yield('page-subtitle', '')</div>
@@ -2042,9 +1992,6 @@
                 </div>
                 <div class="topbar-right">
                     @php
-                        $roleAccessCards = \App\Support\PermissionRegistry::roleAccessCards(optional(Auth::user())->role);
-                        $roleAccessIcons = ['laboran' => 'shield', 'dosen' => 'graduation-cap', 'mahasiswa' => 'user-round'];
-                        $activeRoleLabel = \App\Support\PermissionRegistry::roleLabels()[optional(Auth::user())->role] ?? Auth::user()->role_display;
                         $profileUrl = Auth::user()->role === 'dosen'
                             ? route('dosen.profile')
                             : route('profiles.show', Auth::user());
@@ -2069,92 +2016,6 @@
                         </span>
                     </button>
 
-                    {{-- Role Access Panel --}}
-                    <button class="topbar-btn" id="accessToggle" title="Akses Role SIMALAS" aria-label="Akses Role SIMALAS" type="button">
-                        @include('components.icon', ['name' => 'shield'])
-                    </button>
-                    <div class="access-modal-backdrop" id="accessModal" role="dialog" aria-modal="true" aria-label="Akses Role SIMALAS">
-                        <div class="access-modal">
-                            <div class="access-modal-hero">
-                                <div>
-                                    <div class="access-modal-title">Akses Anda di IoT SIMALAS</div>
-                                    <div class="access-modal-subtitle">
-                                        Ringkasan peran di SIMALAS. Pembatasan menu web berlaku untuk <strong>admin laboran</strong> dan
-                                        <strong>dosen</strong>. Mahasiswa memakai <strong>aplikasi mobile</strong> — bukan dashboard web penuh.
-                                    </div>
-                                    <div class="access-user-strip">
-                                        <div class="access-user-avatar">{{ strtoupper(substr(Auth::user()->nama_lengkap, 0, 2)) }}</div>
-                                        <div>
-                                            <div class="access-user-name">{{ Auth::user()->nama_lengkap }}</div>
-                                            <div class="access-user-meta">
-                                                {{ Auth::user()->email }} · {{ $activeRoleLabel }}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button type="button" class="access-modal-close" id="accessClose" aria-label="Tutup panel akses">×</button>
-                            </div>
-                            <div class="access-modal-body">
-                                <div class="access-role-grid">
-                                    @foreach($roleAccessCards as $roleKey => $card)
-                                        <div class="access-role-card accent-{{ $card['accent'] }} {{ $card['is_active'] ? 'active' : '' }}">
-                                            <div class="access-role-top">
-                                                <div class="access-role-icon"><i data-lucide="{{ $roleAccessIcons[$roleKey] ?? 'key' }}"></i></div>
-                                                <div class="access-role-title">{{ $card['title'] }}</div>
-                                                <div class="access-role-subtitle">{{ $card['subtitle'] }}</div>
-                                                @if($card['is_active'])
-                                                    <span class="access-current-badge">Role aktif Anda</span>
-                                                @endif
-                                            </div>
-                                            <div class="access-role-content">
-                                                <p class="access-role-summary">{{ $card['summary'] }}</p>
-                                                <ul class="access-list">
-                                                    @foreach($card['benefits'] as $benefit)
-                                                        <li><span class="access-check">✓</span><span>{{ $benefit }}</span></li>
-                                                    @endforeach
-                                                </ul>
-                                                @if(!empty($card['limitations']))
-                                                    <ul class="access-list">
-                                                        @foreach($card['limitations'] as $limit)
-                                                            <li><span class="access-cross">×</span><span>{{ $limit }}</span></li>
-                                                        @endforeach
-                                                    </ul>
-                                                @endif
-                                                <div class="access-active-menus">
-                                                    <div class="access-active-title">
-                                                        {{ $roleKey === 'mahasiswa' ? 'Fitur aplikasi mobile' : 'Menu web aktif (dosen / admin)' }}
-                                                    </div>
-                                                    <div class="access-chip-row">
-                                                        @php
-                                                            $chips = $roleKey === 'mahasiswa'
-                                                                ? ['Beranda', 'Absensi', 'Loker & ambil barang tim', 'Pengumuman', 'Profil']
-                                                                : array_values($card['active_menus']);
-                                                        @endphp
-                                                        @forelse($chips as $label)
-                                                            <span class="access-chip">{{ $label }}</span>
-                                                        @empty
-                                                            <span class="access-chip">Tidak ada menu web aktif</span>
-                                                        @endforelse
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                </div>
-                                @if(optional(Auth::user())->role === 'laboran' && \App\Support\PermissionRegistry::canCurrent('role_access'))
-                                    <div class="access-modal-footer">
-                                        <a href="{{ route('admin.role.index') }}" class="access-modal-footer-link">
-                                            Konfigurasi menu web dosen (opsional) →
-                                        </a>
-                                        <p class="access-modal-footer-hint">
-                                            Hanya memengaruhi sidebar dashboard dosen. Tidak mengubah aplikasi mobile mahasiswa.
-                                        </p>
-                                    </div>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-
                     {{-- Notification Bell --}}
                     @php
                         $notifAnnouncements = $notifAnnouncements ?? collect();
@@ -2164,7 +2025,7 @@
                         $notifTotalCount    = $notifTotalCount ?? ($notifUnreadCount + $notifOpsCount);
                         $hasOpsSuggest      = $notifOpsItems->contains(fn ($it) => ($it['id'] ?? '') === 'ops-suggest');
                         $userRole           = optional(Auth::user())->role;
-                        $announcementListRoute = $userRole === 'laboran'
+                        $announcementListRoute = in_array($userRole, ['laboran', 'admin'], true)
                             ? route('admin.announcements.index')
                             : ($userRole === 'dosen' ? route('dosen.announcements') : '#');
                     @endphp
@@ -2233,7 +2094,7 @@
                             @if($announcementListRoute !== '#')
                             <div class="notif-panel-footer">
                                 <a href="{{ $announcementListRoute }}">Lihat riwayat pengumuman →</a>
-                                @if($hasOpsSuggest && $userRole === 'laboran')
+                                @if($hasOpsSuggest && in_array($userRole, ['laboran', 'admin'], true))
                                     <a href="{{ route('admin.suggestions.index', ['status' => 'baru']) }}" style="display:block;margin-top:6px;">Saran &amp; masukan baru →</a>
                                 @endif
                             </div>
@@ -2256,9 +2117,13 @@
                         <div class="profile-menu-dropdown" role="menu" aria-label="Menu profil">
                             <a href="{{ $profileUrl }}" class="profile-menu-item" role="menuitem">
                                 <i data-lucide="user"></i>
-                                <span>Lihat profil</span>
+                                <span>Profil Saya</span>
                             </a>
-                            @if(($userRole ?? null) === 'laboran' && \App\Support\PermissionRegistry::canCurrent('settings', 'view'))
+                            <button type="button" class="profile-menu-item" role="menuitem" onclick="document.getElementById('passwordResetForm').submit()">
+                                <i data-lucide="shield-check"></i>
+                                <span>Ganti Password</span>
+                            </button>
+                            @if(($userRole ?? null) === 'admin' && \App\Support\PermissionRegistry::canCurrent('settings', 'view'))
                                 <a href="{{ route('admin.settings') }}" class="profile-menu-item" role="menuitem">
                                     <i data-lucide="settings"></i>
                                     <span>Pengaturan</span>
@@ -2267,11 +2132,14 @@
                             <div class="profile-menu-divider"></div>
                             <button type="button" class="profile-menu-item is-danger" role="menuitem" onclick="confirmLogout()">
                                 <i data-lucide="log-out"></i>
-                                <span>Logout</span>
+                                <span>Keluar</span>
                             </button>
                         </div>
                     </div>
                     <form method="POST" action="{{ route('logout') }}" id="logoutForm" style="display:none;">
+                        @csrf
+                    </form>
+                    <form method="POST" action="{{ route('profile.password.reset-link') }}" id="passwordResetForm" style="display:none;">
                         @csrf
                     </form>
                 </div>
@@ -2280,6 +2148,7 @@
             <!-- Page Content -->
             <main class="main-content">
                 @if(session('email_verification_pending') && !Auth::user()->email_verified_at)
+                @unless(session('email_verify_optional'))
                 <div class="email-verify-banner" id="emailVerifyBanner">
                     <div class="email-verify-banner__text">
                         <strong>Verifikasi email diperlukan</strong>
@@ -2295,18 +2164,19 @@
                         Verifikasi sekarang
                     </button>
                 </div>
-                <link rel="stylesheet" href="{{ asset('css/email-verify-modal.css') }}?v=7">
+                @endunless
+                <link rel="stylesheet" href="{{ asset('css/email-verify-modal.css') }}?v=12">
                 @if(\App\Support\Recaptcha::isConfigured())
                 <script>window.SIMALAS_RECAPTCHA_SITE_KEY = @json(config('services.recaptcha.site_key'));</script>
                 <script src="{{ asset('js/recaptcha-forms.js') }}?v=4"></script>
                 <script src="https://www.google.com/recaptcha/api.js?onload=simalasRecaptchaReady&amp;render=explicit&amp;hl=id" async defer></script>
                 @endif
                 @include('partials.email-verify-modal')
-                <script src="{{ asset('js/email-verify-modal.js') }}?v=6" defer></script>
+                <script src="{{ asset('js/email-verify-modal.js') }}?v=10" defer></script>
                 @elseif(session('account_verify_success'))
-                <link rel="stylesheet" href="{{ asset('css/email-verify-modal.css') }}?v=7">
+                <link rel="stylesheet" href="{{ asset('css/email-verify-modal.css') }}?v=12">
                 @include('partials.email-verify-modal')
-                <script src="{{ asset('js/email-verify-modal.js') }}?v=6" defer></script>
+                <script src="{{ asset('js/email-verify-modal.js') }}?v=10" defer></script>
                 @endif
                 @yield('content')
             </main>
@@ -2343,6 +2213,9 @@
                 <div class="profile-popover-actions">
                     <a class="profile-popover-link" href="{{ route('profiles.show', Auth::user()) }}">Lihat Profil Lengkap</a>
                     <button type="button" class="profile-popover-close" id="profilePopoverClose">Tutup</button>
+                </div>
+                <div class="profile-popover-actions" style="margin-top:8px;">
+                    <button type="button" class="profile-popover-logout" onclick="confirmLogout()">Keluar</button>
                 </div>
             </div>
         </div>
@@ -2632,11 +2505,6 @@
                 toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
                 toggle.title = collapsed ? 'Buka sidebar' : 'Perkecil sidebar';
                 toggle.setAttribute('aria-label', toggle.title);
-                const icon = toggle.querySelector('[data-lucide]');
-                if (icon) {
-                    icon.setAttribute('data-lucide', collapsed ? 'chevron-right' : 'chevron-left');
-                    if (window.refreshLucideIcons) window.refreshLucideIcons();
-                }
             };
 
             const saved = localStorage.getItem('dashboard_sidebar_collapsed') === '1';
@@ -2649,16 +2517,19 @@
             });
         })();
 
-        // ── Sidebar Dropdown Groups ──
+        // ── Sidebar Dropdown Groups (accordion: maksimal satu terbuka) ──
         (function initSidebarGroups() {
             const groups = document.querySelectorAll('[data-sidebar-group]');
+            const hasActive = [...groups].some((g) => g.dataset.activeGroup);
             groups.forEach((group) => {
                 const button = group.querySelector('[data-sidebar-group-toggle]');
                 const key = group.dataset.sidebarGroup;
                 if (!button || !key) return;
 
                 const saved = localStorage.getItem(`dashboard_sidebar_group_${key}`);
-                if (saved === 'open') {
+                // Grup aktif selalu terbuka; kunci 'open' grup lain diabaikan
+                // bila ada grup aktif (menjaga satu grup terbuka saat load).
+                if (saved === 'open' && (!hasActive || group.dataset.activeGroup)) {
                     group.classList.add('open');
                 } else if (saved === 'closed' && !group.dataset.activeGroup) {
                     group.classList.remove('open');
@@ -2666,8 +2537,12 @@
 
                 button.addEventListener('click', () => {
                     const open = !group.classList.contains('open');
-                    group.classList.toggle('open', open);
-                    localStorage.setItem(`dashboard_sidebar_group_${key}`, open ? 'open' : 'closed');
+                    // Accordion: hanya satu grup terbuka — sisanya tertutup.
+                    groups.forEach((g) => {
+                        const shouldOpen = g === group && open;
+                        g.classList.toggle('open', shouldOpen);
+                        localStorage.setItem(`dashboard_sidebar_group_${g.dataset.sidebarGroup}`, shouldOpen ? 'open' : 'closed');
+                    });
                 });
             });
         })();
@@ -2729,29 +2604,6 @@
             });
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape' && box.classList.contains('is-open')) hide();
-            });
-        })();
-
-        // ── Role Access Panel ──
-        (function initAccessPanel() {
-            const toggle = document.getElementById('accessToggle');
-            const modal = document.getElementById('accessModal');
-            const close = document.getElementById('accessClose');
-            if (!toggle || !modal || !close) return;
-
-            const open = () => modal.classList.add('show');
-            const hide = () => modal.classList.remove('show');
-
-            toggle.addEventListener('click', function (e) {
-                e.stopPropagation();
-                open();
-            });
-            close.addEventListener('click', hide);
-            modal.addEventListener('click', function (e) {
-                if (e.target === modal) hide();
-            });
-            document.addEventListener('keydown', function (e) {
-                if (e.key === 'Escape') hide();
             });
         })();
 
@@ -3121,6 +2973,52 @@
             }
         };
         document.addEventListener('DOMContentLoaded', window.refreshLucideIcons);
+        // Penanda di judul grup sidebar: jumlahkan badge submenu yang tampil —
+        // terlihat walau grup tertutup; ikut diperbarui bila badge berubah dinamis.
+        document.addEventListener('DOMContentLoaded', function () {
+            const refresh = (group) => {
+                const sub = group.querySelector('.sidebar-submenu');
+                const btn = group.querySelector('[data-sidebar-group-toggle]');
+                if (!sub || !btn) return;
+                let sum = 0;
+                sub.querySelectorAll('.sidebar-link-badge').forEach((b) => {
+                    if (b.hidden || b.style.display === 'none') return;
+                    const n = parseInt(b.textContent, 10);
+                    sum += isNaN(n) ? (b.textContent.trim() !== '' ? 1 : 0) : n;
+                });
+                let dot = btn.querySelector('.sidebar-group-badge');
+                if (sum > 0) {
+                    if (!dot) {
+                        dot = document.createElement('span');
+                        dot.className = 'sidebar-group-badge';
+                        btn.insertBefore(dot, btn.querySelector('.sidebar-group-caret'));
+                    }
+                    dot.textContent = sum > 99 ? '99+' : String(sum);
+                } else if (dot) {
+                    dot.remove();
+                }
+            };
+            document.querySelectorAll('.sidebar-group').forEach((g) => {
+                refresh(g);
+                const sub = g.querySelector('.sidebar-submenu');
+                if (sub) {
+                    new MutationObserver(() => refresh(g)).observe(sub, {
+                        childList: true, subtree: true, characterData: true, attributes: true,
+                        attributeFilter: ['style', 'hidden', 'class'],
+                    });
+                }
+            });
+        });
+        // Aksen warna ikon sidebar — algoritma identik dengan sidebar React (hash label ×31 mod 10)
+        document.addEventListener('DOMContentLoaded', function () {
+            const accentOf = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 10; };
+            document.querySelectorAll('.sidebar-link, .sidebar-group-toggle').forEach((el) => {
+                const direct = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
+                const labelEl = el.querySelector('.sidebar-group-label');
+                const label = direct || (labelEl ? labelEl.textContent.trim() : '');
+                if (label) el.dataset.accent = accentOf(label);
+            });
+        });
     </script>
     <script src="{{ asset('js/dashboard-ui-state.js') }}?v=3"></script>
     @yield('scripts')

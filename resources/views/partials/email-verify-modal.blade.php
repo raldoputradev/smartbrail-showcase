@@ -12,12 +12,26 @@
     data-needs-email="{{ $evNeedsEmail ? '1' : '0' }}"
     data-auto-open="{{ $evAutoOpen ? '1' : '0' }}"
     data-show-success="{{ $evShowSuccess ? '1' : '0' }}"
+    data-check-url="{{ route('account-email.check') }}"
     data-verify-email="{{ $evEmail }}">
     <div class="ev-modal {{ $evShowSuccess ? 'is-success' : '' }}" role="dialog" aria-modal="true" aria-labelledby="evModalTitle">
         @unless($evShowSuccess)
         <button type="button" class="ev-modal-close" id="evModalClose" aria-label="Tutup">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
+        <button type="button" class="ev-modal-info" id="evModalInfo" aria-label="Informasi verifikasi" aria-expanded="false">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <div class="ev-info-pop" id="evInfoPop" role="tooltip" hidden>
+            <strong>Cara verifikasi email</strong>
+            <ol>
+                <li>Isi email aktif yang valid (contoh: nama@email.com).</li>
+                <li>Baca &amp; setujui Syarat &amp; Ketentuan (scroll sampai bawah).</li>
+                <li>Centang reCAPTCHA &ldquo;Saya bukan robot&rdquo;.</li>
+                <li>Tekan Kirim Kode, lalu masukkan 6 digit OTP dari inbox.</li>
+            </ol>
+            <span>Akun tetap bisa dipakai walau belum verifikasi — ini hanya pengaman tambahan.</span>
+        </div>
         @endunless
 
         <div class="ev-modal-form-wrap" id="evModalFormWrap">
@@ -60,6 +74,7 @@
                                 <svg class="ev-email-status__bad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
                             </span>
                         </div>
+                        <p class="ev-email-error" id="evEmailError" hidden aria-live="polite"></p>
                         <p class="ev-hint" id="evEmailHint">Kode OTP berlaku 30 menit. Pastikan inbox atau folder spam Anda.</p>
 
                         @if(\App\Support\Recaptcha::isConfigured())
@@ -136,64 +151,136 @@
     </div>
 </div>
 
-{{-- Popup syarat & ketentuan: wajib, tidak bisa ditutup --}}
+{{-- Popup syarat & ketentuan: dua kolom — panel identitas kiri, isi kanan. Bisa ditutup via X; reCAPTCHA tetap terkunci sampai disetujui --}}
 <div class="ev-terms-sheet" id="evTermsSheet" aria-hidden="true" hidden>
-    <div class="ev-terms-sheet__backdrop" aria-hidden="true"></div>
-    <div class="ev-terms-sheet__panel" role="dialog" aria-modal="true" aria-labelledby="evTermsTitle">
-        <div class="ev-terms-sheet__handle" aria-hidden="true"></div>
-        <header class="ev-terms-sheet__head">
-            <h3 id="evTermsTitle">Syarat &amp; Ketentuan</h3>
-            <p>Scroll sampai bawah, lalu centang setuju untuk melanjutkan.</p>
-        </header>
-        <div class="ev-terms-sheet__scroll" id="evTermsScroll">
-            <p class="ev-terms-lead">
-                @if($evIsDosen)
-                    Verifikasi email adalah standar keamanan akun dosen di AIoT SIMALAS sebelum akses panel penuh.
-                @else
-                    Verifikasi email adalah standar keamanan akun di AIoT SIMALAS.
-                @endif
+    <div class="ev-terms-sheet__backdrop" id="evTermsBackdrop" aria-hidden="true"></div>
+    <div class="ev-terms-sheet__panel ev-terms-sheet__panel--split" role="dialog" aria-modal="true" aria-labelledby="evTermsTitle">
+
+        <aside class="ev-terms-side">
+            <div class="ev-terms-side__art" aria-hidden="true">
+                <svg viewBox="0 0 120 110" fill="none">
+                    <ellipse cx="60" cy="55" rx="52" ry="40" stroke="rgba(74,166,255,.35)" stroke-width="1.2" transform="rotate(-18 60 55)"/>
+                    <rect x="34" y="18" width="44" height="58" rx="7" fill="rgba(74,166,255,.10)" stroke="rgba(147,197,253,.7)" stroke-width="1.6"/>
+                    <path d="M42 32h28M42 42h28M42 52h20" stroke="rgba(147,197,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="82" cy="70" r="17" fill="rgba(20,184,166,.15)" stroke="#2dd4bf" stroke-width="1.8"/>
+                    <path d="M75 70l5 5 10-10" stroke="#2dd4bf" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="22" cy="44" r="9" fill="rgba(255,122,0,.14)" stroke="rgba(255,158,60,.8)" stroke-width="1.4"/>
+                    <path d="M22 40v5l3 2" stroke="rgba(255,158,60,.9)" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+            </div>
+
+            <h3 class="ev-terms-side__title">
+                Syarat &amp; Ketentuan<br>Penggunaan Akun {{ $evIsDosen ? 'Dosen' : '' }}
+            </h3>
+            <p class="ev-terms-side__lead">
+                Harap membaca dan memahami seluruh syarat dan ketentuan berikut
+                sebelum melanjutkan proses verifikasi akun Anda.
             </p>
-            <article class="ev-terms-block">
-                <h4>1. Email aktif &amp; dapat diakses</h4>
-                <p>Gunakan email institusi atau pribadi yang Anda cek rutin. Periksa juga folder spam/promosi jika kode belum masuk.</p>
-            </article>
-            <article class="ev-terms-block">
-                <h4>2. OTP bersifat rahasia</h4>
-                <p>Kode 6 digit berlaku 30 menit. Jangan bagikan ke siapapun, termasuk pihak yang mengaku admin atau laboran.</p>
-            </article>
-            <article class="ev-terms-block">
-                <h4>3. Notifikasi &amp; persetujuan akun</h4>
-                <p>
-                    @if($evIsDosen)
-                        Setelah email terverifikasi, akun dosen tetap menunggu persetujuan admin laboran sebelum login penuh ke panel.
-                    @else
-                        Email dipakai untuk notifikasi sistem dan konfirmasi keamanan akun.
-                    @endif
-                </p>
-            </article>
-            <article class="ev-terms-block">
-                <h4>4. Tanggung jawab pengguna</h4>
-                <p>Anda bertanggung jawab menjaga kerahasiaan kredensial, OTP, dan seluruh aktivitas di akun ini.</p>
-            </article>
-            <article class="ev-terms-block">
-                <h4>5. Perlindungan anti-bot</h4>
-                <p>Formulir dilindungi reCAPTCHA Google untuk mencegah penyalahgunaan otomatis dan spam.</p>
-            </article>
-            <article class="ev-terms-block">
-                <h4>6. Kelanjutan proses</h4>
-                <p>Dengan menyetujui, Anda melanjutkan centang reCAPTCHA lalu pengiriman kode OTP ke email yang Anda masukkan.</p>
-            </article>
-            <div class="ev-terms-end">— Akhir syarat &amp; ketentuan —</div>
+
+            <ul class="ev-terms-side__points">
+                <li>
+                    <span class="ev-terms-side__ico"><i data-lucide="shield-check"></i></span>
+                    <div><strong>Keamanan Data</strong><span>Data Anda terlindungi dengan sistem keamanan terbaik.</span></div>
+                </li>
+                <li>
+                    <span class="ev-terms-side__ico"><i data-lucide="check-circle-2"></i></span>
+                    <div><strong>Akses Layanan</strong><span>Dengan menyetujui, Anda dapat mengakses seluruh fitur portal.</span></div>
+                </li>
+                <li>
+                    <span class="ev-terms-side__ico"><i data-lucide="heart-handshake"></i></span>
+                    <div><strong>Komitmen Bersama</strong><span>Mari menjaga integritas dan penggunaan yang bertanggung jawab.</span></div>
+                </li>
+            </ul>
+        </aside>
+
+        <div class="ev-terms-main">
+            <header class="ev-terms-sheet__head">
+                <div>
+                    <h3 id="evTermsTitle">Syarat &amp; Ketentuan</h3>
+                    <p>Scroll ke bawah untuk membaca seluruh ketentuan.</p>
+                </div>
+                <button type="button" class="ev-terms-close" id="evTermsClose" aria-label="Tutup syarat &amp; ketentuan">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </header>
+
+            <div class="ev-terms-sheet__scroll" id="evTermsScroll">
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">1</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="mail"></i></span>
+                    <div>
+                        <h4>Email aktif &amp; dapat diakses</h4>
+                        <p>Gunakan email institusi atau pribadi yang valid dan aktif. Kode OTP dikirim melalui email ini — pastikan Anda dapat mengaksesnya, termasuk folder spam/promosi.</p>
+                    </div>
+                </article>
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">2</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="lock"></i></span>
+                    <div>
+                        <h4>OTP bersifat rahasia</h4>
+                        <p>Kode OTP hanya berlaku selama 30 menit. Jangan bagikan kode tersebut kepada siapa pun, termasuk pihak yang mengaku dari tim SmartBrail.</p>
+                    </div>
+                </article>
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">3</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="bell"></i></span>
+                    <div>
+                        <h4>Notifikasi &amp; persetujuan akun</h4>
+                        <p>
+                            @if($evIsDosen)
+                                Setelah email dan nomor HP terverifikasi, akun Anda akan aktif dan dapat digunakan untuk mengakses seluruh fitur pada portal dosen.
+                            @else
+                                Email dipakai untuk notifikasi sistem dan konfirmasi keamanan akun Anda.
+                            @endif
+                        </p>
+                    </div>
+                </article>
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">4</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="user"></i></span>
+                    <div>
+                        <h4>Tanggung jawab pengguna</h4>
+                        <p>Anda bertanggung jawab menjaga kerahasiaan data akun, termasuk password, OTP, dan seluruh aktivitas yang dilakukan di dalam sistem.</p>
+                    </div>
+                </article>
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">5</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="ban"></i></span>
+                    <div>
+                        <h4>Larangan penyalahgunaan</h4>
+                        <p>Dilarang menggunakan akun untuk tujuan yang melanggar hukum, menyebarkan informasi palsu, atau merugikan pihak lain.</p>
+                    </div>
+                </article>
+                <article class="ev-terms-block">
+                    <span class="ev-terms-block__num">6</span>
+                    <span class="ev-terms-block__ico"><i data-lucide="bot"></i></span>
+                    <div>
+                        <h4>Perlindungan anti-bot</h4>
+                        <p>Formulir ini dilindungi reCAPTCHA Google untuk mencegah penyalahgunaan otomatis dan spam.</p>
+                    </div>
+                </article>
+                <div class="ev-terms-end">— Akhir syarat &amp; ketentuan —</div>
+
+                <div class="ev-terms-agree" id="evTermsAgree">
+                    <p>
+                        Dengan ini saya menyatakan telah membaca, memahami, dan menyetujui
+                        seluruh Syarat &amp; Ketentuan yang berlaku, serta bersedia menerima
+                        kode OTP dan notifikasi keamanan pada email yang saya daftarkan.
+                    </p>
+                    <label class="ev-terms-check" id="evTermsCheckLabel">
+                        <input type="checkbox" id="evTermsCheck" disabled>
+                        <span>Saya telah membaca, memahami, dan menyetujui seluruh syarat &amp; ketentuan yang berlaku.</span>
+                    </label>
+                </div>
+            </div>
+
+            <footer class="ev-terms-sheet__foot">
+                <p class="ev-terms-scroll-hint" id="evTermsScrollHint">Scroll sampai bawah — centang pernyataan di akhir teks untuk melanjutkan</p>
+                <button type="button" class="ev-btn-primary ev-btn-primary--locked" id="evTermsAccept" disabled aria-disabled="true">
+                    Setuju &amp; Lanjutkan
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </button>
+            </footer>
         </div>
-        <footer class="ev-terms-sheet__foot">
-            <p class="ev-terms-scroll-hint" id="evTermsScrollHint">Scroll ke bawah untuk mengaktifkan centang</p>
-            <label class="ev-terms-check" id="evTermsCheckLabel">
-                <input type="checkbox" id="evTermsCheck" disabled>
-                <span>Saya telah membaca dan menyetujui syarat &amp; ketentuan di atas.</span>
-            </label>
-            <button type="button" class="ev-btn-primary ev-btn-primary--locked" id="evTermsAccept" disabled aria-disabled="true">
-                Setuju &amp; Lanjutkan ke reCAPTCHA
-            </button>
-        </footer>
     </div>
 </div>

@@ -35,10 +35,55 @@
     var termsAccept = document.getElementById('evTermsAccept');
     var termsHint = document.getElementById('evTermsScrollHint');
 
-    function isValidEmail(value) {
+    var emailError = document.getElementById('evEmailError');
+    var infoBtn = document.getElementById('evModalInfo');
+    var infoPop = document.getElementById('evInfoPop');
+    var termsClose = document.getElementById('evTermsClose');
+    var termsBackdrop = document.getElementById('evTermsBackdrop');
+
+    // Validasi ketat: kembalikan pesan error spesifik, atau null bila valid
+    function emailErrorReason(value) {
         var v = (value || '').trim();
-        if (!v || v.length > 255) return false;
-        return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+        if (!v) return 'Email wajib diisi.';
+        if (v.length > 255) return 'Email terlalu panjang (maksimal 255 karakter).';
+        if (v.indexOf('@') === -1) return 'Email harus mengandung @ — contoh: nama@email.com';
+        var parts = v.split('@');
+        if (parts.length !== 2) return 'Format email tidak valid — hanya satu tanda @.';
+        var local = parts[0];
+        var domain = parts[1];
+        if (!local) return 'Nama pengguna sebelum @ tidak boleh kosong.';
+        if (local.length > 64) return 'Nama pengguna sebelum @ terlalu panjang.';
+        if (!/^[A-Za-z0-9._%+-]+$/.test(local) || /^\.|\.$/.test(local) || local.indexOf('..') !== -1) {
+            return 'Nama pengguna email tidak valid — hindari titik ganda atau karakter aneh.';
+        }
+        if (!domain) return 'Domain email tidak boleh kosong — contoh: nama@email.com';
+        if (domain.indexOf('.') === -1) return 'Domain tidak valid — gunakan akhiran seperti .com, .ac.id, .co.id, .edu';
+        var labels = domain.split('.');
+        for (var i = 0; i < labels.length; i++) {
+            var lb = labels[i];
+            if (!lb || !/^[A-Za-z0-9-]+$/.test(lb) || /^-|-$/.test(lb)) {
+                return 'Domain tidak valid — periksa ejaan setelah @';
+            }
+        }
+        if (!/^[A-Za-z]{2,}$/.test(labels[labels.length - 1])) {
+            return 'Akhiran domain tidak valid — gunakan seperti .com, .ac.id, .co.id, .edu';
+        }
+        return null;
+    }
+
+    function isValidEmail(value) {
+        return emailErrorReason(value) === null;
+    }
+
+    function setEmailError(msg) {
+        if (!emailError) return;
+        if (msg) {
+            emailError.textContent = msg;
+            emailError.hidden = false;
+        } else {
+            emailError.textContent = '';
+            emailError.hidden = true;
+        }
     }
 
     function recaptchaOk() {
@@ -71,9 +116,9 @@
         if (!emailSubmit) return;
         var emailOk = emailInput ? isValidEmail(emailInput.value) : false;
         var captchaOk = !recaptchaConfigured || recaptchaOk();
-        var ok = emailOk && termsAccepted && captchaOk;
+        var ok = emailOk && !remoteTakenReason && termsAccepted && captchaOk;
         if (!recaptchaConfigured) {
-            ok = emailOk && termsAccepted;
+            ok = emailOk && !remoteTakenReason && termsAccepted;
         }
         emailSubmit.disabled = !ok;
         emailSubmit.setAttribute('aria-disabled', ok ? 'false' : 'true');
@@ -100,6 +145,74 @@
         updateEmailSubmit();
     }
 
+    // Cek ketersediaan email ke server — email yang sudah dipakai akun lain
+    // langsung ditolak di UI sebelum submit.
+    var checkUrl = backdrop.dataset.checkUrl || '';
+    var remoteTakenReason = null;
+    var emailCheckTimer = null;
+    var emailCheckSeq = 0;
+
+    function queueEmailCheck() {
+        remoteTakenReason = null;
+        if (!checkUrl || !emailInput) return;
+        var v = emailInput.value.trim();
+        if (emailErrorReason(v) !== null) return; // format lokal belum valid — jangan spam server
+        clearTimeout(emailCheckTimer);
+        emailCheckTimer = setTimeout(function () {
+            var seq = ++emailCheckSeq;
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            fetch(checkUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': meta ? meta.content : '',
+                },
+                body: JSON.stringify({ email: v }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (seq !== emailCheckSeq) return; // respons usang
+                    if (d && d.ok && d.available === false && d.reason) {
+                        remoteTakenReason = d.reason;
+                        if (emailInput.value.trim() === v) {
+                            setEmailVisual('invalid');
+                            setEmailError(remoteTakenReason);
+                        }
+                    } else {
+                        remoteTakenReason = null;
+                    }
+                    updateEmailSubmit();
+                })
+                .catch(function () {
+                    // Jaringan gagal — validasi unique di server tetap jadi gerbang akhir.
+                });
+        }, 450);
+    }
+
+    // Gate: reCAPTCHA hanya boleh dibuka setelah email valid
+    function requireValidEmail() {
+        if (!emailInput) return true;
+        if (remoteTakenReason) {
+            setEmailVisual('invalid');
+            setEmailError(remoteTakenReason);
+            emailInput.focus();
+            return false;
+        }
+        var reason = emailErrorReason(emailInput.value);
+        if (reason) {
+            setEmailVisual('invalid');
+            setEmailError(reason);
+            emailWrap.classList.add('is-shake');
+            setTimeout(function () { emailWrap.classList.remove('is-shake'); }, 500);
+            emailInput.focus();
+            return false;
+        }
+        setEmailError(null);
+        return true;
+    }
+
     function openTermsSheet() {
         if (!termsSheet) return;
         scrolledToEnd = false;
@@ -110,7 +223,7 @@
         }
         if (termsHint) {
             termsHint.hidden = false;
-            termsHint.textContent = 'Scroll ke bawah untuk mengaktifkan centang';
+            termsHint.textContent = 'Scroll sampai bawah — centang pernyataan di akhir teks';
         }
         updateTermsAccept();
         termsSheet.hidden = false;
@@ -121,7 +234,6 @@
     }
 
     function closeTermsSheet() {
-        // Hanya dipanggil setelah setuju — tidak ada batal
         if (!termsSheet) return;
         termsSheet.classList.remove('is-open');
         termsSheet.setAttribute('aria-hidden', 'true');
@@ -137,7 +249,7 @@
         if (termsCheck) termsCheck.disabled = !reached;
         if (termsHint) {
             termsHint.hidden = reached;
-            if (!reached) termsHint.textContent = 'Scroll ke bawah untuk mengaktifkan centang';
+            if (!reached) termsHint.textContent = 'Scroll sampai bawah — centang pernyataan di akhir teks';
         }
         if (!reached && termsCheck) termsCheck.checked = false;
         updateTermsAccept();
@@ -175,20 +287,41 @@
 
         emailInput.addEventListener('input', function () {
             var v = emailInput.value.trim();
-            if (!v) setEmailVisual('');
-            else setEmailVisual(isValidEmail(v) ? 'valid' : 'invalid');
+            if (!v) {
+                setEmailVisual('');
+                setEmailError(null);
+            } else {
+                var reason = emailErrorReason(v);
+                setEmailVisual(reason ? 'invalid' : 'valid');
+                setEmailError(reason);
+                if (!reason) queueEmailCheck();
+                else remoteTakenReason = null;
+            }
             updateEmailSubmit();
         });
 
         emailInput.addEventListener('blur', function () {
             var v = emailInput.value.trim();
-            if (v) setEmailVisual(isValidEmail(v) ? 'valid' : 'invalid');
+            if (v) {
+                var reason = emailErrorReason(v);
+                setEmailVisual(reason ? 'invalid' : 'valid');
+                setEmailError(reason);
+            }
         });
 
         emailForm.addEventListener('submit', function (e) {
-            if (!isValidEmail(emailInput.value)) {
+            if (remoteTakenReason) {
                 e.preventDefault();
                 setEmailVisual('invalid');
+                setEmailError(remoteTakenReason);
+                emailInput.focus();
+                return;
+            }
+            var reason = emailErrorReason(emailInput.value);
+            if (reason) {
+                e.preventDefault();
+                setEmailVisual('invalid');
+                setEmailError(reason);
                 emailInput.focus();
                 return;
             }
@@ -231,8 +364,10 @@
     }
 
     function closeModal() {
-        // Jangan tutup kalau terms sheet masih terbuka
-        if (termsSheet && termsSheet.classList.contains('is-open')) return;
+        // Tutup terms sheet dulu bila masih terbuka
+        if (termsSheet && termsSheet.classList.contains('is-open')) {
+            closeTermsSheet();
+        }
         backdrop.classList.remove('is-open');
         backdrop.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
@@ -256,7 +391,31 @@
         captchaHit.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // Email valid dulu → baru S&K → baru reCAPTCHA
+            if (!requireValidEmail()) return;
             openTermsSheet();
+        });
+    }
+
+    if (termsClose) {
+        termsClose.addEventListener('click', closeTermsSheet);
+    }
+    if (termsBackdrop) {
+        termsBackdrop.addEventListener('click', closeTermsSheet);
+    }
+
+    if (infoBtn && infoPop) {
+        infoBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var open = infoPop.hidden;
+            infoPop.hidden = !open;
+            infoBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+            if (infoPop.hidden) return;
+            if (infoPop.contains(e.target) || infoBtn.contains(e.target)) return;
+            infoPop.hidden = true;
+            infoBtn.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -277,13 +436,20 @@
         });
     }
 
-    if (bannerToggle) {
-        bannerToggle.addEventListener('click', function () {
-            var step = needsEmail ? 'email' : 'otp';
-            showStep(step);
-            openModal(step);
-        });
+    function openFromTrigger() {
+        var step = needsEmail ? 'email' : 'otp';
+        showStep(step);
+        openModal(step);
     }
+
+    if (bannerToggle) {
+        bannerToggle.addEventListener('click', openFromTrigger);
+    }
+
+    // Pemicu tambahan (mis. tombol "Verifikasi Email" di halaman profil)
+    document.querySelectorAll('[data-email-verify-open]').forEach(function (el) {
+        el.addEventListener('click', openFromTrigger);
+    });
 
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (doneBtn) doneBtn.addEventListener('click', closeModal);
@@ -294,9 +460,14 @@
 
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
-            // Terms wajib: Escape tidak menutup sheet
+            if (infoPop && !infoPop.hidden) {
+                infoPop.hidden = true;
+                if (infoBtn) infoBtn.setAttribute('aria-expanded', 'false');
+                return;
+            }
+            // Escape menutup terms sheet (batal), tapi reCAPTCHA tetap terkunci
             if (termsSheet && termsSheet.classList.contains('is-open')) {
-                e.preventDefault();
+                closeTermsSheet();
                 return;
             }
             if (backdrop.classList.contains('is-open') && !showSuccess) closeModal();

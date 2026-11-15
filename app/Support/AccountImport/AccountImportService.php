@@ -3,24 +3,27 @@
 namespace App\Support\AccountImport;
 
 use App\Models\ProgramStudi;
+use App\Models\RuanganPetugas;
 use App\Models\User;
 use App\Support\AccountActivation;
+use App\Support\FingerIdAllocator;
 use App\Support\MahasiswaProfileOptions;
 use App\Support\PermissionRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Import akun: pratinjau (tanpa menulis user) → konfirmasi → buat akun menunggu aktivasi.
+ * Import akun: pratinjau (tanpa menulis user) → konfirmasi → buat akun.
  *
- * Status baris: siap | dibuat | duplikat | gagal | dilewati.
- * Akun existing tidak pernah diubah. Kode aktivasi hanya ada di kartu sekali unduh (terenkripsi
- * di cache singkat), tidak pernah di laporan maupun file pratinjau.
+ * - Mahasiswa: langsung aktif (approved + is_active = 1) dengan password sementara unik (must_change_password = 1).
+ * - Dosen & laboran: menunggu aktivasi mandiri (approval_status = menunggu_aktivasi + is_active = 0).
+ * Akun existing tidak pernah diubah. Kredensial sementara hanya ada di kartu sekali unduh.
  */
 class AccountImportService
 {
@@ -32,7 +35,7 @@ class AccountImportService
 
     public const STATUS_LABELS = [
         'siap' => 'Siap dibuat',
-        'dibuat' => 'Dibuat — menunggu aktivasi',
+        'dibuat' => 'Dibuat — aktif (password sementara)',
         'duplikat' => 'Duplikat',
         'gagal' => 'Gagal validasi',
         'dilewati' => 'Dilewati',
@@ -48,8 +51,21 @@ class AccountImportService
         return $actor !== null
             && in_array($type, AccountImportTemplate::TYPES, true)
             && $actor->is_active
-            && $actor->role === 'laboran'
+            && in_array($actor->role, ['admin', 'laboran'], true)
             && PermissionRegistry::can($actor->role, 'users', 'create');
+    }
+
+    /** Hak menerbitkan ulang kode aktivasi / mereset password sementara = laboran aktif + users.update. */
+    public static function canManageTemporaryCredentials(?User $actor, User $target): bool
+    {
+        if ($actor === null || !$actor->is_active || ! in_array($actor->role, ['admin', 'laboran'], true)) {
+            return false;
+        }
+        if ($actor->id === $target->id) {
+            return false;
+        }
+
+        return PermissionRegistry::can($actor->role, 'users', 'update');
     }
 
     public function preview(string $type, string $path, string $originalName, User $actor): array
@@ -59,14 +75,14 @@ class AccountImportService
         }
         $this->purgeOld();
 
-        $table = $this->reader->read($path, $originalName);
+        $table = $this->reader->read($path, $originalName, $this->expectedHeaders($type));
         [$map, $notices] = $this->mapHeaders($type, $table['headers']);
 
         $rows = [];
         foreach ($table['rows'] as $row) {
             $rows[] = $this->validateRow($type, $map, $row);
         }
-        $this->markDuplicates($rows);
+        $this->markDuplicates($type, $rows);
 
         $payload = [
             'token' => Str::random(40),
@@ -140,13 +156,52 @@ class AccountImportService
                 }
 
                 $values = $row['values'];
-                if ($type === 'mahasiswa' && !in_array((int) $values['program_studi_id'], $prodiIds, true)) {
+                $rowType = $values['role'] ?? $type;
+
+                // Petugas/CS: bukan akun portal — record ruangan_petugas untuk akses mesin.
+                if ($type === 'petugas') {
+                    try {
+                        $created = DB::transaction(function () use ($values) {
+                            $exists = RuanganPetugas::query()
+                                ->whereRaw('LOWER(id_internal) = ?', [mb_strtolower($values['id_internal'])])
+                                ->lockForUpdate()
+                                ->exists();
+                            if ($exists) {
+                                return false;
+                            }
+                            RuanganPetugas::create([
+                                'nama' => $values['nama_lengkap'],
+                                'id_internal' => $values['id_internal'],
+                                'tipe_kredensial' => $values['tipe_kredensial'],
+                                'kredensial_hash' => $this->hashPetugasKredensial($values['tipe_kredensial'], $values['kredensial']),
+                                'status' => 'aktif',
+                                'berlaku_mulai' => $values['berlaku_mulai'] !== '' ? $values['berlaku_mulai'] : null,
+                                'berlaku_selesai' => $values['berlaku_selesai'] !== '' ? $values['berlaku_selesai'] : null,
+                                'jadwal' => [],
+                            ]);
+
+                            return true;
+                        });
+                    } catch (\Throwable $e) {
+                        Log::warning('Petugas import row failed', ['batch' => $batch, 'line' => $row['line'], 'error' => $e->getMessage()]);
+                        $payload['rows'][$i] = $this->outcome($row, 'gagal', 'Gagal disimpan ke database; baris lain tetap diproses.');
+                        continue;
+                    }
+
+                    $payload['rows'][$i] = $created
+                        ? $this->outcome($row, 'dibuat', 'Petugas dibuat; tanpa akun portal — jadwal ruangan diatur di halaman Petugas Ruangan.')
+                        : $this->outcome($row, 'duplikat', 'ID internal sudah dipakai petugas lain (dibuat setelah pratinjau); data tidak diubah.');
+                    continue;
+                }
+
+                if ($rowType === 'mahasiswa' && !in_array((int) $values['program_studi_id'], $prodiIds, true)) {
                     $payload['rows'][$i] = $this->outcome($row, 'gagal', 'Program studi sudah tidak aktif sejak pratinjau.');
                     continue;
                 }
 
+                $createdUser = null;
                 try {
-                    $card = DB::transaction(function () use ($type, $values, $fresh, $request, $batch) {
+                    $card = DB::transaction(function () use ($rowType, $values, $fresh, $request, $batch, &$createdUser) {
                         $exists = User::query()
                             ->whereRaw('LOWER(nitk_nidn) = ?', [mb_strtolower($values['nitk_nidn'])])
                             ->lockForUpdate()
@@ -156,12 +211,37 @@ class AccountImportService
                         }
 
                         $user = new User;
-                        $user->forceFill($this->userAttributes($type, $values));
+                        $user->forceFill($this->userAttributes($rowType, $values));
                         $user->save();
 
-                        AccountActivation::log($user, $fresh, $request, 'admin_created',
-                            "Dibuat lewat import akun (batch {$batch}); menunggu aktivasi mandiri oleh pemilik.");
-                        $issued = AccountActivation::issueCode($user, $fresh, $request, "Kode aktivasi awal dari import (batch {$batch}).");
+                        if ($rowType === 'mahasiswa') {
+                            $user = FingerIdAllocator::ensureForMahasiswa($user);
+                        }
+                        $user = \App\Support\KartuAksesAllocator::ensure($user);
+                        AccountActivation::log(
+                            $user,
+                            $fresh,
+                            $request,
+                            'admin_created',
+                            "Dibuat lewat import akun (batch {$batch}); aktif dengan password sementara (wajib ganti password saat login pertama)."
+                        );
+                        $issued = $rowType === 'mahasiswa'
+                            ? AccountActivation::issueTemporaryPasswordForMahasiswa(
+                                $user,
+                                $fresh,
+                                $request,
+                                "Password sementara awal dari import (batch {$batch}).",
+                                false
+                            )
+                            : AccountActivation::issueTemporaryPassword(
+                                $user,
+                                $fresh,
+                                $request,
+                                "Password sementara awal dari import (batch {$batch}).",
+                                false
+                            );
+
+                        $createdUser = $user;
 
                         return [
                             'nitk_nidn' => $user->nitk_nidn,
@@ -184,7 +264,29 @@ class AccountImportService
                 }
 
                 $cards[] = $card;
-                $payload['rows'][$i] = $this->outcome($row, 'dibuat', 'Akun dibuat; pemilik perlu aktivasi mandiri.');
+                $reason = 'Akun dibuat; login pertama memakai password sementara (wajib ganti password). Kendala login dilaporkan ke laboran/dosen.';
+
+                // Tautkan tim hasil import ke proyek PBL yang cocok (nama/kode) → PblTeamMember.
+                if ($createdUser && $createdUser->role === 'mahasiswa' && ($values['tim'] ?? '') !== '') {
+                    $project = \App\Models\PblProject::query()
+                        ->where('nama', $values['tim'])
+                        ->orWhere('kode', $values['tim'])
+                        ->first();
+                    if ($project) {
+                        \App\Models\PblTeamMember::firstOrCreate(
+                            ['pbl_project_id' => $project->id, 'user_id' => $createdUser->id],
+                            ['role' => \App\Models\PblTeamMember::ROLE_ANGGOTA, 'assigned_by' => $fresh->id]
+                        );
+                        $createdUser->tim = $project->nama;
+                        $createdUser->shift = $project->shift_sesi ?: $createdUser->shift;
+                        $createdUser->save();
+                        $reason .= " Masuk tim PBL '{$project->nama}'.";
+                    } else {
+                        $reason .= " Tim '{$values['tim']}' belum ada sebagai proyek PBL — buat proyeknya di menu Proyek PBL lalu assign ulang.";
+                    }
+                }
+
+                $payload['rows'][$i] = $this->outcome($row, 'dibuat', $reason);
             }
 
             $payload['state'] = 'applied';
@@ -237,12 +339,18 @@ class AccountImportService
         $idLabel = strtoupper(AccountImportTemplate::identifierColumn($payload['type']));
         fputcsv($out, ['baris_file', $idLabel, 'nama_lengkap', 'role', 'status', 'alasan'], ',', '"', '');
         foreach ($payload['rows'] as $row) {
+            $rowRole = $row['role'] ?? $payload['type'];
+            $statusLabel = ($row['status'] ?? '') === 'dibuat' && $rowRole === 'petugas'
+                ? 'Dibuat — petugas ruangan'
+                : (($row['status'] ?? '') === 'dibuat'
+                    ? 'Dibuat — aktif (wajib ganti password)'
+                    : (self::STATUS_LABELS[$row['status']] ?? $row['status']));
             fputcsv($out, array_map([self::class, 'safeCell'], [
                 (string) $row['line'],
                 (string) ($row['identifier'] ?? ''),
                 (string) ($row['nama'] ?? ''),
-                $payload['type'],
-                self::STATUS_LABELS[$row['status']] ?? $row['status'],
+                $rowRole,
+                $statusLabel,
                 (string) $row['reason'],
             ]), ',', '"', '');
         }
@@ -256,15 +364,19 @@ class AccountImportService
         return $csv;
     }
 
-    /** @param  list<array<string, string>>  $cards */
-    public function cardsCsv(array $cards, string $activationUrl): string
+    /**
+     * @param  list<array<string, string>>  $cards
+     * @param  array<string, string>  $loginUrls  peta role => URL halaman login ('default' sebagai fallback)
+     */
+    public function cardsCsv(array $cards, array $loginUrls): string
     {
         $out = fopen('php://temp', 'r+');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['nitk_nidn', 'nama_lengkap', 'role', 'kode_aktivasi', 'berlaku_sampai', 'halaman_aktivasi'], ',', '"', '');
+        fputcsv($out, ['nitk_nidn', 'nama_lengkap', 'role', 'password_sementara', 'berlaku_sampai', 'halaman_login'], ',', '"', '');
         foreach ($cards as $card) {
+            $url = $loginUrls[$card['role'] ?? ''] ?? $loginUrls['default'] ?? '';
             fputcsv($out, array_map([self::class, 'safeCell'], [
-                $card['nitk_nidn'], $card['nama_lengkap'], $card['role'], $card['kode'], $card['berlaku_sampai'], $activationUrl,
+                $card['nitk_nidn'], $card['nama_lengkap'], $card['role'], $card['kode'], $card['berlaku_sampai'], $url,
             ]), ',', '"', '');
         }
         rewind($out);
@@ -286,6 +398,19 @@ class AccountImportService
      * @param  list<string>  $headers
      * @return array{0: array<string, int>, 1: list<string>}
      */
+    /** Nama header yang dikenali untuk deteksi sheet & baris header pada file ber-format bebas. */
+    private function expectedHeaders(string $type): array
+    {
+        $names = array_merge(
+            array_keys(AccountImportTemplate::columns($type)),
+            array_keys(AccountImportTemplate::aliases($type)),
+            AccountImportTemplate::IGNORED_SENSITIVE,
+            ['nim', 'nidn', 'nitk', 'id']
+        );
+
+        return array_fill_keys($names, true);
+    }
+
     private function mapHeaders(string $type, array $headers): array
     {
         $columns = AccountImportTemplate::columns($type);
@@ -301,14 +426,13 @@ class AccountImportService
                 continue;
             }
             $name = $aliases[$name] ?? $name;
-            if (in_array($name, $otherIds, true)) {
-                throw new ImportFileException("Kolom \"{$raw}\" bukan untuk import {$type}. Gunakan template ".AccountImportTemplate::label($type).'.');
-            }
             if (isset($columns[$name])) {
                 if (isset($map[$name])) {
                     throw new ImportFileException("Kolom \"{$name}\" muncul lebih dari sekali di header.");
                 }
                 $map[$name] = $index;
+            } elseif (in_array($name, $otherIds, true)) {
+                throw new ImportFileException("Kolom \"{$raw}\" bukan untuk import {$type}. Gunakan template ".AccountImportTemplate::label($type).'.');
             } elseif (in_array($name, AccountImportTemplate::IGNORED_SENSITIVE, true)) {
                 $sensitive[] = $raw;
             } else {
@@ -325,10 +449,13 @@ class AccountImportService
         if ($missing !== []) {
             throw new ImportFileException('Kolom wajib tidak ada: '.implode(', ', $missing).'. Gunakan template '.AccountImportTemplate::label($type).'.');
         }
+        if ($type === 'semua' && ! isset($map['nim']) && ! isset($map['nidn']) && ! isset($map['nitk'])) {
+            throw new ImportFileException('Sediakan minimal satu kolom identitas: nim, nidn, atau nitk.');
+        }
 
         $notices = [];
         if ($sensitive !== []) {
-            $notices[] = 'Kolom '.implode(', ', $sensitive).' diabaikan: email, nomor HP, dan password diisi sendiri oleh pemilik akun saat aktivasi; status dan finger ID tidak bisa diatur lewat import.';
+            $notices[] = 'Kolom '.implode(', ', $sensitive).' diabaikan: email, nomor HP, dan password diisi sendiri oleh pemilik akun; status dan finger ID tidak bisa diatur lewat import.';
         }
         if ($ignored !== []) {
             $notices[] = 'Kolom tidak dikenal diabaikan: '.implode(', ', $ignored).'.';
@@ -354,17 +481,44 @@ class AccountImportService
         }
 
         $idCol = AccountImportTemplate::identifierColumn($type);
-        $identifier = $raw[$idCol] ?? '';
         $nama = $raw['nama_lengkap'] ?? '';
-        $base = ['line' => $row['line'], 'identifier' => mb_substr($identifier, 0, 60), 'nama' => mb_substr($nama, 0, 120), 'values' => []];
+        $base = ['line' => $row['line'], 'identifier' => '', 'nama' => mb_substr($nama, 0, 120), 'values' => []];
 
         $allEmpty = $issues === [] && implode('', $raw) === '';
         if ($allEmpty) {
             return $base + ['status' => 'dilewati', 'reason' => 'Baris kosong.'];
         }
+        // Baris penanda template yang hanya mengisi kolom role (tanpa data lain) bukan data akun.
+        $nonRoleFilled = array_diff_key(array_filter($raw, fn ($v) => $v !== ''), ['role' => true]);
+        if ($issues === [] && $nonRoleFilled === []) {
+            return $base + ['status' => 'dilewati', 'reason' => 'Baris penanda template (hanya kolom role terisi) — dilewati.'];
+        }
+        // Baris contoh template (nama diawali "CONTOH") tidak pernah dibuatkan akun.
+        if (str_starts_with(mb_strtolower(trim($nama)), 'contoh')) {
+            return $base + ['status' => 'dilewati', 'reason' => 'Baris contoh dari template — dilewati otomatis.'];
+        }
         if ($issues !== []) {
             return $base + ['status' => 'gagal', 'reason' => ucfirst(implode('; ', $issues)).'.'];
         }
+
+        // Semua Role: kolom identitas dipilih dari yang terisi (nim=mahasiswa, nidn=dosen, nitk=laboran).
+        if ($type === 'semua') {
+            $filledId = [];
+            foreach (['nim' => 'mahasiswa', 'nidn' => 'dosen', 'nitk' => 'laboran'] as $c => $r) {
+                if (($raw[$c] ?? '') !== '') {
+                    $filledId[$c] = $r;
+                }
+            }
+            if (count($filledId) !== 1) {
+                return $base + ['status' => 'gagal', 'reason' => count($filledId) === 0
+                    ? 'Isi salah satu kolom identitas (nim, nidn, atau nitk).'
+                    : 'Isi tepat satu kolom identitas — baris ini mengisi '.count($filledId).' kolom.', 'role' => 'semua'];
+            }
+            $idCol = array_key_first($filledId);
+        }
+
+        $identifier = $raw[$idCol] ?? '';
+        $base['identifier'] = mb_substr($identifier, 0, 60);
 
         $errors = [];
         $idLabel = strtoupper($idCol);
@@ -381,22 +535,95 @@ class AccountImportService
             $errors[] = 'nama_lengkap lebih dari 255 karakter';
         }
 
+        if ($type === 'petugas') {
+            return $this->validatePetugas($raw, $base, $errors);
+        }
+
         $role = mb_strtolower($raw['role'] ?? '');
-        if ($role !== '' && $role !== $type) {
+        $rowType = $type;
+        if ($type === 'semua') {
+            $rowType = match ($idCol) {
+                'nim' => 'mahasiswa',
+                'nidn' => 'dosen',
+                'nitk' => 'laboran',
+                default => 'semua',
+            };
+            if ($role !== '' && $role !== $rowType) {
+                $errors[] = "kolom role \"{$raw['role']}\" tidak cocok dengan kolom identitas {$idCol} ({$rowType})";
+            }
+        } elseif ($role !== '' && $role !== $type) {
             $errors[] = "kolom role \"{$raw['role']}\" tidak sesuai jenis import {$type} (role di file tidak memberi hak akses)";
         }
 
-        $values = ['nitk_nidn' => $identifier, 'nama_lengkap' => $nama];
+        $values = ['nitk_nidn' => $identifier, 'nama_lengkap' => $nama, 'role' => $rowType];
 
-        if ($type === 'mahasiswa') {
+        if ($rowType === 'mahasiswa') {
             $values += $this->validateMahasiswa($raw, $errors);
         }
 
         if ($errors !== []) {
-            return $base + ['status' => 'gagal', 'reason' => ucfirst(implode('; ', $errors)).'.'];
+            return $base + ['status' => 'gagal', 'reason' => ucfirst(implode('; ', $errors)).'.', 'role' => $rowType];
         }
 
-        return array_merge($base, ['values' => $values, 'status' => 'siap', 'reason' => 'Akan dibuat dengan status menunggu aktivasi.']);
+        $readyReason = 'Akan dibuat aktif dengan password sementara (wajib ganti password saat login pertama).';
+
+        return array_merge($base, ['values' => $values, 'status' => 'siap', 'reason' => $readyReason, 'role' => $rowType]);
+    }
+
+    /** Validasi baris petugas/CS — record ruangan_petugas, bukan akun portal. */
+    private function validatePetugas(array $raw, array $base, array $errors): array
+    {
+        $tipe = mb_strtolower($raw['tipe_kredensial'] ?? '');
+        $autoPin = false;
+        if ($tipe === '') {
+            $tipe = 'pin';
+            $autoPin = true;
+        } elseif (! in_array($tipe, ['pin', 'rfid', 'fingerprint'], true)) {
+            $errors[] = 'tipe_kredensial harus pin, rfid, atau fingerprint';
+        }
+        $kredensial = $raw['kredensial'] ?? '';
+        if ($kredensial === '') {
+            if (! $autoPin && $tipe !== 'pin') {
+                $errors[] = 'kredensial wajib diisi untuk tipe '.$tipe;
+            } else {
+                $kredensial = (string) random_int(100000, 999999);
+                $autoPin = true;
+            }
+        } elseif (mb_strlen($kredensial) > 128) {
+            $errors[] = 'kredensial lebih dari 128 karakter';
+        }
+        if ($base['nama'] !== '' && mb_strlen($base['nama']) > 120) {
+            $errors[] = 'nama_lengkap lebih dari 120 karakter';
+        }
+        foreach (['berlaku_mulai', 'berlaku_selesai'] as $f) {
+            $v = $raw[$f] ?? '';
+            if ($v !== '' && ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+                $errors[] = "{$f} harus format YYYY-MM-DD";
+            }
+        }
+        if (($raw['berlaku_mulai'] ?? '') !== '' && ($raw['berlaku_selesai'] ?? '') !== ''
+            && $raw['berlaku_selesai'] < $raw['berlaku_mulai']) {
+            $errors[] = 'berlaku_selesai harus sama atau setelah berlaku_mulai';
+        }
+
+        if ($errors !== []) {
+            return $base + ['status' => 'gagal', 'reason' => ucfirst(implode('; ', $errors)).'.', 'role' => 'petugas'];
+        }
+
+        return array_merge($base, [
+            'values' => [
+                'id_internal' => $base['identifier'],
+                'nama_lengkap' => $base['nama'],
+                'tipe_kredensial' => $tipe,
+                'kredensial' => $kredensial,
+                'berlaku_mulai' => $raw['berlaku_mulai'] ?? '',
+                'berlaku_selesai' => $raw['berlaku_selesai'] ?? '',
+            ],
+            'status' => 'siap',
+            'reason' => 'Akan dibuat sebagai petugas ruangan (tanpa akun portal); jadwal diatur di halaman Petugas Ruangan.'
+                .($autoPin ? ' Kredensial kosong — PIN acak dibuat otomatis, atur ulang di halaman Petugas Ruangan.' : ''),
+            'role' => 'petugas',
+        ]);
     }
 
     private function validateMahasiswa(array $raw, array &$errors): array
@@ -410,6 +637,25 @@ class AccountImportService
                 $errors[] = "{$field} lebih dari 80 karakter";
             }
             $out[$field] = $value;
+        }
+
+        // Normalisasi tim: terima "KODE | Nama" dan petakan kode → nama proyek resmi.
+        if (($out['tim'] ?? '') !== '') {
+            if (str_contains($out['tim'], '|')) {
+                $out['tim'] = trim((string) preg_replace('/^[^|]+\|\s*/', '', $out['tim']));
+            }
+            static $pblByNama = null;
+            static $pblByKode = null;
+            if ($pblByNama === null) {
+                $pblByNama = [];
+                $pblByKode = [];
+                foreach (\App\Models\PblProject::query()->get(['kode', 'nama']) as $proj) {
+                    $pblByNama[mb_strtolower((string) $proj->nama)] = (string) $proj->nama;
+                    $pblByKode[mb_strtolower((string) $proj->kode)] = (string) $proj->nama;
+                }
+            }
+            $key = mb_strtolower($out['tim']);
+            $out['tim'] = $pblByNama[$key] ?? $pblByKode[$key] ?? $out['tim'];
         }
 
         $maxYear = now()->year + 1;
@@ -459,12 +705,17 @@ class AccountImportService
         return $out;
     }
 
-    private function markDuplicates(array &$rows): void
+    private function rowKey(array $row): string
+    {
+        return mb_strtolower($row['values']['nitk_nidn'] ?? $row['values']['id_internal'] ?? '');
+    }
+
+    private function markDuplicates(string $type, array &$rows): void
     {
         $byKey = [];
         foreach ($rows as $i => $row) {
             if ($row['status'] === 'siap') {
-                $byKey[mb_strtolower($row['values']['nitk_nidn'])][] = $i;
+                $byKey[$this->rowKey($row)][] = $i;
             }
         }
 
@@ -483,20 +734,31 @@ class AccountImportService
         $keys = [];
         foreach ($rows as $row) {
             if ($row['status'] === 'siap') {
-                $keys[] = mb_strtolower($row['values']['nitk_nidn']);
+                $keys[] = $this->rowKey($row);
             }
         }
         $existing = [];
-        foreach (array_chunk($keys, 500) as $chunk) {
-            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-            foreach (User::query()->whereRaw("LOWER(nitk_nidn) IN ({$placeholders})", $chunk)->pluck('nitk_nidn') as $id) {
-                $existing[mb_strtolower($id)] = true;
+        if ($type === 'petugas') {
+            foreach (array_chunk($keys, 500) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                foreach (RuanganPetugas::query()->whereRaw("LOWER(id_internal) IN ({$placeholders})", $chunk)->pluck('id_internal') as $id) {
+                    $existing[mb_strtolower($id)] = true;
+                }
+            }
+        } else {
+            foreach (array_chunk($keys, 500) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                foreach (User::query()->whereRaw("LOWER(nitk_nidn) IN ({$placeholders})", $chunk)->pluck('nitk_nidn') as $id) {
+                    $existing[mb_strtolower($id)] = true;
+                }
             }
         }
         foreach ($rows as $i => $row) {
-            if ($row['status'] === 'siap' && isset($existing[mb_strtolower($row['values']['nitk_nidn'])])) {
+            if ($row['status'] === 'siap' && isset($existing[$this->rowKey($row)])) {
                 $rows[$i]['status'] = 'duplikat';
-                $rows[$i]['reason'] = 'Sudah terdaftar di SIMALAS; akun existing tidak diubah.';
+                $rows[$i]['reason'] = $type === 'petugas'
+                    ? 'ID internal sudah dipakai petugas lain; data tidak diubah.'
+                    : 'Sudah terdaftar di SIMALAS; akun existing tidak diubah.';
                 $rows[$i]['values'] = [];
             }
         }
@@ -504,21 +766,25 @@ class AccountImportService
 
     private function userAttributes(string $type, array $values): array
     {
+        $rowType = $values['role'] ?? $type;
+        $isMahasiswa = $rowType === 'mahasiswa';
+
         $attrs = [
             'nama_lengkap' => $values['nama_lengkap'],
             'nitk_nidn' => $values['nitk_nidn'],
             'email' => null,
-            'role' => $type,
-            'is_active' => false,
-            'approval_status' => AccountActivation::STATUS,
+            'role' => $rowType,
+            'is_active' => true,
+            'approval_status' => 'approved',
             'approved_by' => null,
-            'approved_at' => null,
+            'approved_at' => now(),
             'email_verified_at' => null,
             'finger_id' => null,
             'password' => Str::random(64),
+            'must_change_password' => true,
         ];
 
-        if ($type === 'mahasiswa') {
+        if ($isMahasiswa) {
             $meta = MahasiswaProfileOptions::syncKelasMetadata($values['kelas']);
             $attrs += [
                 'kelas' => $values['kelas'],
@@ -534,6 +800,15 @@ class AccountImportService
         }
 
         return $attrs;
+    }
+
+    private function hashPetugasKredensial(string $tipe, string $nilai): string
+    {
+        return match ($tipe) {
+            'rfid' => hash('sha256', Str::upper(trim($nilai))),
+            'fingerprint' => $nilai,
+            default => Hash::make($nilai),
+        };
     }
 
     private function outcome(array $row, string $status, string $reason): array

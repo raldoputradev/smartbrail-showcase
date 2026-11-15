@@ -22,6 +22,7 @@ class MesinIot extends Model
         'id_mesin',
         'nama_mesin',
         'tipe',
+        'ruangan_id',
         'api_key',
         'is_active',
         'last_seen_at',
@@ -45,6 +46,11 @@ class MesinIot extends Model
 
 
 
+
+    public function ruangan()
+    {
+        return $this->belongsTo(Ruangan::class, 'ruangan_id');
+    }
 
     /**
      * True jika mesin tercatat aktif DAN baru-baru ini berkomunikasi

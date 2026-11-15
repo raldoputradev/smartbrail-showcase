@@ -28,7 +28,7 @@
     var deleteDialog = document.getElementById('cpDeleteDialog');
 
     var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    var mobileMq = window.matchMedia('(max-width: 860px)');
+    var mobileMq = window.matchMedia('(min-width: 0px)');
     var coarse = window.matchMedia('(pointer: coarse)');
 
     var state = {
@@ -487,9 +487,9 @@
     function renderEmpty() {
         inner.replaceChildren();
         var box = el('div', 'cp-empty');
-        box.appendChild(el('h2', null, 'Apa yang ingin kamu cek hari ini?'));
+        box.appendChild(el('h2', null, cfg.greeting || 'Apa yang ingin kamu cek hari ini?'));
         box.appendChild(el('p', null, 'Copilot membaca data absensi dan laporan SIMALAS sesuai hak aksesmu.'));
-        var list = (cfg.suggestions || []).slice(0, 4);
+        var list = (cfg.suggestions || []).slice(0, 3);
         if (list.length) {
             var grid = el('div', 'cp-suggest');
             list.forEach(function (s) {
@@ -1176,7 +1176,9 @@
         });
     }
 
-    document.getElementById('cpNew').addEventListener('click', newChat);
+    document.querySelectorAll('#cpNew, #cpNewHead').forEach(function (b) {
+        b.addEventListener('click', newChat);
+    });
 
     /* ─────────────────── sidebar / drawer ─────────────────── */
 
@@ -1224,13 +1226,7 @@
         }
     });
 
-    collapseBtn.addEventListener('click', function () {
-        var c = app.classList.toggle('is-collapsed');
-        store('local', 'cp_side_collapsed', c ? '1' : null);
-        applyLayoutMode();
-        collapseBtn.setAttribute('aria-label', c ? 'Tampilkan riwayat' : 'Ciutkan riwayat');
-        collapseBtn.title = c ? 'Tampilkan riwayat' : 'Ciutkan riwayat';
-    });
+    collapseBtn.addEventListener('click', closeDrawer);
 
     scrim.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', function (e) {
@@ -1298,11 +1294,7 @@
 
     /* ─────────────────── mulai ─────────────────── */
 
-    if (store('local', 'cp_side_collapsed') === '1') {
-        app.classList.add('is-collapsed');
-        collapseBtn.setAttribute('aria-label', 'Tampilkan riwayat');
-        collapseBtn.title = 'Tampilkan riwayat';
-    }
+    store('local', 'cp_side_collapsed', null);
     applyLayoutMode();
 
     store('local', 'cp_last_conv', null);

@@ -33,7 +33,8 @@ class AsyncMailer
     public static function dispatchOtp(string $email, string $otp, string $name, string $type = 'registration'): bool
     {
         $mailable = new \App\Mail\OtpMail($otp, $name, $type, $email);
-        $fallbackLog = "SIMALAS Fallback OTP for {$email}: {$otp}";
+        // Log fallback TIDAK memuat kode OTP — rahasia tidak boleh masuk log.
+        $fallbackLog = "SIMALAS Fallback OTP gagal terkirim untuk {$email} (type={$type}); minta kirim ulang.";
 
         // PHPUnit: kirim lewat Mail facade agar Mail::fake() menangkapnya (tanpa proses anak/SMTP).
         if (app()->runningUnitTests()) {
@@ -152,6 +153,28 @@ class AsyncMailer
         }
 
         throw $lastError ?? new \RuntimeException('Pengiriman email OTP gagal.');
+    }
+
+    /**
+     * Kirim email tautan pemulihan password setelah respons HTTP.
+     * PHPUnit: kirim via Mail facade agar Mail::fake() menangkapnya.
+     */
+    public static function dispatchPasswordResetLink(string $email, string $url, string $name, int $ttlMinutes = 60): bool
+    {
+        $mailable = new \App\Mail\PasswordResetLinkMail($url, $name, $ttlMinutes);
+
+        if (app()->runningUnitTests()) {
+            Mail::to($email)->send($mailable);
+
+            return true;
+        }
+
+        return self::sendAfterResponse(
+            $email,
+            $mailable,
+            // Log fallback TIDAK memuat URL bertoken — rahasia tidak boleh masuk log.
+            "SIMALAS Fallback PasswordResetLink gagal terkirim untuk {$email}; minta tautan baru."
+        );
     }
 
     /**

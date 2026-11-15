@@ -1,6 +1,8 @@
 # Rencana Transisi Flutter → Portal Web Mahasiswa
 
-Status: **matriks perencanaan, bukan implementasi**. Tanggal: 2026-10-24. Arah produk dirujuk dari `decisions.md`; dependensi tahap dari `development-plan.md`.
+Status: **portal minimum telah diimplementasikan dan diuji pada 2026-10-24**. Arah produk dirujuk dari `decisions.md`; dependensi tahap dari `development-plan.md`.
+
+Implementasi aktual: `StudentAuthController`, `StudentPortalController`, `routes/web.php`, `resources/views/student/`, `layouts/student.blade.php`, dan `public/css|js/student-portal.*`. Mencakup login/logout, beranda, absensi sendiri, profil/foto, tim PBL, notifikasi, dan saran dengan nomor referensi. Flutter/API mobile tetap tersedia. Hasil: seluruh suite 74 tests/1033 assertions lulus. Browser fisik/iPhone, email nyata, dan penggunaan operasional belum diuji; ini bukan persetujuan menonaktifkan Flutter.
 
 ## 1. Prinsip transisi
 

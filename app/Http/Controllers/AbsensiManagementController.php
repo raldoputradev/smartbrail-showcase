@@ -32,27 +32,303 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AbsensiManagementController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AdminShellProps;
+
     public function __construct(
         private readonly AbsensiTapEvaluator $evaluator
     ) {}
 
-    public function settings(Request $request): View
+    public function settings(Request $request)
     {
         $this->ensureLaboran();
 
         $sesi = AbsensiSesiSetting::query()->orderBy('shift')->get();
         $pagi = $sesi->firstWhere('shift', 'pagi');
+        $kebijakan = AbsensiKebijakan::config();
+        $jadwalMingguan = \App\Support\AbsensiEffectiveSchedule::normalizeWeeklyDays($kebijakan['jadwal_mingguan'] ?? []);
+        $kalenderLibur = \Illuminate\Support\Facades\Schema::hasTable('absensi_kalender_libur')
+            ? AbsensiKalenderLibur::query()->orderByDesc('tanggal')->limit(100)->get()
+            : collect();
+        $ops = AbsensiReadinessReport::build();
+        $slotLabPagi = $pagi ? AbsensiLabSlotResolver::slotScheduleForPagi($pagi) : [];
+        $user = $request->user();
 
-        return view('admin.absensi_settings', [
-            'sesi' => $sesi,
-            'jadwalSesi' => [
-                'pagi' => $pagi,
-                'malam' => $sesi->firstWhere('shift', 'malam'),
+        $activeDows = collect($jadwalMingguan)->filter(fn ($r) => ! empty($r['aktif']))->keys()->sort()->values();
+        $dayNames = \App\Support\AbsensiEffectiveSchedule::DAY_NAMES;
+        $kalenderItems = $kalenderLibur->map(function (AbsensiKalenderLibur $kl) {
+            $endSame = ! $kl->tanggal_selesai || $kl->tanggal_selesai->toDateString() === $kl->tanggal?->toDateString();
+            return [
+                'id' => $kl->id,
+                'tanggal' => $kl->tanggal?->toDateString(),
+                'tanggal_selesai' => $kl->tanggal_selesai?->toDateString(),
+                'rentang' => $kl->tanggal?->translatedFormat('d M Y') . ($endSame ? '' : ' – ' . $kl->tanggal_selesai->translatedFormat('d M Y')),
+                'jenis' => $kl->effectiveJenis(),
+                'dampak' => $kl->effectiveDampak(),
+                'jam_khusus' => $kl->effectiveDampak() === 'ubah_jam'
+                    ? substr((string) $kl->jam_masuk_khusus, 0, 5) . '–' . substr((string) $kl->jam_pulang_khusus, 0, 5)
+                    : null,
+                'keterangan' => $kl->keterangan,
+                'updated_label' => $kl->updated_at?->diffForHumans(),
+            ];
+        })->values()->all();
+
+        // Agenda terdekat/aktif untuk kartu "Kalender Akademik" di ringkasan.
+        $today = today()->toDateString();
+        $kalenderAktif = $kalenderLibur->first(function (AbsensiKalenderLibur $kl) use ($today) {
+            return $kl->tanggal?->toDateString() <= $today
+                && ($kl->tanggal_selesai?->toDateString() ?: $kl->tanggal?->toDateString()) >= $today;
+        });
+        $kalenderBerikut = $kalenderAktif ? null : $kalenderLibur
+            ->filter(fn (AbsensiKalenderLibur $kl) => $kl->tanggal?->toDateString() >= $today)
+            ->sortBy('tanggal')->first();
+
+        // Riwayat perubahan terakhir — dari timestamp nyata (bukan log fiksi).
+        $riwayat = collect();
+        foreach ($sesi as $s) {
+            if ($s->updated_at) {
+                $riwayat->push(['at' => $s->updated_at, 'label' => "Jadwal sesi {$s->shift} diperbarui", 'by' => 'Pengaturan sesi']);
+            }
+        }
+        foreach ($kalenderLibur->sortByDesc('updated_at')->take(3) as $kl) {
+            if ($kl->updated_at) {
+                $riwayat->push(['at' => $kl->updated_at, 'label' => "Kalender: {$kl->keterangan}", 'by' => 'Kalender akademik']);
+            }
+        }
+        if (($hb = $ops['heartbeat'] ?? null) && ! empty($hb['at'])) {
+            $riwayat->push(['at' => $hb['at'], 'label' => 'Aksi scheduler: ' . ($hb['command'] ?? 'heartbeat'), 'by' => 'Sistem']);
+        }
+        if ($set = \App\Models\SystemSetting::query()->where('key', AbsensiKebijakan::SETTING_KEY)->first()) {
+            if ($set->updated_at) {
+                $riwayat->push(['at' => $set->updated_at, 'label' => 'Kebijakan absensi diperbarui (' . AbsensiKebijakan::labelMode() . ')', 'by' => 'Kebijakan']);
+            }
+        }
+        $riwayat = $riwayat->sortByDesc('at')->take(6)->map(fn ($r) => [
+            'label' => $r['label'], 'by' => $r['by'],
+            'time_label' => $r['at']->diffForHumans(),
+            'time_exact' => $r['at']->translatedFormat('d M Y, H:i'),
+        ])->values()->all();
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('AturAbsensi', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'kebijakan' => [
+                'mode' => $kebijakan['mode'] ?? 'kamis',
+                'mode_label' => AbsensiKebijakan::labelMode(),
+                'effective_from' => $kebijakan['effective_from'] ?? null,
+                'jadwal_mingguan' => $jadwalMingguan,
             ],
-            'slotLabPagi' => $pagi ? AbsensiLabSlotResolver::slotScheduleForPagi($pagi) : [],
-            'kebijakan' => AbsensiKebijakan::config(),
-            'kebijakanLabel' => AbsensiKebijakan::labelMode(),
-            'ops' => AbsensiReadinessReport::build(),
+            'hari_nama' => $dayNames,
+            'sesi' => $sesi->map(fn (AbsensiSesiSetting $s) => [
+                'shift' => $s->shift,
+                'jam_masuk' => substr((string) $s->jam_masuk, 0, 5),
+                'jam_mulai_tap_masuk' => substr((string) ($s->jam_mulai_tap_masuk ?? '06:30'), 0, 5),
+                'jam_pulang' => substr((string) $s->jam_pulang, 0, 5),
+                'toleransi_masuk_menit' => (int) $s->toleransi_masuk_menit,
+                'toleransi_pulang_menit' => (int) ($s->toleransi_pulang_menit ?? $s->toleransi_masuk_menit),
+                'grace_alfa_menit' => (int) $s->grace_alfa_menit,
+                'aktif' => (bool) $s->aktif,
+                'timezone' => $s->timezone,
+                'updated_label' => $s->updated_at?->diffForHumans(),
+            ])->values()->all(),
+            'slot_lab' => $slotLabPagi,
+            'kalender' => $kalenderItems,
+            'ringkasan' => [
+                'hari_aktif' => $activeDows->count(),
+                'hari_label' => $activeDows->isEmpty()
+                    ? 'Tidak ada'
+                    : ($dayNames[$activeDows->first()] . ' – ' . $dayNames[$activeDows->last()]),
+                'slot_per_hari' => count($slotLabPagi),
+                'slot_menit' => 55,
+                'sesi_rentang' => $pagi
+                    ? substr((string) $pagi->jam_masuk, 0, 5) . ' – ' . substr((string) $pagi->jam_pulang, 0, 5)
+                    : null,
+                'kalender_aktif' => $kalenderAktif ? ['keterangan' => $kalenderAktif->keterangan, 'rentang' => $kalenderItems[array_search($kalenderAktif->id, array_column($kalenderItems, 'id'))]['rentang'] ?? ''] : null,
+                'kalender_berikut' => $kalenderBerikut ? ['keterangan' => $kalenderBerikut->keterangan, 'tanggal' => $kalenderBerikut->tanggal?->translatedFormat('d M Y')] : null,
+                'kalender_total' => $kalenderLibur->count(),
+            ],
+            'riwayat' => $riwayat,
+            'ops' => [
+                'today' => $ops['today'],
+                'yesterday' => $ops['yesterday'],
+                'kebijakan_label' => $ops['kebijakan_label'],
+                'hari_wajib_hari_ini' => $ops['hari_wajib_hari_ini'],
+                'kamis_ready' => $ops['kamis_ready'],
+                'heartbeat' => [
+                    'is_ok' => $ops['heartbeat']['is_ok'],
+                    'at_label' => $ops['heartbeat']['at']?->diffForHumans() ?? 'Belum ada heartbeat',
+                    'at_exact' => $ops['heartbeat']['at']?->translatedFormat('d M Y, H:i'),
+                    'minutes_ago' => $ops['heartbeat']['minutes_ago'],
+                    'command' => $ops['heartbeat']['command'],
+                ],
+                'stats' => $ops['stats'],
+                'close_hints' => $ops['close_hints'],
+                'issues' => $ops['issues'],
+                'pbl' => ['ok' => $ops['pbl']['ok'] ?? true, 'issues' => $ops['pbl']['issues'] ?? []],
+            ],
+            'can' => [
+                'update' => (bool) ($user?->isAdmin()) && \App\Support\PermissionRegistry::canCurrent('settings', 'update'),
+            ],
+            'tab' => in_array($request->query('tab'), ['ringkasan', 'jadwal', 'kalender', 'operasional'], true)
+                ? $request->query('tab')
+                : 'ringkasan',
+            'urls' => [
+                'index' => route('admin.absensi.settings'),
+                'kebijakan' => route('admin.absensi.kebijakan'),
+                'sesi' => route('admin.absensi.sesi'),
+                'libur' => route('admin.absensi.libur'),
+                'tutup_sesi' => route('admin.absensi.tutup-sesi'),
+                'generate_alfa' => route('admin.absensi.generate-alfa'),
+                'rekap' => route('admin.attendance'),
+                'pbl' => route('admin.pbl.index'),
+                'fingerprint' => route('admin.fingerprint'),
+                'pengaturan' => route('admin.settings'),
+            ],
+        ]);
+    }
+
+    public function kalender(Request $request)
+    {
+        $this->ensureLaboran();
+        $user = $request->user();
+
+        $monthParam = (string) $request->query('month', now('Asia/Jakarta')->format('Y-m'));
+        if (! preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $monthParam)) {
+            $monthParam = now('Asia/Jakarta')->format('Y-m');
+        }
+        $monthStart = Carbon::createFromFormat('Y-m-d', $monthParam . '-01', 'Asia/Jakarta')->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+        $todayStr = now('Asia/Jakarta')->toDateString();
+
+        $jenisLabels = [
+            'libur' => 'Hari Libur', 'peringatan' => 'Peringatan Nasional',
+            'agenda' => 'Agenda Kegiatan', 'ujian' => 'Ujian',
+            'perubahan_jam' => 'Absensi Khusus', 'informasi' => 'Informasi',
+        ];
+        $dampakLabels = [
+            'batal_wajib' => 'Absensi tidak wajib pada tanggal ini',
+            'ubah_jam' => 'Absensi tetap wajib dengan jam khusus',
+            'tetap_wajib' => 'Tidak mengubah kewajiban absensi',
+        ];
+        $prioritasLabels = [
+            'rendah' => 'Rendah', 'normal' => 'Normal',
+            'penting' => 'Penting', 'mendesak' => 'Mendesak',
+        ];
+
+        $entries = \Illuminate\Support\Facades\Schema::hasTable('absensi_kalender_libur')
+            ? AbsensiKalenderLibur::query()
+                ->whereDate('tanggal', '<=', $monthEnd->toDateString())
+                ->where(fn ($q) => $q
+                    ->whereNull('tanggal_selesai')
+                    ->orWhereDate('tanggal_selesai', '>=', $monthStart->toDateString()))
+                ->orderBy('tanggal')
+                ->get()
+            : collect();
+
+        $serialize = function (AbsensiKalenderLibur $e) use ($jenisLabels, $dampakLabels, $prioritasLabels) {
+            $jenis = $e->effectiveJenis();
+            $dampak = $e->effectiveDampak();
+            $same = ! $e->tanggal_selesai || $e->tanggal_selesai->toDateString() === $e->tanggal?->toDateString();
+
+            return [
+                'id' => (int) $e->id,
+                'jenis' => $jenis,
+                'jenis_label' => $jenisLabels[$jenis] ?? ucfirst($jenis),
+                'dampak' => $dampak,
+                'dampak_label' => $dampakLabels[$dampak] ?? $dampak,
+                'prioritas' => $e->effectivePrioritas(),
+                'prioritas_label' => $prioritasLabels[$e->effectivePrioritas()] ?? 'Normal',
+                'keterangan' => $e->keterangan,
+                'tanggal' => $e->tanggal?->toDateString(),
+                'tanggal_selesai' => $e->tanggal_selesai?->toDateString(),
+                'rentang' => $e->tanggal?->translatedFormat('d M Y') . ($same ? '' : ' – ' . $e->tanggal_selesai->translatedFormat('d M Y')),
+                'tanggal_label' => $e->tanggal?->translatedFormat('l, d F Y'),
+                'jam_khusus' => $dampak === 'ubah_jam'
+                    ? substr((string) $e->jam_masuk_khusus, 0, 5) . ' – ' . substr((string) $e->jam_pulang_khusus, 0, 5)
+                    : null,
+            ];
+        };
+
+        $byDate = [];
+        foreach ($entries as $e) {
+            $from = Carbon::parse(max($e->tanggal->toDateString(), $monthStart->toDateString()));
+            $to = Carbon::parse(min(
+                $e->tanggal_selesai?->toDateString() ?: $e->tanggal->toDateString(),
+                $monthEnd->toDateString()
+            ));
+            for ($c = $from->copy(); $c->lte($to); $c->addDay()) {
+                $byDate[$c->toDateString()][] = $serialize($e);
+            }
+        }
+
+        $kebijakan = AbsensiKebijakan::config();
+        $weekly = \App\Support\AbsensiEffectiveSchedule::normalizeWeeklyDays($kebijakan['jadwal_mingguan'] ?? []);
+        $dayNames = \App\Support\AbsensiEffectiveSchedule::DAY_NAMES;
+        $sesiPagi = AbsensiSesiSetting::query()->where('shift', 'pagi')->first();
+
+        $days = [];
+        for ($c = $monthStart->copy(); $c->lte($monthEnd); $c->addDay()) {
+            $dStr = $c->toDateString();
+            $dow = $c->dayOfWeek;
+            $w = $weekly[$dow] ?? null;
+            $wajib = (bool) ($w['aktif'] ?? false);
+            $days[] = [
+                'tanggal' => $dStr,
+                'day' => (int) $c->day,
+                'dow' => $dow,
+                'is_today' => $dStr === $todayStr,
+                'is_wajib' => $wajib,
+                'jam' => $wajib ? ($w['jam_masuk'] ?? '07:50') . ' – ' . ($w['jam_pulang'] ?? '17:00') : null,
+                'agenda' => $byDate[$dStr] ?? [],
+            ];
+        }
+
+        $activeDows = collect($weekly)->filter(fn ($r) => ! empty($r['aktif']))->keys()->sort()->values();
+        $agendaBulan = $entries->map(fn ($e) => $serialize($e))->values()->all();
+        $countJenis = fn (array $js) => collect($agendaBulan)->whereIn('jenis', $js)->count();
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('KalenderAgenda', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'month' => [
+                'value' => $monthParam,
+                'label' => $monthStart->translatedFormat('F Y'),
+                'prev' => $monthStart->copy()->subMonth()->format('Y-m'),
+                'next' => $monthStart->copy()->addMonth()->format('Y-m'),
+                'is_current' => $monthParam === now('Asia/Jakarta')->format('Y-m'),
+            ],
+            'first_offset' => ($monthStart->dayOfWeek + 6) % 7,
+            'days' => $days,
+            'agenda' => $agendaBulan,
+            'kpi' => [
+                'agenda' => count($agendaBulan),
+                'hari_aktif' => $activeDows->count(),
+                'hari_label' => $activeDows->isEmpty() ? 'Tidak ada'
+                    : $activeDows->map(fn ($d) => $dayNames[$d])->implode(', '),
+                'libur' => $countJenis(['libur']),
+                'peringatan' => $countJenis(['peringatan', 'informasi']),
+            ],
+            'jadwal' => [
+                'hari_label' => $activeDows->isEmpty() ? 'Tidak ada hari wajib'
+                    : $activeDows->map(fn ($d) => $dayNames[$d])->implode(', '),
+                'jam' => $sesiPagi
+                    ? substr((string) $sesiPagi->jam_masuk, 0, 5) . ' – ' . substr((string) $sesiPagi->jam_pulang, 0, 5)
+                    : null,
+                'toleransi' => $sesiPagi ? (int) $sesiPagi->toleransi_masuk_menit : null,
+            ],
+            'can_update' => \App\Support\PermissionRegistry::canCurrent('attendance', 'update'),
+            'urls' => [
+                'index' => $request->attributes->get('dev_preview')
+                    ? route('dev.preview.admin', 'kalender')
+                    : route('admin.kalender'),
+                'store' => route('admin.kalender.agenda'),
+                'update_base' => route('admin.kalender') . '/agenda',
+                'destroy_base' => route('admin.kalender') . '/agenda',
+                'atur_absensi' => route('admin.absensi.settings'),
+            ],
         ]);
     }
 
@@ -61,10 +337,44 @@ class AbsensiManagementController extends Controller
         $this->ensureLaboran();
 
         $validated = $request->validate([
-            'mode' => ['required', 'in:harian,kamis'],
+            'mode' => ['required', 'in:harian,kamis,jadwal_mingguan'],
+            'effective_from' => ['nullable', 'date'],
+            'jadwal_mingguan' => ['nullable', 'array'],
+            'jadwal_mingguan.*.aktif' => ['nullable'],
+            'jadwal_mingguan.*.jam_masuk' => ['nullable', 'date_format:H:i'],
+            'jadwal_mingguan.*.jam_pulang' => ['nullable', 'date_format:H:i'],
+            'jadwal_mingguan.*.jam_mulai_tap_masuk' => ['nullable', 'date_format:H:i'],
+            'jadwal_mingguan.*.keterangan' => ['nullable', 'string', 'max:120'],
         ]);
 
-        AbsensiKebijakan::setMode($validated['mode']);
+        $rawDays = $request->input('jadwal_mingguan');
+        $normalizedInput = [
+            'mode' => $validated['mode'],
+        ];
+
+        if ($request->exists('effective_from')) {
+            $normalizedInput['effective_from'] = $validated['effective_from'] ?? null;
+        }
+
+        if (is_array($rawDays)) {
+            $daysPayload = [];
+            foreach ([1, 2, 3, 4, 5, 6, 0] as $dow) {
+                $row = $rawDays[$dow] ?? $rawDays[(string) $dow] ?? [];
+                if (! is_array($row)) {
+                    $row = [];
+                }
+                $daysPayload[$dow] = [
+                    'aktif' => ! empty($row['aktif']),
+                    'jam_masuk' => $row['jam_masuk'] ?? null,
+                    'jam_pulang' => $row['jam_pulang'] ?? null,
+                    'jam_mulai_tap_masuk' => $row['jam_mulai_tap_masuk'] ?? null,
+                    'keterangan' => $row['keterangan'] ?? null,
+                ];
+            }
+            $normalizedInput['jadwal_mingguan'] = $daysPayload;
+        }
+
+        AbsensiKebijakan::savePolicy($normalizedInput);
 
         return back()->with('success', 'Kebijakan absensi wajib disimpan: ' . AbsensiKebijakan::labelMode());
     }
@@ -169,16 +479,105 @@ class AbsensiManagementController extends Controller
         $this->ensureLaboran();
 
         $validated = $request->validate([
-            'tanggal' => ['required', 'date'],
+            'tanggal' => ['required_without:tanggal_list', 'nullable', 'date'],
+            'tanggal_selesai' => ['nullable', 'date', 'after_or_equal:tanggal'],
+            'tanggal_list' => ['nullable', 'array', 'max:62'],
+            'tanggal_list.*' => ['date'],
+            'jenis' => ['nullable', 'in:libur,ujian,perubahan_jam,informasi,peringatan,agenda'],
+            'dampak_absensi' => ['nullable', 'in:batal_wajib,ubah_jam,tetap_wajib'],
+            'prioritas' => ['nullable', 'in:rendah,normal,penting,mendesak'],
+            'jam_masuk_khusus' => ['nullable', 'date_format:H:i'],
+            'jam_pulang_khusus' => ['nullable', 'date_format:H:i'],
             'keterangan' => ['nullable', 'string', 'max:255'],
         ]);
 
-        AbsensiKalenderLibur::query()->updateOrCreate(
-            ['tanggal' => $validated['tanggal']],
-            ['keterangan' => $validated['keterangan'] ?? 'Hari libur']
-        );
+        $jenis = $validated['jenis'] ?? 'libur';
+        $dampak = $validated['dampak_absensi'] ?? match ($jenis) {
+            'perubahan_jam' => 'ubah_jam',
+            'ujian', 'informasi', 'peringatan', 'agenda' => 'tetap_wajib',
+            default => 'batal_wajib',
+        };
 
-        return back()->with('success', 'Tanggal libur ditambahkan.');
+        $defaultKet = match ($jenis) {
+            'ujian' => 'Periode ujian akademik',
+            'perubahan_jam' => 'Perubahan jam absensi',
+            'informasi' => 'Agenda akademik',
+            'peringatan' => 'Peringatan nasional',
+            'agenda' => 'Agenda kegiatan laboratorium',
+            default => 'Hari libur',
+        };
+
+        // Mode tandai tanggal — satu entri per tanggal yang dipilih agar
+        // masing-masing bisa dikelola/dihapus terpisah.
+        $dates = ! empty($validated['tanggal_list'])
+            ? collect($validated['tanggal_list'])->unique()->sort()->values()
+            : collect([$validated['tanggal']]);
+
+        $payload = [
+            'keterangan' => ! empty($validated['keterangan']) ? $validated['keterangan'] : $defaultKet,
+        ];
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('absensi_kalender_libur', 'tanggal_selesai')) {
+            $payload['tanggal_selesai'] = ! empty($validated['tanggal_selesai'])
+                ? $validated['tanggal_selesai']
+                : $dates->first();
+            $payload['jenis'] = $jenis;
+            $payload['dampak_absensi'] = $dampak;
+            $payload['prioritas'] = $validated['prioritas'] ?? 'normal';
+            $payload['jam_masuk_khusus'] = $dampak === 'ubah_jam' && ! empty($validated['jam_masuk_khusus'])
+                ? $validated['jam_masuk_khusus'] . ':00'
+                : null;
+            $payload['jam_pulang_khusus'] = $dampak === 'ubah_jam' && ! empty($validated['jam_pulang_khusus'])
+                ? $validated['jam_pulang_khusus'] . ':00'
+                : null;
+        }
+
+        foreach ($dates as $tgl) {
+            $row = $payload;
+            if (array_key_exists('tanggal_selesai', $row) && ! empty($validated['tanggal_list'])) {
+                $row['tanggal_selesai'] = $tgl;
+            }
+            AbsensiKalenderLibur::query()->updateOrCreate(['tanggal' => $tgl], $row);
+        }
+
+        return back()->with('success', 'Kalender & pengecualian akademik berhasil disimpan.');
+    }
+
+    /** Ubah satu entri agenda — dipakai modal "Ubah Agenda". */
+    public function updateLibur(Request $request, AbsensiKalenderLibur $libur): RedirectResponse
+    {
+        $this->ensureLaboran();
+
+        $validated = $request->validate([
+            'tanggal' => ['required', 'date'],
+            'tanggal_selesai' => ['nullable', 'date', 'after_or_equal:tanggal'],
+            'jenis' => ['nullable', 'in:libur,ujian,perubahan_jam,informasi,peringatan,agenda'],
+            'dampak_absensi' => ['nullable', 'in:batal_wajib,ubah_jam,tetap_wajib'],
+            'prioritas' => ['nullable', 'in:rendah,normal,penting,mendesak'],
+            'jam_masuk_khusus' => ['nullable', 'date_format:H:i'],
+            'jam_pulang_khusus' => ['nullable', 'date_format:H:i'],
+            'keterangan' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $jenis = $validated['jenis'] ?? $libur->effectiveJenis();
+        $dampak = $validated['dampak_absensi'] ?? $libur->effectiveDampak();
+
+        $libur->fill([
+            'tanggal' => $validated['tanggal'],
+            'tanggal_selesai' => $validated['tanggal_selesai'] ?: $validated['tanggal'],
+            'jenis' => $jenis,
+            'dampak_absensi' => $dampak,
+            'prioritas' => $validated['prioritas'] ?? $libur->effectivePrioritas(),
+            'jam_masuk_khusus' => $dampak === 'ubah_jam' && ! empty($validated['jam_masuk_khusus'])
+                ? $validated['jam_masuk_khusus'] . ':00'
+                : null,
+            'jam_pulang_khusus' => $dampak === 'ubah_jam' && ! empty($validated['jam_pulang_khusus'])
+                ? $validated['jam_pulang_khusus'] . ':00'
+                : null,
+            'keterangan' => $validated['keterangan'] ?? $libur->keterangan,
+        ])->save();
+
+        return back()->with('success', 'Agenda kalender diperbarui.');
     }
 
     public function destroyLibur(AbsensiKalenderLibur $libur): RedirectResponse
@@ -207,11 +606,124 @@ class AbsensiManagementController extends Controller
         return back()->with('success', 'Program studi ditambahkan.');
     }
 
-    public function rekap(Request $request): View
+    public function rekap(Request $request): View|\Inertia\Response
+    {
+        $user = $request->user();
+        $state = $this->rekapState($request);
+
+        // Dosen → halaman React (Inertia); laboran tetap layout Blade yang sama.
+        if ($user && $user->isDosen() && ! $user->isLaboran()) {
+            \Inertia\Inertia::setRootView('app-admin');
+
+            return \Inertia\Inertia::render('DosenAbsensi', [
+                'menu' => $this->dosenSidebarMenu($user),
+                'notif' => $this->dosenNotifications($user),
+                'initial' => $this->rekapSnapshotData($request, $state),
+                'filter' => $state['filter'],
+                'options' => [
+                    'kelas' => $state['kelasOptions'],
+                    'tim' => $state['timOptions'],
+                    'angkatan' => $state['angkatanOptions'],
+                    'semester' => $state['semesterOptions'],
+                    'prodi' => $state['prodiOptions']->map(fn ($p) => ['id' => $p->id, 'nama' => $p->nama])->all(),
+                    'sesi' => ['pagi', 'malam'],
+                    'shift' => ['pagi', 'malam'],
+                ],
+                'meta' => [
+                    'kebijakan_label' => $state['kebijakanLabel'],
+                    'hari_ini_wajib' => (bool) $state['hariIniWajib'],
+                    'tanggal' => now('Asia/Jakarta')->translatedFormat('l, d F Y'),
+                ],
+                'urls' => [
+                    'snapshot' => route('dosen.absensi.snapshot'),
+                    'export' => route('dosen.absensi.export'),
+                    'print' => route('dosen.absensi.print'),
+                    'reports' => route('dosen.reports'),
+                ],
+            ]);
+        }
+
+        // Admin & laboran → halaman React RekapHarian (app-admin).
+        $dateObj = Carbon::parse($state['filter']['date']);
+        $jadwalPagi = $state['jadwalSesi']['pagi'] ?? null;
+        $jadwalMalam = $state['jadwalSesi']['malam'] ?? null;
+        $jamAwal = $jadwalPagi?->jam_masuk ? substr((string) $jadwalPagi->jam_masuk, 0, 5) : '07:50';
+        $jamAkhir = ($jadwalMalam?->jam_pulang ?? $jadwalPagi?->jam_pulang)
+            ? substr((string) ($jadwalMalam?->jam_pulang ?? $jadwalPagi->jam_pulang), 0, 5)
+            : '17:00';
+
+        $snap = $this->rekapLivePayload($request, $state);
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('RekapHarian', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'initial' => $snap,
+            'filter' => $state['filter'],
+            'options' => [
+                'kelas' => $state['kelasOptions'],
+                'tim' => $state['timOptions'],
+            ],
+            'meta' => [
+                'tanggal' => $dateObj->translatedFormat('l, d F Y'),
+                'jadwal_label' => $jamAwal . ' – ' . $jamAkhir,
+                'kebijakan_label' => $state['kebijakanLabel'],
+                'hari_ini_wajib' => \App\Support\AbsensiKebijakan::isHariWajib($dateObj),
+            ],
+            'urls' => [
+                'index' => route('admin.attendance'),
+                'live' => route('admin.attendance.live'),
+                'export' => route('admin.attendance.export'),
+                'print' => route('admin.attendance.print'),
+                'reports' => route('admin.reports'),
+            ],
+        ]);
+    }
+
+    /**
+     * Payload rekap harian lengkap (semua baris + feed tap) — dipakai halaman
+     * React RekapHarian dan endpoint polling realtime admin.attendance.live.
+     *
+     * @return array<string, mixed>
+     */
+    private function rekapLivePayload(Request $request, array $state): array
+    {
+        $snap = $this->rekapSnapshotData($request, $state);
+        $snap['rows'] = collect($state['allRows'])->map(fn (array $row) => [
+            'nim' => $row['nim'],
+            'nama' => $row['nama'],
+            'kelas' => $row['kelas'],
+            'tim' => $row['tim'],
+            'sesi' => $row['sesi'],
+            'status' => $row['status'],
+            'jam_masuk' => $row['jam_masuk'],
+            'jam_pulang' => $row['jam_pulang'],
+            'menit_terlambat_masuk' => $row['menit_terlambat_masuk'],
+            'slot_lab_masuk' => $row['slot_lab_masuk'],
+        ])->values()->all();
+        // Tren tap masuk per slot lab — dasar grafik "Tren Kehadiran per Sesi".
+        $snap['sesi_trend'] = collect($snap['tap_masuk'])
+            ->groupBy(fn ($t) => $t['slot_lab'] ?: 'Lainnya')
+            ->map(fn ($items, $slot) => ['slot' => $slot, 'total' => $items->count()])
+            ->sortBy('slot')->values()->all();
+
+        return $snap;
+    }
+
+    /**
+     * Endpoint polling ringan untuk halaman RekapHarian — data segar tanpa
+     * refresh: summary + seluruh baris + feed tap masuk + tren per sesi.
+     */
+    public function rekapLive(Request $request): JsonResponse
     {
         $state = $this->rekapState($request);
 
-        return view($state['panel']['view_rekap'], $state);
+        return response()->json([
+            'ok' => true,
+            'synced_at' => now('Asia/Jakarta')->format('H:i:s'),
+            'snapshot' => $this->rekapLivePayload($request, $state),
+        ]);
     }
 
     public function snapshot(Request $request): JsonResponse
@@ -220,6 +732,32 @@ class AbsensiManagementController extends Controller
         $state = $this->rekapState($request);
         $user = $request->user();
         $scope = $user->isLaboran() ? 'laboran' : 'dosen';
+        $payload = $this->rekapSnapshotData($request, $state);
+        $paginator = $state['rows']->withPath(route($state['panel']['route_rekap']));
+        $payload['regions'] = [
+            'rows' => view('absensi._rekap_detail_rows', [
+                'rows' => $paginator,
+                'canKoreksi' => (bool) $state['canKoreksi'],
+                'panel' => $state['panel'],
+            ])->render(),
+            'taps' => view('absensi._rekap_tap_rows', [
+                'tapMasukHariIni' => $state['tapMasukHariIni'],
+            ])->render(),
+            'pager' => view('components.table-pagination', ['paginator' => $paginator])->render(),
+        ];
+
+        return response()->json(AbsensiSnapshot::envelope('rekap', $scope, $payload));
+    }
+
+    /**
+     * Payload rekap tanpa HTML region — dipakai endpoint snapshot dan
+     * props awal halaman React dosen.
+     *
+     * @return array<string, mixed>
+     */
+    private function rekapSnapshotData(Request $request, array $state): array
+    {
+        $user = $request->user();
         $canKoreksi = (bool) $state['canKoreksi'];
         $pageRows = collect($state['rows']->items())->map(function (array $row) use ($canKoreksi, $state): array {
             $public = [
@@ -250,17 +788,6 @@ class AbsensiManagementController extends Controller
         })->all();
         $summary = $state['summary'];
         $paginator = $state['rows']->withPath(route($state['panel']['route_rekap']));
-        $regions = [
-            'rows' => view('absensi._rekap_detail_rows', [
-                'rows' => $paginator,
-                'canKoreksi' => $canKoreksi,
-                'panel' => $state['panel'],
-            ])->render(),
-            'taps' => view('absensi._rekap_tap_rows', [
-                'tapMasukHariIni' => $state['tapMasukHariIni'],
-            ])->render(),
-            'pager' => view('components.table-pagination', ['paginator' => $paginator])->render(),
-        ];
         $revision = substr(hash('sha256', json_encode([
             $state['tab'],
             $state['tabCounts'],
@@ -268,13 +795,20 @@ class AbsensiManagementController extends Controller
             $state['tapMasukHariIni'],
         ])), 0, 16);
 
-        return response()->json(AbsensiSnapshot::envelope('rekap', $scope, [
+        $kelasScopeEmpty = $user && $user->isDosen() && ! $user->isLaboran()
+            && ! \App\Support\DosenKelasScope::hasSupervision($user);
+
+        return [
             'query' => AbsensiSnapshot::canonicalQuery($request),
             'revision' => $revision,
             'summary_mode' => $state['summaryMode'],
             'tab' => $state['tab'],
             'tab_counts' => $state['tabCounts'],
             'can_koreksi' => $canKoreksi,
+            'kelas_scope_empty' => $kelasScopeEmpty,
+            'kelas_scope_message' => $kelasScopeEmpty
+                ? 'Belum ada mahasiswa dalam bimbingan Anda. Minta laboran menugaskan kelas di Manajemen User atau pastikan Anda terdaftar sebagai manpro/co-manpro tim PBL.'
+                : null,
             'summary' => [
                 'total' => (int) ($summary['total'] ?? 0),
                 'hadir' => (int) ($summary['hadir'] ?? 0),
@@ -313,8 +847,7 @@ class AbsensiManagementController extends Controller
             ],
             'rows' => $pageRows,
             'tap_masuk' => $state['tapMasukHariIni'],
-            'regions' => $regions,
-        ]));
+        ];
     }
 
     /**
@@ -341,6 +874,7 @@ class AbsensiManagementController extends Controller
 
         return [
             'rows' => $rows,
+            'allRows' => $allRows,
             'summary' => $summary,
             'summaryMode' => $summaryMode,
             'chartSummary' => $chartSummary,
@@ -604,9 +1138,11 @@ class AbsensiManagementController extends Controller
     {
         $filter = $this->resolveFilter($request);
         $today = now()->toDateString();
-        $filter['tanggal_mulai'] = $today;
-        $filter['tanggal_akhir'] = $today;
-        $filter['date'] = $today;
+        $reqDate = (string) $request->query('date', '');
+        $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $reqDate) ? $reqDate : $today;
+        $filter['tanggal_mulai'] = $date;
+        $filter['tanggal_akhir'] = $date;
+        $filter['date'] = $date;
 
         return $filter;
     }
@@ -1008,9 +1544,16 @@ class AbsensiManagementController extends Controller
      */
     private function scopedMahasiswaQuery(): Builder
     {
-        return User::query()
+        $query = User::query()
             ->where('role', 'mahasiswa')
             ->where('is_active', true);
+
+        $actor = request()->user();
+        if ($actor && $actor->isDosen() && !$actor->isLaboran()) {
+            return \App\Support\DosenKelasScope::applySupervisedMahasiswaQuery($query, $actor);
+        }
+
+        return $query;
     }
 
     private function applyStudentFiltersOnHarian($query, array $filter): void

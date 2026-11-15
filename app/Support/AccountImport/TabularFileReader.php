@@ -32,7 +32,7 @@ class TabularFileReader
     /**
      * @return array{headers: list<string>, rows: list<array{line: int, cells: list<array{v: string, issue: ?string}>}>}
      */
-    public function read(string $path, string $originalName): array
+    public function read(string $path, string $originalName, array $expected = []): array
     {
         $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         if (!is_file($path)) {
@@ -48,25 +48,52 @@ class TabularFileReader
 
         $table = match ($ext) {
             'csv', 'txt' => $this->readCsv($path),
-            'xlsx' => $this->readXlsx($path),
+            'xlsx' => $this->readXlsx($path, $expected),
             'xls' => throw new ImportFileException('Format .xls (Excel 97-2003) tidak didukung. Simpan ulang sebagai .xlsx atau CSV UTF-8.'),
             'xlsm', 'xltm' => throw new ImportFileException('File Excel bermakro (.xlsm) ditolak. Gunakan template .xlsx tanpa makro.'),
             default => throw new ImportFileException('Format file tidak didukung. Gunakan template .xlsx atau .csv.'),
         };
 
-        return $this->splitHeader($table);
+        return $this->splitHeader($table, $expected);
     }
 
     /**
      * @param  list<array{line: int, cells: list<array{v: string, issue: ?string}>}>  $rows
      */
-    private function splitHeader(array $rows): array
+    private function headerScore(array $cells, array $expected): int
+    {
+        $score = 0;
+        foreach ($cells as $cell) {
+            $name = AccountImportTemplate::normalizeHeader($cell['v']);
+            if ($name !== '' && isset($expected[$name])) {
+                $score++;
+            }
+        }
+
+        return $score;
+    }
+
+    private function splitHeader(array $rows, array $expected = []): array
     {
         $headerIndex = null;
-        foreach ($rows as $i => $row) {
-            if ($this->rowHasContent($row['cells'])) {
-                $headerIndex = $i;
-                break;
+        // Baris header = baris dengan >= 2 sel cocok nama kolom yang dikenal
+        // (menoleransi baris judul/keterangan di atas header, mis. template multi-baris).
+        if ($expected !== []) {
+            $best = 0;
+            foreach ($rows as $i => $row) {
+                $score = $this->headerScore($row['cells'], $expected);
+                if ($score >= 2 && $score > $best) {
+                    $best = $score;
+                    $headerIndex = $i;
+                }
+            }
+        }
+        if ($headerIndex === null) {
+            foreach ($rows as $i => $row) {
+                if ($this->rowHasContent($row['cells'])) {
+                    $headerIndex = $i;
+                    break;
+                }
             }
         }
         if ($headerIndex === null) {
@@ -82,6 +109,10 @@ class TabularFileReader
         }
 
         $data = array_values(array_slice($rows, $headerIndex + 1));
+        // Buang baris kosong di ekor (sisa format Excel di luar area isian).
+        while ($data !== [] && ! $this->rowHasContent(end($data)['cells'])) {
+            array_pop($data);
+        }
         if (count($data) > self::MAX_DATA_ROWS) {
             throw new ImportFileException('Jumlah baris melebihi batas '.self::MAX_DATA_ROWS.' per file. Pecah menjadi beberapa file.');
         }
@@ -183,7 +214,7 @@ class TabularFileReader
 
     // ---------------------------------------------------------------- XLSX
 
-    private function readXlsx(string $path): array
+    private function readXlsx(string $path, array $expected = []): array
     {
         $head = (string) file_get_contents($path, false, null, 0, 4);
         if ($head !== "PK\x03\x04") {
@@ -208,7 +239,7 @@ class TabularFileReader
 
             $workbookPath = $this->officeDocumentPath($zip);
             $workbookRels = $this->relationships($zip, $this->relsPathFor($workbookPath));
-            $sheetPath = $this->singleSheetPath($zip, $workbookPath, $workbookRels);
+            $sheetPaths = $this->sheetPaths($zip, $workbookPath, $workbookRels);
 
             $sharedStrings = [];
             foreach ($workbookRels as $rel) {
@@ -217,7 +248,28 @@ class TabularFileReader
                 }
             }
 
-            return $this->readSheet($this->zipXml($zip, $sheetPath), $sharedStrings);
+            if (count($sheetPaths) === 1) {
+                return $this->readSheet($this->zipXml($zip, $sheetPaths[0]), $sharedStrings);
+            }
+
+            // Multi-sheet (mis. PETUNJUK + IMPORT + DAFTAR): pilih sheet berisi header yang dikenal.
+            $best = null;
+            $bestScore = 0;
+            foreach ($sheetPaths as $sheetPath) {
+                $table = $this->readSheet($this->zipXml($zip, $sheetPath), $sharedStrings);
+                foreach ($table as $row) {
+                    $score = $this->headerScore($row['cells'], $expected);
+                    if ($score >= 2 && $score > $bestScore) {
+                        $bestScore = $score;
+                        $best = $table;
+                    }
+                }
+            }
+            if ($best === null) {
+                throw new ImportFileException('File memiliki beberapa sheet tetapi tidak ada yang berisi header kolom import. Isi data pada sheet yang memuat kolom template.');
+            }
+
+            return $best;
         } finally {
             $zip->close();
         }
@@ -339,7 +391,8 @@ class TabularFileReader
     }
 
     /** @param  list<array{id: string, type: string, target: string}>  $rels */
-    private function singleSheetPath(ZipArchive $zip, string $workbookPath, array $rels): string
+    /** @return list<string> Semua path worksheet di workbook, urut seperti di Excel. */
+    private function sheetPaths(ZipArchive $zip, string $workbookPath, array $rels): array
     {
         $reader = $this->xmlReader($this->zipXml($zip, $workbookPath));
         $sheetIds = [];
@@ -356,16 +409,23 @@ class TabularFileReader
             libxml_use_internal_errors($prev);
         }
 
-        if (count($sheetIds) !== 1) {
-            throw new ImportFileException('File .xlsx harus berisi tepat satu sheet (ditemukan '.count($sheetIds).'). Gunakan template resmi.');
+        if ($sheetIds === []) {
+            throw new ImportFileException('File .xlsx tidak berisi sheet. Gunakan template resmi.');
         }
 
-        foreach ($rels as $rel) {
-            if ($rel['id'] === $sheetIds[0] && str_ends_with($rel['type'], '/worksheet')) {
-                return $this->resolveTarget($workbookPath, $rel['target']);
+        $paths = [];
+        foreach ($sheetIds as $id) {
+            foreach ($rels as $rel) {
+                if ($rel['id'] === $id && str_ends_with($rel['type'], '/worksheet')) {
+                    $paths[] = $this->resolveTarget($workbookPath, $rel['target']);
+                }
             }
         }
-        throw new ImportFileException('Sheet di dalam .xlsx bukan worksheet biasa (chart/dialog sheet tidak didukung).');
+        if ($paths === []) {
+            throw new ImportFileException('Sheet di dalam .xlsx bukan worksheet biasa (chart/dialog sheet tidak didukung).');
+        }
+
+        return $paths;
     }
 
     /** @return list<string> */

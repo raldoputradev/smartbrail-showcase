@@ -369,18 +369,42 @@ class MobileDataController extends Controller
             ->filter(fn ($h) => AbsensiKebijakan::isHariTerjadwal($h->tanggal))
             ->map(function ($h) {
                 $tz = 'Asia/Jakarta';
+                $tanggalStr = $h->tanggal->toDateString();
+                $jamMasuk = $h->masukLog?->waktu_tap?->timezone($tz)->format('H:i');
+                $jamPulang = $h->pulangLog?->waktu_tap?->timezone($tz)->format('H:i');
+                $jadwal = \App\Support\AbsensiEffectiveSchedule::resolve($tanggalStr, $h->sesi ?: 'pagi');
+                $penilaian = \App\Support\AbsensiEffectiveSchedule::assessRecord($jadwal, [
+                    'status' => $h->status,
+                    'jam_masuk' => $jamMasuk,
+                    'jam_pulang' => $jamPulang,
+                    'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
+                    'menit_terlambat_pulang' => $h->menit_terlambat_pulang,
+                    'menit_pulang_cepat' => $h->menit_pulang_cepat ?? 0,
+                    'pulang_cepat' => (bool) ($h->pulang_cepat ?? false),
+                    'pulang_lembur' => (bool) $h->pulang_lembur,
+                ]);
 
                 return [
-                    'tanggal' => $h->tanggal->toDateString(),
+                    'tanggal' => $tanggalStr,
                     'sesi' => $h->sesi,
                     'status' => $h->status,
                     'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
                     'menit_terlambat_pulang' => $h->menit_terlambat_pulang,
+                    'menit_pulang_cepat' => $penilaian['menit_pulang_cepat'],
+                    'pulang_cepat' => $penilaian['ketepatan_pulang_kode'] === 'pulang_cepat',
                     'slot_lab_masuk' => $h->slot_lab_masuk,
                     'pulang_lembur' => (bool) $h->pulang_lembur,
                     'lengkap_at' => optional($h->lengkap_at)->toDateTimeString(),
-                    'jam_masuk' => $h->masukLog?->waktu_tap?->timezone($tz)->format('H:i'),
-                    'jam_pulang' => $h->pulangLog?->waktu_tap?->timezone($tz)->format('H:i'),
+                    'jam_masuk' => $jamMasuk,
+                    'jam_pulang' => $jamPulang,
+                    'jadwal_jam_masuk' => $jadwal['jam_masuk'],
+                    'jadwal_jam_pulang' => $jadwal['jam_pulang'],
+                    'jadwal_konsisten' => \App\Support\AbsensiEffectiveSchedule::scheduleConsistentWithRecord($jadwal, [
+                        'jam_masuk' => $jamMasuk,
+                        'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
+                    ]),
+                    'kelengkapan_label' => $penilaian['kelengkapan_label'],
+                    'ringkasan_ketepatan' => $penilaian['ringkasan_ketepatan'],
                 ];
             })
             ->values();
@@ -442,18 +466,42 @@ class MobileDataController extends Controller
             ->filter(fn ($h) => AbsensiKebijakan::isHariTerjadwal($h->tanggal))
             ->map(function ($h) {
                 $tz = 'Asia/Jakarta';
+                $tanggalStr = $h->tanggal->toDateString();
+                $jamMasuk = $h->masukLog?->waktu_tap?->timezone($tz)->format('H:i');
+                $jamPulang = $h->pulangLog?->waktu_tap?->timezone($tz)->format('H:i');
+                $jadwal = \App\Support\AbsensiEffectiveSchedule::resolve($tanggalStr, $h->sesi ?: 'pagi');
+                $penilaian = \App\Support\AbsensiEffectiveSchedule::assessRecord($jadwal, [
+                    'status' => $h->status,
+                    'jam_masuk' => $jamMasuk,
+                    'jam_pulang' => $jamPulang,
+                    'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
+                    'menit_terlambat_pulang' => $h->menit_terlambat_pulang,
+                    'menit_pulang_cepat' => $h->menit_pulang_cepat ?? 0,
+                    'pulang_cepat' => (bool) ($h->pulang_cepat ?? false),
+                    'pulang_lembur' => (bool) $h->pulang_lembur,
+                ]);
 
                 return [
-                    'tanggal' => $h->tanggal->toDateString(),
+                    'tanggal' => $tanggalStr,
                     'sesi' => $h->sesi,
                     'status' => $h->status,
                     'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
                     'menit_terlambat_pulang' => $h->menit_terlambat_pulang,
+                    'menit_pulang_cepat' => $penilaian['menit_pulang_cepat'],
+                    'pulang_cepat' => $penilaian['ketepatan_pulang_kode'] === 'pulang_cepat',
                     'slot_lab_masuk' => $h->slot_lab_masuk,
                     'pulang_lembur' => (bool) $h->pulang_lembur,
                     'lengkap_at' => optional($h->lengkap_at)->toDateTimeString(),
-                    'jam_masuk' => $h->masukLog?->waktu_tap?->timezone($tz)->format('H:i'),
-                    'jam_pulang' => $h->pulangLog?->waktu_tap?->timezone($tz)->format('H:i'),
+                    'jam_masuk' => $jamMasuk,
+                    'jam_pulang' => $jamPulang,
+                    'jadwal_jam_masuk' => $jadwal['jam_masuk'],
+                    'jadwal_jam_pulang' => $jadwal['jam_pulang'],
+                    'jadwal_konsisten' => \App\Support\AbsensiEffectiveSchedule::scheduleConsistentWithRecord($jadwal, [
+                        'jam_masuk' => $jamMasuk,
+                        'menit_terlambat_masuk' => $h->menit_terlambat_masuk,
+                    ]),
+                    'kelengkapan_label' => $penilaian['kelengkapan_label'],
+                    'ringkasan_ketepatan' => $penilaian['ringkasan_ketepatan'],
                 ];
             })
             ->values();

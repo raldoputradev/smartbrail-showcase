@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\AdminShellProps;
+use App\Http\Controllers\Concerns\DashboardMiniCalendar;
 use App\Http\Controllers\Concerns\HandlesPeriodicReports;
 use App\Models\Announcement;
 use App\Models\LogAbsensi;
@@ -9,6 +11,7 @@ use App\Models\MesinIot;
 use App\Models\User;
 use App\Support\DashboardDemoData;
 use App\Support\DashboardStatLabels;
+use App\Support\DosenKelasScope;
 use App\Support\DosenMahasiswaScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,7 +19,7 @@ use Illuminate\Http\Request;
 
 class DosenController extends Controller
 {
-    use HandlesPeriodicReports;
+    use AdminShellProps, DashboardMiniCalendar, HandlesPeriodicReports;
 
     protected function periodicReportDosen(): ?User
     {
@@ -63,7 +66,7 @@ class DosenController extends Controller
             'tanggal' => ['sometimes', 'date'],
             'kelas' => ['sometimes', 'nullable', 'string', 'max:80'],
             'tim' => ['sometimes', 'nullable', 'string', 'max:80'],
-            'aktivitas' => ['sometimes', 'nullable', 'string', 'in:semua,absensi,loker'],
+            'aktivitas' => ['sometimes', 'nullable', 'string', 'in:semua,absensi'],
         ]);
 
         $weekday = $request->filled('weekday') ? (int) $request->input('weekday') : null;
@@ -98,13 +101,51 @@ class DosenController extends Controller
             ->limit(8)
             ->get();
 
-        return view('dashboards.dosen', [
+        $user = $request->user();
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('DosenDashboard', [
+            'menu' => $this->dosenSidebarMenu($user),
+            'notif' => $this->dosenNotifications($user),
             'analytics' => $analytics,
-            'kelasOptions' => $kelasOptions,
-            'timOptions' => $timOptions,
-            'pengumumanTerbaru' => $pengumumanTerbaru,
-            'absensiTerbaru' => $absensiTerbaru,
-            'pblMeta' => $pblMeta,
+            'kelas_options' => $kelasOptions->values()->all(),
+            'tim_options' => $timOptions->values()->all(),
+            'pengumuman' => $pengumumanTerbaru->map(fn ($p) => [
+                'id' => $p->id,
+                'judul' => $p->judul,
+                'prioritas' => $p->prioritas ?: 'normal',
+                'isi' => \Illuminate\Support\Str::limit(strip_tags((string) $p->isi), 160),
+                'author' => optional($p->author)->nama_lengkap ?? 'Admin',
+                'waktu' => optional($p->created_at)->diffForHumans(),
+            ])->all(),
+            'absensi_terbaru' => $absensiTerbaru->map(fn ($log) => [
+                'id' => $log->id,
+                'nama' => $log->user->nama_lengkap ?? '-',
+                'nitk' => $log->user->nitk_nidn ?? '—',
+                'tim' => $log->user->tim ?: '—',
+                'foto' => $log->user->profile_photo_url ?? null,
+                'jenis' => strtolower((string) ($log->jenis ?? '')) ?: 'tap',
+                'sesi' => $log->sesi ?? '—',
+                'waktu' => optional($log->waktu_tap)->translatedFormat('d M Y · H:i'),
+                'menit_terlambat' => (int) ($log->menit_terlambat ?? 0),
+                'pulang_lembur' => ! empty($log->pulang_lembur),
+            ])->all(),
+            'kalender_mini' => $this->dashboardMiniCalendar($request->query('kcal')),
+            'agenda_terdekat' => $this->dashboardAgendaTerdekat(),
+            'pbl' => [
+                'has_pbl' => (bool) ($pblMeta['has_pbl'] ?? false),
+                'tim_keys' => collect($pblMeta['tim_keys'] ?? [])->values()->all(),
+            ],
+            'urls' => [
+                'data' => route('dosen.dashboard.data'),
+                'minical' => route('dosen.dashboard.minical'),
+                'rekap' => route('dosen.absensi'),
+                'reports' => route('dosen.reports'),
+                'mahasiswa' => route('dosen.mahasiswa'),
+                'announcements' => route('dosen.announcements'),
+                'ruangan' => route('dosen.ruangan'),
+            ],
         ]);
     }
 
@@ -117,7 +158,7 @@ class DosenController extends Controller
             'tanggal' => ['required', 'date'],
             'kelas' => ['nullable', 'string', 'max:80'],
             'tim' => ['nullable', 'string', 'max:80'],
-            'aktivitas' => ['nullable', 'string', 'in:semua,absensi,loker'],
+            'aktivitas' => ['nullable', 'string', 'in:semua,absensi'],
         ]);
 
         $weekday = $request->filled('weekday') ? (int) $request->input('weekday') : null;
@@ -140,34 +181,128 @@ class DosenController extends Controller
 
     public function announcements(Request $request)
     {
-        $query = Announcement::active()
+        $user = $request->user();
+
+        $received = Announcement::active()
             ->pengumumanSaja()
-            ->forRole('dosen')
-            ->with('author:id,nama_lengkap,role');
+            ->forAudience($user)
+            ->with('author:id,nama_lengkap,role')
+            ->latest()->limit(60)->get();
 
-        if ($request->filled('q')) {
-            $kw = trim((string) $request->q);
-            $query->where(function ($qb) use ($kw) {
-                $qb->where('judul', 'like', "%{$kw}%")
-                    ->orWhere('isi', 'like', "%{$kw}%");
-            });
+        // Tandai terbaca (lonceng bersih), sama seperti versi lama.
+        $rows = $received->map(fn ($a) => [
+            'announcement_id' => $a->id,
+            'user_id' => $user->id,
+            'read_at' => Carbon::now(),
+        ])->all();
+        if (! empty($rows)) {
+            \App\Models\AnnouncementRead::query()->upsert($rows, ['announcement_id', 'user_id'], ['read_at']);
         }
 
-        $items = $query->latest()->paginate(10)->withQueryString();
+        $mine = Announcement::query()
+            ->where('dibuat_oleh', $user->id)
+            ->latest()->limit(60)->get();
 
-        if ($user = $request->user()) {
-            $now = \Illuminate\Support\Carbon::now();
-            $rows = collect($items->pluck('id'))->map(fn ($id) => [
-                'announcement_id' => $id,
-                'user_id'         => $user->id,
-                'read_at'         => $now,
-            ])->all();
-            if (!empty($rows)) {
-                \App\Models\AnnouncementRead::query()->upsert($rows, ['announcement_id', 'user_id'], ['read_at']);
-            }
+        $card = function (Announcement $a) {
+            return [
+                'id' => $a->id,
+                'judul' => $a->judul,
+                'isi' => \Illuminate\Support\Str::limit((string) $a->isi, 220),
+                'isi_full' => (string) $a->isi,
+                'prioritas' => $a->prioritas ?? 'normal',
+                'target_label' => $a->target_tim
+                    ? 'Tim '.$a->target_tim
+                    : ($a->target === 'mahasiswa' ? 'Mahasiswa' : ($a->target === 'dosen' ? 'Dosen' : 'Semua')),
+                'status' => ! $a->is_active ? 'Draft' : ($a->expires_at && $a->expires_at->isPast() ? 'Kedaluwarsa' : 'Terbit'),
+                'tanggal' => optional($a->created_at)?->translatedFormat('d M Y, H:i'),
+                'penulis' => $a->author?->nama_lengkap,
+            ];
+        };
+
+        $timOptions = \App\Models\PblProject::query()
+            ->where(fn ($q) => $q->where('manpro_user_id', $user->id)->orWhere('co_manpro_user_id', $user->id))
+            ->where('aktif', true)->orderBy('nama')->pluck('nama')->values();
+
+        $todayCount = $mine->filter(fn ($a) => optional($a->created_at)?->isToday())->count();
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('DosenPengumuman', [
+            'menu' => $this->dosenSidebarMenu($user),
+            'notif' => $this->dosenNotifications($user),
+            'stats' => [
+                'total_mine' => $mine->count(),
+                'ke_tim' => $mine->filter(fn ($a) => ! empty($a->target_tim))->count(),
+                'ke_mahasiswa' => $mine->filter(fn ($a) => $a->target === 'mahasiswa' && empty($a->target_tim))->count(),
+                'diterima' => $received->count(),
+            ],
+            'mine' => $mine->map($card)->values(),
+            'received' => $received->map($card)->values(),
+            'tim_options' => $timOptions,
+            'store_url' => route('dosen.announcements.store'),
+            'batas' => ['harian' => 10, 'terpakai' => $todayCount],
+            'aktivitas' => $mine->take(5)->map(fn ($a) => [
+                'judul' => $a->judul,
+                'tanggal' => optional($a->created_at)?->translatedFormat('d M Y, H:i'),
+                'status' => $a->is_active ? 'diterbitkan' : 'disimpan sebagai draft',
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Dosen menerbitkan pengumuman — tujuan: semua mahasiswa atau tim PBL bimbingannya.
+     */
+    public function storeAnnouncement(Request $request)
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'judul' => ['required', 'string', 'max:200'],
+            'isi' => ['required', 'string', 'min:10', 'max:5000'],
+            'tujuan' => ['required', 'string', 'max:120'],
+            'prioritas' => ['required', 'in:normal,penting,urgent'],
+            'expires_at' => ['nullable', 'date', 'after:today', 'before_or_equal:'.now()->addDays(30)->toDateString()],
+            'action' => ['nullable', 'in:draft,publish'],
+        ], [
+            'expires_at.before_or_equal' => 'Masa berlaku pengumuman maksimal 30 hari.',
+        ]);
+
+        $hariIni = Announcement::query()
+            ->where('dibuat_oleh', $user->id)
+            ->whereDate('created_at', today())
+            ->count();
+        if ($hariIni >= 10) {
+            return back()->withErrors(['judul' => 'Batas 10 pengumuman per hari tercapai — coba lagi besok.']);
         }
 
-        return view('dosen.announcements', compact('items'));
+        $tujuan = $validated['tujuan'];
+        $targetTim = null;
+        if (str_starts_with($tujuan, 'tim:')) {
+            $namaTim = substr($tujuan, 4);
+            $tims = \App\Support\RuanganBookingService::timBimbingan($user)->pluck('nama');
+            abort_unless($tims->contains($namaTim), 403, 'Tim itu bukan bimbingan Anda.');
+            $targetTim = $namaTim;
+        } elseif ($tujuan !== 'mahasiswa') {
+            abort(422, 'Tujuan tidak dikenal.');
+        }
+
+        $publish = ($validated['action'] ?? 'publish') === 'publish';
+        Announcement::query()->create([
+            'judul' => $validated['judul'],
+            'isi' => $validated['isi'],
+            'target' => 'mahasiswa',
+            'target_tim' => $targetTim,
+            'channel' => Announcement::CHANNEL_PENGUMUMAN,
+            'prioritas' => $validated['prioritas'],
+            'expires_at' => $validated['expires_at'] ?? null,
+            'is_active' => $publish,
+            'dibuat_oleh' => $user->id,
+        ]);
+
+        $label = $targetTim ? "tim {$targetTim}" : 'semua mahasiswa';
+
+        return back()->with('success', $publish
+            ? "Pengumuman diterbitkan ke {$label}."
+            : 'Draft pengumuman disimpan.');
     }
 
     public function notifikasi(Request $request)
@@ -327,15 +462,17 @@ class DosenController extends Controller
 
         $filename = 'mahasiswa-dosen-'.now()->format('Ymd-His').'.csv';
 
-        return response()->streamDownload(function () use ($rows, $timKeys) {
+        $kelasKeys = DosenKelasScope::kelasKeysFor($dosen);
+
+        return response()->streamDownload(function () use ($rows, $kelasKeys) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, [
                 'Nama', 'NIM', 'Kelas', 'Tim PBL', 'Email', 'Semester', 'Angkatan', 'Shift',
-                'Finger ID', 'Status', 'Tim Ampuan Dosen',
+                'Finger ID', 'Status', 'Kelas Ampuan Dosen',
             ]);
             foreach ($rows as $m) {
-                $mine = $timKeys->contains($m->tim) ? 'Ya' : 'Tidak';
+                $mine = $kelasKeys->contains($m->kelas) ? 'Ya' : 'Tidak';
                 fputcsv($out, [
                     $m->nama_lengkap,
                     $m->nitk_nidn,
@@ -362,15 +499,12 @@ class DosenController extends Controller
      */
     private function mahasiswaDirectoryQuery(Request $request, User $dosen, string $scope, $timKeys): Builder
     {
-        $query = $this->allMahasiswaQuery(false);
-
-        if ($scope === 'mine') {
-            if ($timKeys->isEmpty()) {
-                $query->whereRaw('0 = 1');
-            } else {
-                $query->whereIn('tim', $timKeys->all());
-            }
-        }
+        // Cakupan dosen = kelas yang ditugaskan laboran UNION tim PBL
+        // yang ia bimbing; tanpa keduanya → tolak akses.
+        $query = DosenKelasScope::applySupervisedMahasiswaQuery(
+            $this->allMahasiswaQuery(false),
+            $dosen
+        );
 
         if ($request->filled('kelas')) {
             $query->where('kelas', $request->kelas);
@@ -414,9 +548,58 @@ class DosenController extends Controller
         return $query;
     }
 
-    public function profile()
+    /**
+     * Laporan periodik dosen → halaman React (data dari PeriodicReportBuilder
+     * yang sama dengan versi Blade; scope mahasiswa tetap via periodicReportDosen).
+     */
+    public function reports(Request $request)
     {
-        return redirect()->route('profiles.show', auth()->user());
+        $user = $request->user();
+        $p = $this->buildPeriodicReportPayload($request);
+
+        \Inertia\Inertia::setRootView('app-admin');
+
+        return \Inertia\Inertia::render('DosenReports', [
+            'menu' => $this->dosenSidebarMenu($user),
+            'notif' => $this->dosenNotifications($user),
+            'scope_empty' => ! \App\Support\DosenKelasScope::hasSupervision($user),
+            'scope_message' => 'Belum ada mahasiswa dalam bimbingan Anda, sehingga laporan kosong. Minta laboran menugaskan kelas di Manajemen User atau pastikan Anda terdaftar sebagai manpro/co-manpro tim PBL.',
+            'report' => [
+                'filter' => $p['filter'],
+                'periode_label' => $p['periodeLabel'],
+                'activity_label' => $p['activityLabel'],
+                'kebijakan_label' => $p['kebijakanLabel'],
+                'kelas_options' => collect($p['kelasOptions'])->values()->all(),
+                'tim_options' => collect($p['timOptions'])->values()->all(),
+                'summary' => $p['summary'],
+                'chart' => $p['chart'],
+                'machines' => collect($p['topMachines'])->values()->all(),
+                'recent' => collect($p['recentActivities'])->map(fn ($r) => array_merge($r, [
+                    'waktu' => $r['waktu'] instanceof \Carbon\Carbon
+                        ? $r['waktu']->translatedFormat('d M · H:i')
+                        : (string) $r['waktu'],
+                ]))->values()->all(),
+                'students' => collect($p['studentRecaps'])->map(fn ($r) => array_merge($r, [
+                    'terakhir' => !empty($r['terakhir'])
+                        ? \Carbon\Carbon::parse($r['terakhir'])->translatedFormat('d M Y · H:i')
+                        : null,
+                ]))->values()->all(),
+                'rankings' => $p['rankings'],
+            ],
+            'urls' => [
+                'index' => route('dosen.reports'),
+                'excel' => route('dosen.reports.export.excel'),
+                'word' => route('dosen.reports.export.word'),
+                'print' => route('dosen.reports.print'),
+            ],
+        ]);
+    }
+
+    public function profile(Request $request)
+    {
+        // Profil dosen memakai halaman profil bersama (profiles.show) yang sudah
+        // lengkap: identitas, status akun, proyek PBL, riwayat persetujuan.
+        return redirect()->route('profiles.show', $request->user()->id);
     }
 
     private function dosenUser(): User
@@ -476,7 +659,7 @@ class DosenController extends Controller
         string $aktivitas = 'semua'
     ): array {
         $anchor = Carbon::parse($tanggal)->startOfDay();
-        $aktivitas = in_array($aktivitas, ['semua', 'absensi', 'loker'], true) ? $aktivitas : 'semua';
+        $aktivitas = in_array($aktivitas, ['semua', 'absensi'], true) ? $aktivitas : 'semua';
 
         [$curStart, $curEnd, $prevStart, $prevEnd, $periodLabel] = $this->resolveDashboardPeriod($mode, $anchor);
 
@@ -488,9 +671,6 @@ class DosenController extends Controller
 
         $tapsCurrent = $this->countAbsensiTaps($dosen, $curStart, $curEnd, $kelas, $tim, $weekday);
         $tapsPrev = $this->countAbsensiTaps($dosen, $prevStart, $prevEnd, $kelas, $tim, $weekday);
-
-        $lokerCurrent = 0;
-        $lokerPrev = 0;
 
         $hadirUnik = $this->distinctMahasiswaHadir($dosen, $curStart, $curEnd, $kelas, $tim, $weekday);
         $tidakHadir = max(0, $totalMahasiswa - $hadirUnik);
@@ -515,10 +695,6 @@ class DosenController extends Controller
                 'tap_prev' => $tapsPrev,
                 'tap_delta' => $tapsCurrent - $tapsPrev,
                 'tap_meta' => DashboardStatLabels::tapAbsensiMeta($tapsCurrent - $tapsPrev, $tapsPrev, $mode),
-                'akses_loker' => $lokerCurrent,
-                'loker_prev' => $lokerPrev,
-                'loker_delta' => $lokerCurrent - $lokerPrev,
-                'loker_meta' => DashboardStatLabels::aksesLokerMeta($lokerCurrent - $lokerPrev, $lokerPrev, $mode),
             ],
             'line' => $line,
             'donut' => [
@@ -528,8 +704,7 @@ class DosenController extends Controller
             ],
         ];
 
-        // DEMO-DASHBOARD — hapus baris overlay ini saat data asli dipakai penuh
-        return DashboardDemoData::overlayDosen($payload);
+        return $payload;
     }
 
     /**
@@ -578,7 +753,7 @@ class DosenController extends Controller
 
     private function mahasiswaAktifQuery(User $dosen, string $kelas, string $tim): Builder
     {
-        $q = $this->allMahasiswaQuery(true);
+        $q = DosenKelasScope::applySupervisedMahasiswaQuery($this->allMahasiswaQuery(true), $dosen);
         if ($kelas !== '') {
             $q->where('kelas', $kelas);
         }
@@ -607,8 +782,8 @@ class DosenController extends Controller
     {
         $q = LogAbsensi::query()
             ->whereBetween('waktu_tap', [$from, $to])
-            ->whereHas('user', function ($qb) use ($kelas, $tim) {
-                $qb->where('role', 'mahasiswa')->where('is_active', true);
+            ->whereHas('user', function ($qb) use ($kelas, $tim, $dosen) {
+                DosenKelasScope::applySupervisedMahasiswaQuery($qb->where('is_active', true), $dosen);
                 if ($kelas !== '') {
                     $qb->where('kelas', $kelas);
                 }
@@ -637,8 +812,8 @@ class DosenController extends Controller
     {
         $q = LogAbsensi::query()
             ->whereBetween('waktu_tap', [$from, $to])
-            ->whereHas('user', function ($qb) use ($kelas, $tim) {
-                $qb->where('role', 'mahasiswa');
+            ->whereHas('user', function ($qb) use ($kelas, $tim, $dosen) {
+                DosenKelasScope::applySupervisedMahasiswaQuery($qb, $dosen);
                 if ($kelas !== '') {
                     $qb->where('kelas', $kelas);
                 }
@@ -660,7 +835,6 @@ class DosenController extends Controller
     {
         $labels = [];
         $absensi = [];
-        $loker = [];
         $subtitle = 'Persentase mahasiswa yang tap absensi (seluruh mahasiswa, filter kelas/tim)';
 
         if ($mode === 'hari') {
@@ -670,11 +844,10 @@ class DosenController extends Controller
                 $he = $day->copy()->setTime($h, 59, 59);
                 $labels[] = sprintf('%02d:00', $h);
                 $absensi[] = $this->persentaseHadirRentang($dosen, $hs, $he, $kelas, $tim, null);
-                $loker[] = 0;
             }
             $subtitle .= ' · Per jam (06:00–22:00)';
 
-            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'loker' => $loker, 'subtitle' => $subtitle];
+            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'subtitle' => $subtitle];
         }
 
         if ($mode === 'minggu') {
@@ -693,10 +866,9 @@ class DosenController extends Controller
                     $tim,
                     null
                 );
-                $loker[] = 0;
             }
 
-            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'loker' => $loker, 'subtitle' => $subtitle];
+            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'subtitle' => $subtitle];
         }
 
         if ($mode === 'bulan') {
@@ -715,11 +887,10 @@ class DosenController extends Controller
                     $tim,
                     null
                 );
-                $loker[] = 0;
             }
             $subtitle .= $weekday ? ' · Hanya hari tertentu dalam bulan' : ' · Per hari dalam bulan';
 
-            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'loker' => $loker, 'subtitle' => $subtitle];
+            return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'subtitle' => $subtitle];
         }
 
         for ($m = 1; $m <= 12; $m++) {
@@ -729,10 +900,9 @@ class DosenController extends Controller
             $hadir = $this->distinctMahasiswaHadir($dosen, $s, $e, $kelas, $tim, $weekday);
             $total = (clone $this->mahasiswaAktifQuery($dosen, $kelas, $tim))->count();
             $absensi[] = $total > 0 ? round(($hadir / $total) * 100, 1) : 0.0;
-            $loker[] = 0;
         }
         $subtitle .= $weekday ? ' · Hari terpilih per bulan' : ' · Per bulan';
 
-        return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'loker' => $loker, 'subtitle' => $subtitle];
+        return ['labels' => $labels, 'values' => $absensi, 'absensi' => $absensi, 'subtitle' => $subtitle];
     }
 }

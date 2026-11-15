@@ -5,7 +5,7 @@ const WORDS = [
   'AIoT SIMALAS',
   'Laboratorium Pintar',
   'Absensi Biometrik',
-  'Loker IoT',
+  'Akses Ruangan IoT',
   'Terintegrasi AIoT',
 ];
 

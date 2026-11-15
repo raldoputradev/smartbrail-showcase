@@ -16,6 +16,7 @@ use App\Support\WebSessionGuard;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +25,12 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     use ValidatesRecaptcha;
+
+    /** Pesan tunggal untuk semua kegagalan login — tidak membedakan akun tidak ada, password salah, role salah, atau status akun. */
+    private const GENERIC_LOGIN_ERROR = 'Tidak dapat masuk. Periksa data login Anda.';
+
+    /** Hash bcrypt valid untuk menyamakan waktu verifikasi saat akun tidak ditemukan. */
+    private const DUMMY_PASSWORD_HASH = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
 
     private function pruneEmailVerificationTokens(): void
     {
@@ -44,31 +51,15 @@ class AuthController extends Controller
         $this->pruneEmailVerificationTokens();
 
         $persistentAuthPanel = null;
+        $request->session()->forget('register_flow_email');
 
-        $registerFlowEmail = $request->session()->get('register_flow_email');
-        if ($registerFlowEmail) {
-            $hasRegistrationToken = DB::table('email_verification_tokens')
-                ->where('email', $registerFlowEmail)
-                ->where('type', 'registration')
-                ->where('expires_at', '>', now())
-                ->exists();
-
-            if ($hasRegistrationToken) {
-                $persistentAuthPanel = 'reg-verify';
+        $pendingUserId = (int) $request->session()->get('account_verify_user_id', 0);
+        if ($pendingUserId > 0) {
+            $pendingUser = User::query()->find($pendingUserId);
+            if ($pendingUser && !$pendingUser->email_verified_at) {
+                $persistentAuthPanel = blank($pendingUser->email) ? 'add-email' : 'account-verify';
             } else {
-                $request->session()->forget('register_flow_email');
-            }
-        }
-
-        if (!$persistentAuthPanel) {
-            $pendingUserId = (int) $request->session()->get('account_verify_user_id', 0);
-            if ($pendingUserId > 0) {
-                $pendingUser = User::query()->find($pendingUserId);
-                if ($pendingUser && !$pendingUser->email_verified_at) {
-                    $persistentAuthPanel = blank($pendingUser->email) ? 'add-email' : 'account-verify';
-                } else {
-                    $request->session()->forget(['account_verify_user_id', 'account_verify_email', 'account_verify_otp_sent']);
-                }
+                $request->session()->forget(['account_verify_user_id', 'account_verify_email', 'account_verify_otp_sent']);
             }
         }
 
@@ -90,31 +81,53 @@ class AuthController extends Controller
             }
         }
 
+        $queryRole = (string) $request->query('role', '');
+        $selectedRole = in_array($queryRole, ['admin', 'laboran', 'dosen', 'mahasiswa'], true) ? $queryRole : 'mahasiswa';
+
+        // Deep-link ke panel Lupa Password (dipakai tautan "Minta Tautan Baru" di halaman reset).
+        if (! $persistentAuthPanel && $request->query('panel') === 'forgot') {
+            $persistentAuthPanel = 'forgot';
+        }
+
+        // Panel login & lupa-password kini React/Inertia; panel OTP/reset/verifikasi
+        // yang berjalan lewat session flow tetap pada view auth (Blade) yang sudah ada.
+        if (! $persistentAuthPanel || $persistentAuthPanel === 'forgot') {
+            return \Inertia\Inertia::render('Auth/Login', [
+                'panel' => $request->session()->has('reset_link_sent') ? 'forgot' : $persistentAuthPanel,
+                'selectedRole' => $selectedRole,
+                'old' => [
+                    'nitk_nidn' => old('nitk_nidn'),
+                    'role' => old('role'),
+                    'remember' => (bool) old('remember'),
+                    'identifier' => old('identifier'),
+                ],
+                'csrf' => csrf_token(),
+                'recaptchaSiteKey' => \App\Support\Recaptcha::isConfigured()
+                    ? (string) config('services.recaptcha.site_key')
+                    : null,
+            ]);
+        }
+
         return view('auth', [
             'persistentAuthPanel' => $persistentAuthPanel,
-            'registrationOpen' => RegistrationGate::isOpen('dosen'),
-            'registrationClosedMessage' => RegistrationGate::closedMessage('dosen'),
+            'selectedRole' => $selectedRole,
         ]);
-    }
-
-    private function activationRedirect(string $message)
-    {
-        return redirect()->route('activation.show')->with('info', $message);
     }
 
     /**
      * Handle login via nitk_nidn + password + role selection.
-     * Users must select their role (laboran/dosen) before logging in.
+     * Users must select their role (mahasiswa/dosen/laboran) before logging in.
      */
     public function login(Request $request, LoginSecurityService $loginSecurity)
     {
         $request->validate([
             'nitk_nidn' => 'required|string|max:50',
             'password'  => 'required|string|max:128',
-            'role'      => 'required|in:laboran,dosen',
+            'role'      => 'required|in:mahasiswa,dosen,laboran,admin',
         ]);
 
         $nitk = trim((string) $request->nitk_nidn);
+        $rawPassword = (string) $request->password;
         $guard = $loginSecurity->guardBeforeAttempt($request, $nitk);
 
         if ($guard['message']) {
@@ -125,8 +138,12 @@ class AuthController extends Controller
 
         $user = $guard['user'];
 
-        // Akun hasil import: kredensial benar (kode/password aktivasi) → arahkan ke /aktivasi tanpa sesi login.
-        if ($user && $user->isAwaitingActivation() && AccountActivation::secretMatches($user, (string) $request->password)) {
+        // 1. Akun dosen/laboran hasil import (menunggu_aktivasi) tetap diarahkan ke /aktivasi.
+        if ($user && !$user->isMahasiswa() && $user->isAwaitingActivation() && AccountActivation::secretMatches($user, $rawPassword)) {
+            if (! self::selectedRoleMatches((string) $request->role, $user->role)) {
+                $this->throwGenericLoginError($loginSecurity->recordFailedAttempt($request, $user, $nitk));
+            }
+
             $loginSecurity->recordSuccessfulLogin($user);
             $request->session()->flash('activation_identifier', $user->nitk_nidn);
             $message = 'Akun Anda belum aktif penuh. Selesaikan aktivasi: buat password, isi email & nomor HP, lalu verifikasi email.';
@@ -143,367 +160,229 @@ class AuthController extends Controller
             return redirect()->route('activation.show')->with('info', $message);
         }
 
-        $credentialsInvalid = !$user || !Hash::check($request->password, $user->password);
-        $roleInvalid = $user && $user->role !== $request->role;
+        // 2. Transisi terkontrol untuk akun mahasiswa hasil import lama (menunggu_aktivasi).
+        $legacyTransitioned = false;
+        if ($user && $user->isMahasiswa() && $user->isAwaitingActivation()) {
+            $legacyState = AccountActivation::inspectLegacyStudentImportState($user);
 
-        if ($credentialsInvalid || $roleInvalid) {
-            $failMessage = $loginSecurity->recordFailedAttempt($request, $user, $nitk);
+            if (!$legacyState['eligible']) {
+                $this->throwGenericLoginError($loginSecurity->recordFailedAttempt($request, $user, $nitk));
+            }
 
-            throw ValidationException::withMessages(
-                $roleInvalid && !$credentialsInvalid
-                    ? ['role' => ['Hak akses yang dipilih tidak sesuai dengan akun Anda.']]
-                    : ['nitk_nidn' => [$failMessage]]
-            );
+            $passwordMatches = $legacyState['mode'] === 'temp_code'
+                ? Hash::check(AccountActivation::normalizeCode($rawPassword), (string) $user->password)
+                : Hash::check($rawPassword, (string) $user->password);
+
+            if (!$passwordMatches) {
+                $this->throwGenericLoginError($loginSecurity->recordFailedAttempt($request, $user, $nitk));
+            }
+
+            if (! self::selectedRoleMatches((string) $request->role, $user->role)) {
+                $this->throwGenericLoginError($loginSecurity->recordFailedAttempt($request, $user, $nitk));
+            }
+
+            if ($legacyState['mode'] === 'temp_code' && AccountActivation::codeExpired($user)) {
+                throw ValidationException::withMessages([
+                    'nitk_nidn' => [self::GENERIC_LOGIN_ERROR],
+                ]);
+            }
+
+            $user = AccountActivation::transitionLegacyImportedMahasiswa($user, $legacyState['mode'], $request);
+            $legacyTransitioned = true;
         }
 
-        if (($user->approval_status ?? 'pending') === 'rejected') {
-            throw ValidationException::withMessages([
-                'email' => ['Akun Anda ditolak oleh admin. Hubungi laboran jika merasa ini keliru.'],
-            ]);
-        }
+        // 3. Verifikasi kredensial untuk akun yang sudah bukan menunggu_aktivasi.
+        if (!$legacyTransitioned) {
+            $usingTempPassword = $user
+                && $user->mustChangePassword()
+                && $user->is_active
+                && ($user->approval_status ?? 'pending') === 'approved';
 
-        if (!$user->is_active || ($user->approval_status ?? 'pending') !== 'approved') {
-            throw ValidationException::withMessages([
-                'email' => ['Email sudah diverifikasi, tetapi akun masih menunggu persetujuan admin/laboran.'],
-            ]);
+            // Hash selalu diverifikasi (dummy saat akun tidak ada) agar waktu respons
+            // tidak membocorkan keberadaan akun.
+            $passwordValid = $usingTempPassword
+                ? AccountActivation::temporaryPasswordMatches($user, $rawPassword)
+                : Hash::check($rawPassword, (string) ($user?->password ?? self::DUMMY_PASSWORD_HASH));
+
+            // Jika akun dinonaktifkan/ditolak/pending namun masih berflag must_change_password, cek kecocokan agar pesan status akurat.
+            if (!$passwordValid && $user && $user->mustChangePassword()) {
+                $passwordValid = AccountActivation::temporaryPasswordMatches($user, $rawPassword);
+            }
+
+            $roleInvalid = $user && ! self::selectedRoleMatches((string) $request->role, $user->role);
+
+            if (!$passwordValid || $roleInvalid) {
+                $this->throwGenericLoginError($loginSecurity->recordFailedAttempt($request, $user, $nitk));
+            }
+
+            if (($user->approval_status ?? 'pending') === 'rejected'
+                || (($user->approval_status ?? 'pending') === 'approved' && !$user->is_active)
+                || !$user->is_active
+                || ($user->approval_status ?? 'pending') !== 'approved') {
+                throw ValidationException::withMessages([
+                    'nitk_nidn' => [self::GENERIC_LOGIN_ERROR],
+                ]);
+            }
+
+            if ($user->mustChangePassword() && AccountActivation::temporaryPasswordExpired($user)) {
+                throw ValidationException::withMessages([
+                    'nitk_nidn' => [self::GENERIC_LOGIN_ERROR],
+                ]);
+            }
         }
 
         $loginSecurity->recordSuccessfulLogin($user);
 
-        Auth::login($user, $request->boolean('remember'));
-        $request->session()->regenerate();
-        WebSessionGuard::stampLogin($request);
-
-        $emailVerificationRequired = !$user->email_verified_at;
-        $needsEmail = blank($user->email);
-        $otpMessage = null;
-
-        if ($emailVerificationRequired) {
-            $request->session()->put('email_verification_pending', true);
-            $request->session()->put('account_verify_needs_email', $needsEmail);
-            $request->session()->put('account_verify_user_id', $user->id);
-
-            if (!$needsEmail) {
-                try {
-                    $otpMessage = AccountEmailVerification::send($user);
-                    $request->session()->put('account_verify_email', $user->email);
-                    $request->session()->put('account_verify_otp_sent', true);
-                } catch (\RuntimeException $e) {
-                    $otpMessage = $e->getMessage();
-                }
-            }
+        $remember = $request->boolean('remember') && !$user->mustChangePassword();
+        Auth::login($user, $remember);
+        if ($remember) {
+            // Batas "Tetap masuk" 30 hari: cookie terenkripsi sebagai batas terdepan recaller;
+            // divalidasi ulang oleh EnforceWebSessionTimeout saat sesi dibuat via remember.
+            Cookie::queue('remember_until', (string) now()->addDays(30)->timestamp, 60 * 24 * 30);
+        } elseif ($request->cookies->has('remember_until')) {
+            // Pilihan terbaru menang: login tanpa "Ingat saya" membatalkan penanda remember sebelumnya.
+            Cookie::queue(Cookie::forget('remember_until'));
         }
+        $request->session()->regenerate();
+        WebSessionGuard::stampLogin($request, $user);
+        $request->session()->forget('student_contact_prompt_dismissed_for');
+
+        // 4. Akun dengan password sementara (semua role) dibatasi ke halaman ganti password.
+        if ($user->mustChangePassword()) {
+            $this->clearAccountVerifySession($request);
+            $request->session()->forget('email_verification_pending');
+
+            $changePath = $user->isMahasiswa()
+                ? route('mahasiswa.password.change', absolute: false)
+                : route('account.password.change', absolute: false);
+            $changeMessage = 'Login berhasil. Demi keamanan akun, silakan buat password pribadi baru terlebih dahulu.';
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'ok' => true,
+                    'redirect' => url($changePath),
+                    'message' => $changeMessage,
+                    'must_change_password' => true,
+                ]);
+            }
+
+            return redirect()->to($changePath)->with('info', $changeMessage);
+        }
+
+        // 5. Verifikasi email bersifat sukarela untuk semua role — tidak ada lagi
+        // banner wajib/OTP otomatis saat login; pengguna disarankan lewat kartu
+        // di halaman profil (session()->now di UserProfileController).
+        $emailVerificationRequired = !$user->isMahasiswa() && !$user->email_verified_at;
+        $needsEmail = !$user->isMahasiswa() && blank($user->email);
+
+        $this->clearAccountVerifySession($request);
+        $request->session()->forget('email_verification_pending');
 
         $welcomeMessage = "Login berhasil. Selamat datang, {$user->nama_lengkap}!";
 
         $dashboardPath = match ($user->role) {
-            'laboran' => '/admin/dashboard',
+            'admin', 'laboran' => '/admin/dashboard',
             'dosen' => '/dosen/dashboard',
-            'mahasiswa' => route('mahasiswa.gate', absolute: false),
+            'mahasiswa' => route('mahasiswa.beranda', absolute: false),
             default => '/dashboard',
         };
 
         $redirect = redirect()->intended($dashboardPath);
 
         if ($request->expectsJson() || $request->ajax()) {
-            $message = $user->role === 'mahasiswa'
-                ? 'Akun mahasiswa hanya untuk aplikasi mobile SIMALAS. Website ini untuk laboran dan dosen.'
-                : $welcomeMessage;
-
             return response()->json([
                 'ok'       => true,
                 'redirect' => url($dashboardPath),
-                'message'  => $message,
+                'message'  => $welcomeMessage,
                 'email_verification_required' => $emailVerificationRequired,
                 'needs_email' => $needsEmail,
             ]);
         }
 
         $flashRedirect = match ($user->role) {
-            'laboran', 'dosen' => $redirect
+            'admin', 'laboran', 'dosen' => $redirect
                 ->with('login_success', true)
+                ->with('login_welcome', true)
                 ->with('success', $welcomeMessage),
             'mahasiswa' => $redirect
-                ->with('info', 'Akun mahasiswa hanya untuk aplikasi mobile SIMALAS. Website ini untuk laboran dan dosen.'),
+                ->with('login_welcome', true)
+                ->with('success', $welcomeMessage),
             default => $redirect,
         };
 
-        if ($emailVerificationRequired && in_array($user->role, ['laboran', 'dosen'], true)) {
+        if ($emailVerificationRequired && in_array($user->role, ['admin', 'laboran', 'dosen'], true)) {
             $info = $needsEmail
-                ? 'Email belum diisi. Lengkapi email akun Anda dari banner di dashboard.'
-                : (($otpMessage ?? null) ? $otpMessage . ' Verifikasi email dari banner di dashboard.' : 'Email belum diverifikasi. Selesaikan verifikasi dari banner di dashboard.');
+                ? 'Email belum diisi. Anda bisa melengkapi email akun dari halaman Profil.'
+                : 'Email belum diverifikasi. Anda bisa memverifikasinya kapan saja dari halaman Profil.';
             $flashRedirect = $flashRedirect->with('info', $info);
         }
 
         return $flashRedirect;
     }
 
+    /** Opsi "Admin / Laboran" pada dropdown login mencakup dua role akun. */
+    private static function selectedRoleMatches(string $selectedRole, string $userRole): bool
+    {
+        return $selectedRole === $userRole;
+    }
+
     /**
-     * Handle user registration.
-     * Step 1: Create user (inactive) and send email verification token.
+     * Lempar kegagalan login generik; pesan throttle/lockout (identitas + IP, berlaku
+     * juga untuk ID yang tidak terdaftar) tetap ditampilkan apa adanya.
+     */
+    private function throwGenericLoginError(string $serviceMessage): never
+    {
+        $isRateLimitMessage = str_contains($serviceMessage, 'percobaan') || str_contains($serviceMessage, 'dikunci');
+
+        throw ValidationException::withMessages([
+            'nitk_nidn' => [$isRateLimitMessage ? $serviceMessage : self::GENERIC_LOGIN_ERROR],
+        ]);
+    }
+
+    /**
+     * Pendaftaran mandiri web telah dinonaktifkan.
      */
     public function register(Request $request)
     {
-        if ($resume = $this->resumePendingDosenRegistrationIfExists($request)) {
-            return $resume;
-        }
-
-        if (!RegistrationGate::isOpen('dosen')) {
-            return back()
-                ->withErrors(['registration' => RegistrationGate::closedMessage('dosen')])
-                ->withInput($request->except(['password', 'password_confirmation']))
-                ->with('auth_panel', 'register');
-        }
-
-        if ($redirect = $this->validateRecaptcha($request, 'register')) {
-            if ($resume = $this->resumePendingDosenRegistrationIfExists($request)) {
-                return $resume->with(
-                    'info',
-                    'Pendaftaran sudah tercatat di sistem. Lanjutkan verifikasi OTP — centang reCAPTCHA tidak diperlukan lagi.'
-                );
-            }
-
-            return $redirect;
-        }
-
-        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'nama_lengkap' => 'required|string|max:255',
-            'nitk_nidn'    => 'required|string|max:50|regex:/^[0-9]+$/|unique:users,nitk_nidn',
-            'email'        => ['required', 'email:rfc,dns', 'max:255', 'unique:users,email', new NotDisposableEmail],
-            'password'     => ['required', 'string', 'max:128', 'confirmed', new StrongPassword],
-            'role'         => 'required|in:dosen',
-        ], [
-            'nitk_nidn.regex' => 'NIDN hanya boleh berisi angka.',
-            'nitk_nidn.unique' => 'NIDN sudah terdaftar.',
-            'email.unique' => 'Email sudah terdaftar.',
-            'email.email' => 'Format email tidak valid atau domain tidak ditemukan.',
-        ]);
-
-        if ($validator->fails()) {
-            if ($resume = $this->resumePendingDosenRegistrationIfExists($request)) {
-                return $resume;
-            }
-
-            return back()
-                ->withErrors($validator)
-                ->withInput()
-                ->with('auth_panel', 'register');
-        }
-
-        $this->pruneEmailVerificationTokens();
-
-        // Create user as inactive (not verified yet)
-        $user = User::create([
-            'nama_lengkap' => $request->nama_lengkap,
-            'nitk_nidn'    => $request->nitk_nidn,
-            'email'        => $request->email,
-            'password'     => $request->password,
-            'role'         => $request->role,
-            'is_active'    => false,
-            'approval_status' => 'pending',
-        ]);
-
-        $this->recordApprovalLog($request, $user, 'registered', 'Calon dosen mendaftar mandiri dari halaman publik.');
-
-        // Generate 6-digit OTP
-        $otpCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-        // Clean up any existing tokens for this email
-        DB::table('email_verification_tokens')
-            ->where('email', $user->email)
-            ->where('type', 'registration')
-            ->delete();
-
-        // Store verification token
-        DB::table('email_verification_tokens')->insert([
-            'email'      => $user->email,
-            'token'      => '', // unused
-            'otp_code'   => $otpCode,
-            'type'       => 'registration',
-            'expires_at' => now()->addMinutes(30),
-            'verified'   => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        // Kirim email verifikasi sebagai detached child process: respons HTTP langsung kembali.
-        AsyncMailer::dispatchOtp($user->email, $otpCode, $user->nama_lengkap, 'registration');
-        $emailStatus = "Kode verifikasi sedang dikirim ke {$user->email}. Silakan cek email Anda dalam beberapa detik.";
-
-        $request->session()->put('register_flow_email', $user->email);
-
-        return back()->with('register_otp_sent', true)
-                     ->with('auth_panel', 'reg-verify')
-                     ->with('register_email', $user->email)
-                     ->with('success', $emailStatus);
+        return $this->rejectManualWebRegistration($request);
     }
 
-    /**
-     * Resume registration OTP flow via signed link from email (no prior session required).
-     */
     public function resumeRegistrationVerification(Request $request)
     {
-        $this->pruneEmailVerificationTokens();
-
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        return $this->redirectToRegistrationVerification($request, $request->email);
+        return $this->rejectManualWebRegistration($request);
     }
 
-    /**
-     * Resume registration OTP flow by entering email on the register page.
-     */
     public function startRegistrationVerification(Request $request)
     {
-        $this->pruneEmailVerificationTokens();
-
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        return $this->redirectToRegistrationVerification($request, $request->email, 'reg-resume');
+        return $this->rejectManualWebRegistration($request);
     }
 
-    /**
-     * Verify registration email token.
-     */
     public function verifyRegistration(Request $request)
     {
-        $this->pruneEmailVerificationTokens();
-
-        $request->validate([
-            'email'    => 'required|email',
-            'otp_code' => 'required|digits:6',
-        ], [
-            'otp_code.required' => 'Masukkan kode OTP 6 digit.',
-            'otp_code.digits'   => 'Kode OTP harus berupa 6 digit angka.',
-        ]);
-
-        $record = DB::table('email_verification_tokens')
-            ->where('email', $request->email)
-            ->where('otp_code', $request->otp_code)
-            ->where('type', 'registration')
-            ->first();
-
-        if (!$record || \Carbon\Carbon::parse($record->expires_at)->isPast()) {
-            return back()->withErrors(['otp_code' => 'Kode verifikasi tidak valid atau sudah kadaluarsa.'])
-                         ->with('auth_panel', 'reg-verify')
-                         ->with('register_otp_sent', true)
-                         ->with('register_email', $request->email);
-        }
-
-        // OTP hanya memverifikasi email. Akses web dosen tetap menunggu approval admin.
-        $user = User::where('email', $request->email)->first();
-        if ($user?->isAwaitingActivation()) {
-            return $this->activationRedirect('Akun ini dibuat admin dan diaktifkan lewat halaman Aktivasi Akun.');
-        }
-        if ($user) {
-            $user->update([
-                'email_verified_at' => now(),
-                'approval_status' => $user->approval_status === 'rejected' ? 'rejected' : 'pending',
-            ]);
-
-            $this->recordApprovalLog($request, $user, 'email_verified', 'Email dosen berhasil diverifikasi OTP, menunggu approval admin.');
-        }
-
-        // Clean up verification tokens
-        DB::table('email_verification_tokens')
-            ->where('email', $request->email)
-            ->where('type', 'registration')
-            ->delete();
-
-        $request->session()->forget('register_flow_email');
-
-        return redirect()->route('register')
-            ->with('auth_panel', 'register')
-            ->with('register_verified', true)
-            ->with('success', 'Email berhasil diverifikasi. Akun dosen menunggu persetujuan admin/laboran. Anda bisa mendaftarkan akun dosen lain atau login setelah disetujui.');
+        return $this->rejectManualWebRegistration($request);
     }
 
-    /**
-     * Resend registration verification OTP.
-     */
     public function resendVerification(Request $request)
     {
-        $this->pruneEmailVerificationTokens();
+        return $this->rejectManualWebRegistration($request);
+    }
 
-        $request->validate([
-            'email' => 'required|email|exists:users,email',
-        ]);
+    private function rejectManualWebRegistration(Request $request)
+    {
+        $request->session()->forget('register_flow_email');
+        $message = RegistrationGate::closedMessage('dosen');
 
-        $user = User::where('email', $request->email)->first();
-
-        if (!$user) {
-            return back()->withErrors(['email' => 'Email tidak ditemukan.'])
-                         ->with('auth_panel', 'reg-verify')
-                         ->with('register_otp_sent', true)
-                         ->with('register_email', $request->email);
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'ok' => false,
+                'code' => 'REGISTRATION_CLOSED',
+                'message' => $message,
+            ], 403);
         }
 
-        if ($user->isAwaitingActivation()) {
-            return $this->activationRedirect('Akun ini dibuat admin dan diaktifkan lewat halaman Aktivasi Akun.');
-        }
-
-        if (($user->approval_status ?? 'pending') === 'rejected') {
-            return redirect()->route('login')
-                ->withErrors(['email' => 'Akun ini sudah ditolak oleh admin/laboran. Hubungi admin jika merasa ini keliru.'])
-                ->with('auth_panel', 'login');
-        }
-
-        if ($user->email_verified_at && $user->is_active && ($user->approval_status ?? 'pending') === 'approved') {
-            return redirect()->route('login')
-                ->with('success', 'Akun sudah diverifikasi. Silakan login.');
-        }
-
-        // Rate limit: check if last OTP was sent less than 60 seconds ago
-        $lastToken = DB::table('email_verification_tokens')
-            ->where('email', $request->email)
-            ->where('type', 'registration')
-            ->orderBy('created_at', 'desc')
-            ->first();
-
-        if ($lastToken) {
-            $elapsed = now()->diffInSeconds(\Carbon\Carbon::parse($lastToken->created_at), true);
-            if ($elapsed < 60) {
-                $remaining = ceil(60 - $elapsed);
-                return back()->withErrors(['email' => "Tunggu {$remaining} detik sebelum mengirim ulang kode verifikasi."])
-                             ->with('auth_panel', 'reg-verify')
-                             ->with('register_resend_cooldown', $remaining)
-                             ->with('register_otp_sent', true)
-                             ->with('register_email', $request->email);
-            }
-        }
-
-        // Generate new OTP
-        $otpCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-        DB::table('email_verification_tokens')
-            ->where('email', $request->email)
-            ->where('type', 'registration')
-            ->delete();
-
-        DB::table('email_verification_tokens')->insert([
-            'email'      => $user->email,
-            'token'      => '', // unused
-            'otp_code'   => $otpCode,
-            'type'       => 'registration',
-            'expires_at' => now()->addMinutes(30),
-            'verified'   => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        AsyncMailer::dispatchOtp($user->email, $otpCode, $user->nama_lengkap, 'resend');
-        $status = "Kode verifikasi baru sedang dikirim ke {$user->email}.";
-
-        $request->session()->put('register_flow_email', $user->email);
-
-        return back()->with('register_otp_sent', true)
-                     ->with('auth_panel', 'reg-verify')
-                     ->with('register_email', $user->email)
-                     ->with('success', $status);
+        return redirect()->route('login')
+            ->withErrors(['registration' => $message])
+            ->with('auth_panel', 'login');
     }
 
     public function submitAccountEmail(Request $request)
@@ -561,6 +440,47 @@ class AuthController extends Controller
             ->with('success', $status);
     }
 
+    /**
+     * Cek ketersediaan email secara real-time untuk modal verifikasi.
+     * Dipanggil sebelum submit agar email yang sudah dipakai akun lain
+     * langsung ditolak di UI, bukan baru ketahuan setelah kirim.
+     */
+    public function checkAccountEmail(Request $request)
+    {
+        $user = $this->pendingAccountVerifyUser($request);
+        if (!$user) {
+            return response()->json([
+                'ok' => false,
+                'reason' => 'Sesi verifikasi tidak aktif.',
+            ], 403);
+        }
+
+        $email = AccountEmailVerification::normalizeEmail((string) $request->input('email'));
+
+        if ($email === '') {
+            return response()->json(['ok' => true, 'available' => false, 'reason' => null]);
+        }
+
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json([
+                'ok' => true,
+                'available' => false,
+                'reason' => 'Format email tidak valid.',
+            ]);
+        }
+
+        $taken = User::query()
+            ->where('email', $email)
+            ->where('id', '!=', $user->id)
+            ->exists();
+
+        return response()->json([
+            'ok' => true,
+            'available' => ! $taken,
+            'reason' => $taken ? 'Email ini sudah dipakai akun lain.' : null,
+        ]);
+    }
+
     public function verifyAccountEmail(Request $request)
     {
         $user = $this->pendingAccountVerifyUser($request);
@@ -584,8 +504,15 @@ class AuthController extends Controller
                 ->with('account_verify_email', $user->email);
         }
 
-        $verified = AccountEmailVerification::verify($email, $request->input('otp_code'));
-        if (!$verified || $verified->id !== $user->id) {
+        // Batas tebakan diikat ke record token (bukan IP): ganti IP tidak meloloskan,
+        // dan percobaan pada token lama tidak menghapus token yang baru diterbitkan.
+        $record = DB::table('email_verification_tokens')
+            ->where('email', $email)
+            ->where('type', AccountEmailVerification::TYPE)
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$record) {
             return back()
                 ->withErrors(['otp_code' => 'Kode verifikasi tidak valid atau sudah kadaluarsa.'])
                 ->with('auth_panel', 'account-verify')
@@ -593,6 +520,28 @@ class AuthController extends Controller
                 ->with('account_verify_email', $email);
         }
 
+        $otpAttemptKey = 'verify-email-otp:' . $record->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($otpAttemptKey, 8)) {
+            DB::table('email_verification_tokens')->where('id', $record->id)->delete();
+            \Illuminate\Support\Facades\RateLimiter::clear($otpAttemptKey);
+
+            return redirect()->route('login')
+                ->withErrors(['otp_code' => 'Terlalu banyak kode salah. Minta kode verifikasi baru.'])
+                ->with('auth_panel', 'login');
+        }
+
+        $verified = AccountEmailVerification::verify($email, $request->input('otp_code'));
+        if (!$verified || $verified->id !== $user->id) {
+            \Illuminate\Support\Facades\RateLimiter::hit($otpAttemptKey, 15 * 60);
+
+            return back()
+                ->withErrors(['otp_code' => 'Kode verifikasi tidak valid atau sudah kadaluarsa.'])
+                ->with('auth_panel', 'account-verify')
+                ->with('account_verify_otp_sent', true)
+                ->with('account_verify_email', $email);
+        }
+
+        \Illuminate\Support\Facades\RateLimiter::clear($otpAttemptKey);
         $this->recordApprovalLog($request, $verified, 'email_verified', 'Email diverifikasi mandiri setelah login (akun dibuat admin).');
         $this->clearAccountVerifySession($request);
         $request->session()->forget('email_verification_pending');
@@ -651,19 +600,7 @@ class AuthController extends Controller
 
     public function cancelRegistrationVerification(Request $request)
     {
-        $email = $request->input('email', $request->session()->get('register_flow_email'));
-        if ($email) {
-            DB::table('email_verification_tokens')
-                ->where('email', $email)
-                ->where('type', 'registration')
-                ->delete();
-        }
-
-        $request->session()->forget('register_flow_email');
-
-        return redirect()->route('register')
-            ->with('auth_panel', 'register')
-            ->with('success', 'Verifikasi registrasi dibatalkan. Token lama sudah dihapus.');
+        return $this->rejectManualWebRegistration($request);
     }
 
     /**
@@ -672,6 +609,8 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $expired = $request->boolean('session_expired') || $request->query('expired');
+
+        $request->session()->forget('student_contact_prompt_dismissed_for');
 
         Auth::logout();
 
@@ -691,66 +630,11 @@ class AuthController extends Controller
 
         // Cegah HP/browser menampilkan dashboard dari cache setelah logout.
         return $redirect
+            ->withCookies([\Illuminate\Support\Facades\Cookie::forget('remember_until')])
             ->header('Cache-Control', 'no-cache, no-store, max-age=0, must-revalidate, private')
             ->header('Pragma', 'no-cache')
             ->header('Expires', '0')
             ->header('Clear-Site-Data', '"cache"');
-    }
-
-    private function beginAccountEmailVerification(Request $request, User $user)
-    {
-        $request->session()->put('account_verify_user_id', $user->id);
-
-        if (blank($user->email)) {
-            $message = 'Email belum diisi pada akun Anda. Tambahkan email aktif untuk verifikasi sebelum melanjutkan.';
-
-            return $this->accountVerificationResponse($request, 'add-email', $message, $user, false);
-        }
-
-        try {
-            $message = AccountEmailVerification::send($user);
-        } catch (\RuntimeException $e) {
-            throw ValidationException::withMessages([
-                'email' => [$e->getMessage()],
-            ]);
-        }
-
-        $request->session()->put('account_verify_email', $user->email);
-        $request->session()->put('account_verify_otp_sent', true);
-
-        $info = $message . ' Masukkan kode OTP untuk menyelesaikan verifikasi.';
-
-        return $this->accountVerificationResponse($request, 'account-verify', $info, $user, true);
-    }
-
-    private function accountVerificationResponse(
-        Request $request,
-        string $panel,
-        string $message,
-        User $user,
-        bool $otpSent
-    ) {
-        if ($request->expectsJson()) {
-            return response()->json([
-                'ok' => false,
-                'code' => 'EMAIL_NOT_VERIFIED',
-                'needs_email' => $panel === 'add-email',
-                'auth_panel' => $panel,
-                'message' => $message,
-                'email' => $user->email,
-            ], 403);
-        }
-
-        $redirect = redirect()->route('login')
-            ->with('auth_panel', $panel)
-            ->with('info', $message);
-
-        if ($otpSent) {
-            $redirect->with('account_verify_otp_sent', true)
-                ->with('account_verify_email', $user->email);
-        }
-
-        return $redirect;
     }
 
     private function finishLoginAfterEmailVerification(Request $request, User $user)
@@ -779,13 +663,14 @@ class AuthController extends Controller
 
         Auth::login($user, false);
         $request->session()->regenerate();
-        WebSessionGuard::stampLogin($request);
+        WebSessionGuard::stampLogin($request, $user);
 
         $welcomeMessage = "Email terverifikasi. Selamat datang, {$user->nama_lengkap}!";
 
         return match ($user->role) {
-            'laboran' => redirect()->intended('/admin/dashboard')->with('success', $welcomeMessage),
+            'admin', 'laboran' => redirect()->intended('/admin/dashboard')->with('success', $welcomeMessage),
             'dosen' => redirect()->intended('/dosen/dashboard')->with('success', $welcomeMessage),
+            'mahasiswa' => redirect()->intended(route('mahasiswa.beranda'))->with('success', $welcomeMessage),
             default => redirect()->route('login')->with('success', $welcomeMessage),
         };
     }
@@ -815,130 +700,6 @@ class AuthController extends Controller
             'account_verify_otp_sent',
             'account_verify_needs_email',
         ]);
-    }
-
-    /**
-     * Jika dosen sudah terdaftar tetapi OTP belum selesai, arahkan ke panel verifikasi
-     * (hindari error "sudah terdaftar" + reCAPTCHA kedaluwarsa saat submit ulang dari HP).
-     */
-    private function resumePendingDosenRegistrationIfExists(Request $request)
-    {
-        $email = strtolower(trim((string) $request->input('email', '')));
-        $nidn = trim((string) $request->input('nitk_nidn', ''));
-
-        if ($email === '' && $nidn === '') {
-            return null;
-        }
-
-        $user = User::query()
-            ->where('role', 'dosen')
-            ->whereNull('email_verified_at')
-            ->where(fn ($q) => $q->whereNull('approval_status')->orWhere('approval_status', '<>', AccountActivation::STATUS))
-            ->where(function ($query) use ($email, $nidn) {
-                if ($email !== '') {
-                    $query->orWhereRaw('LOWER(email) = ?', [$email]);
-                }
-                if ($nidn !== '') {
-                    $query->orWhere('nitk_nidn', $nidn);
-                }
-            })
-            ->first();
-
-        if (!$user || ($user->approval_status ?? 'pending') === 'rejected') {
-            return null;
-        }
-
-        return $this->redirectToRegistrationVerification($request, $user->email, 'reg-verify')
-            ->with(
-                'info',
-                'Pendaftaran Anda sudah tercatat. Masukkan kode OTP dari email, atau klik "Kirim ulang kode" jika belum menerima.'
-            );
-    }
-
-    private function redirectToRegistrationVerification(Request $request, string $email, ?string $errorPanel = 'reg-resume')
-    {
-        $email = strtolower(trim($email));
-        $user = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
-
-        if (!$user) {
-            return $this->registrationVerificationError(
-                $request,
-                'Email tidak ditemukan. Daftar terlebih dahulu atau periksa ejaan email.',
-                $errorPanel,
-                $email
-            );
-        }
-
-        if ($user->role !== 'dosen') {
-            return $this->registrationVerificationError(
-                $request,
-                'Email ini bukan akun pendaftaran dosen.',
-                $errorPanel,
-                $email
-            );
-        }
-
-        if ($user->isAwaitingActivation()) {
-            return $this->activationRedirect('Akun ini dibuat admin dan diaktifkan lewat halaman Aktivasi Akun.');
-        }
-
-        if (($user->approval_status ?? 'pending') === 'rejected') {
-            return redirect()->route('login')
-                ->withErrors(['email' => 'Akun ini sudah ditolak oleh admin/laboran. Hubungi admin jika merasa ini keliru.'])
-                ->with('auth_panel', 'login');
-        }
-
-        if ($user->email_verified_at) {
-            if ($user->is_active && ($user->approval_status ?? 'pending') === 'approved') {
-                return redirect()->route('login')
-                    ->with('success', 'Akun sudah diverifikasi. Silakan login.');
-            }
-
-            return redirect()->route('login')
-                ->with('info', 'Email sudah diverifikasi. Akun menunggu persetujuan admin/laboran sebelum bisa login.');
-        }
-
-        $hasActiveToken = DB::table('email_verification_tokens')
-            ->where('email', $user->email)
-            ->where('type', 'registration')
-            ->where('expires_at', '>', now())
-            ->exists();
-
-        if (!$hasActiveToken) {
-            $request->session()->put('register_flow_email', $user->email);
-
-            return redirect()->route('register')
-                ->withErrors(['email' => 'Kode verifikasi sudah kadaluarsa. Klik "Kirim ulang kode" di bawah untuk mendapatkan OTP baru.'])
-                ->with('auth_panel', 'reg-verify')
-                ->with('register_otp_sent', true)
-                ->with('register_email', $user->email)
-                ->with('register_token_expired', true);
-        }
-
-        $request->session()->put('register_flow_email', $user->email);
-
-        return redirect()->route('register')
-            ->with('auth_panel', 'reg-verify')
-            ->with('register_otp_sent', true)
-            ->with('register_email', $user->email)
-            ->with('success', "Lanjutkan verifikasi email untuk {$user->email}. Masukkan 6 digit kode OTP.");
-    }
-
-    private function registrationVerificationError(
-        Request $request,
-        string $message,
-        ?string $panel,
-        string $email
-    ) {
-        $redirect = redirect()->route('register')
-            ->withErrors(['email' => $message])
-            ->withInput(['email' => $email]);
-
-        if ($panel) {
-            $redirect->with('auth_panel', $panel);
-        }
-
-        return $redirect;
     }
 
     private function recordApprovalLog(Request $request, User $user, string $action, ?string $note = null): void

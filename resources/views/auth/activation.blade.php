@@ -52,7 +52,7 @@
 @endphp
 <main class="act-shell">
     <div class="act-brand">
-        <img src="{{ asset('branding/aiot-simalas-logo-lockup-s.png') }}?v=4" alt="AIoT SIMALAS">
+        <img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/aiot-simalas-logo-lockup-s.png')) }}" alt="AIoT SIMALAS">
         <span>Aktivasi Akun</span>
     </div>
 
@@ -112,7 +112,7 @@
                     <button type="submit" class="act-btn act-btn--ghost">Lanjutkan aktivasi</button>
                 </form>
             </details>
-            <p class="act-foot">Akun sudah aktif? <a href="{{ route('login') }}">Masuk di sini</a> (dosen/laboran) atau login di aplikasi SIMALAS (mahasiswa).</p>
+            <p class="act-foot">Akun sudah aktif? <a href="{{ route('login') }}">Masuk di halaman login</a> (mahasiswa, dosen, atau admin/laboran).</p>
 
         @elseif($step === 'profil')
             <h1>Lengkapi kontak Anda</h1>
@@ -158,22 +158,22 @@
             </form>
 
         @else
-            @php $role = $done['role'] ?? ''; @endphp
+            @php
+                $role = $done['role'] ?? 'mahasiswa';
+                $roleLabel = match ($role) {
+                    'laboran' => 'Admin / Laboran',
+                    'dosen' => 'Dosen',
+                    default => 'Mahasiswa',
+                };
+            @endphp
             <h1>Akun aktif</h1>
             <p class="act-sub">Terima kasih, {{ $done['nama'] ?? '' }}. Aktivasi selesai dan akun Anda sudah aktif penuh.</p>
-            @if($role === 'mahasiswa')
-                <ul class="act-list">
-                    <li>Kembali ke aplikasi <strong>SIMALAS</strong> di HP Anda.</li>
-                    <li>Login dengan <strong>NIM</strong> dan <strong>password baru</strong> yang tadi Anda buat.</li>
-                    <li>Kode aktivasi sudah tidak berlaku lagi.</li>
-                </ul>
-            @else
-                <ul class="act-list">
-                    <li>Masuk di halaman login web dengan ID dan password baru.</li>
-                    <li>Pilih peran <strong>{{ $role === 'laboran' ? 'Laboran' : 'Dosen' }}</strong> saat login.</li>
-                </ul>
-                <a href="{{ route('login') }}" class="act-btn">Ke halaman masuk</a>
-            @endif
+            <ul class="act-list">
+                <li>Masuk di halaman login dengan <strong>{{ $role === 'mahasiswa' ? 'NIM' : 'ID login' }}</strong> dan <strong>password baru</strong> yang tadi Anda buat.</li>
+                <li>Pilih peran <strong>{{ $roleLabel }}</strong> saat login (atau gunakan aplikasi <strong>SIMALAS</strong> di HP untuk mahasiswa).</li>
+                <li>Kode aktivasi sudah tidak berlaku lagi.</li>
+            </ul>
+            <a href="{{ route('login', ['role' => in_array($role, ['mahasiswa', 'dosen', 'laboran'], true) ? $role : 'mahasiswa']) }}" class="act-btn">Ke halaman masuk</a>
         @endif
     </div>
     <p class="act-foot">Jangan bagikan kode aktivasi, password, atau kode verifikasi kepada siapa pun, termasuk admin.</p>

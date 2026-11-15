@@ -4,7 +4,7 @@ const HIGHLIGHTS = [
   'Perangkat ESP32-S3 untuk absensi sidik jari di edge',
   'API Laravel terpusat & dashboard laboran/dosen',
   'Aplikasi Flutter untuk mahasiswa Polibatam',
-  'Loker pintar & monitoring real-time',
+  'Akses ruangan IoT & monitoring real-time',
 ];
 
 export default function About() {

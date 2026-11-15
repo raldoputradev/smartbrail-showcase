@@ -50,12 +50,31 @@ class MahasiswaShiftResolver
         }
 
         // Satu sesi aktif di sistem → pakai itu
-        $active = AbsensiSesiSetting::query()->where('aktif', true)->pluck('shift')->unique()->values();
+        $active = self::activeSettings()->pluck('shift')->unique()->values();
         if ($active->count() === 1) {
             return $active->first();
         }
 
         return 'pagi';
+    }
+
+    /**
+     * Daftar sesi aktif — memo per-request (dipanggil per mahasiswa pada rekap).
+     * Invalidasi mengikuti event model AbsensiSesiSetting (saved/deleted membersihkan memo model);
+     * untuk perubahan lintas request, request baru membaca ulang.
+     *
+     * @return \Illuminate\Support\Collection<int, AbsensiSesiSetting>
+     */
+    private static function activeSettings(): \Illuminate\Support\Collection
+    {
+        static $cache = [];
+        $req = app('request');
+        $key = $req ? spl_object_id($req) : 'cli';
+        if (! isset($cache[$key])) {
+            $cache[$key] = AbsensiSesiSetting::query()->where('aktif', true)->get();
+        }
+
+        return $cache[$key];
     }
 
     public static function inferFromKelas(?string $kelas): ?string
@@ -82,12 +101,19 @@ class MahasiswaShiftResolver
         }
 
         $tim = trim($tim);
-        $project = PblProject::query()
-            ->where('aktif', true)
-            ->where(function ($q) use ($tim) {
-                $q->where('nama', $tim)->orWhere('kode', $tim);
-            })
-            ->first();
+        // Nama/kode tim berulang antar mahasiswa — memo per-request agar tidak N+1 di rekap.
+        static $timMemo = [];
+        $req = app('request');
+        $mkey = ($req ? spl_object_id($req) : 'cli') . '|' . mb_strtolower($tim);
+        if (! array_key_exists($mkey, $timMemo)) {
+            $timMemo[$mkey] = PblProject::query()
+                ->where('aktif', true)
+                ->where(function ($q) use ($tim) {
+                    $q->where('nama', $tim)->orWhere('kode', $tim);
+                })
+                ->first();
+        }
+        $project = $timMemo[$mkey];
 
         $shift = $project?->shift_sesi;
 
@@ -102,7 +128,7 @@ class MahasiswaShiftResolver
         $now = $at ?? now();
         $matches = [];
 
-        foreach (AbsensiSesiSetting::query()->where('aktif', true)->get() as $setting) {
+        foreach (self::activeSettings() as $setting) {
             $localized = $setting->timezoneCarbon($now);
             $jamMasuk = $setting->jamMasukOn($localized);
             $jamPulang = $setting->jamPulangOn($localized);

@@ -27,6 +27,7 @@ class User extends Authenticatable
         'no_hp',
         'profile_photo_path',
         'password',
+        'must_change_password',
         'role',
         'kelas',
         'tim',
@@ -75,7 +76,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
             'finger_id' => 'integer',
+            'is_admin' => 'boolean',
             'finger_template' => FingerprintTemplateCast::class,
             'angkatan' => 'integer',
             'semester' => 'integer',
@@ -89,6 +92,7 @@ class User extends Authenticatable
             'login_suspicious_at' => 'datetime',
             'login_requires_admin_unlock' => 'boolean',
             'failed_login_attempts' => 'integer',
+            'last_seen_at' => 'datetime',
         ];
     }
 
@@ -111,6 +115,18 @@ class User extends Authenticatable
     public function isAwaitingActivation(): bool
     {
         return $this->approval_status === \App\Support\AccountActivation::STATUS;
+    }
+
+    /** Akun yang sedang menggunakan password sementara dan wajib menggantinya saat login. */
+    public function mustChangePassword(): bool
+    {
+        return (bool) $this->must_change_password;
+    }
+
+    /** Kelas yang ditugaskan laboran sebagai cakupan operasional dosen. */
+    public function kelasCakupan(): HasMany
+    {
+        return $this->hasMany(DosenKelas::class);
     }
 
     public function programStudi(): BelongsTo
@@ -156,11 +172,23 @@ class User extends Authenticatable
     }
 
     /**
-     * Check if user is laboran (admin).
+     * Check if user is laboran (admin operasional).
+     * Role 'admin' dihitung laboran juga: admin tetap dapat menjalankan
+     * operasional (persetujuan, fingerprint, laporan) di samping kewenangan sistem.
      */
     public function isLaboran(): bool
     {
-        return $this->role === 'laboran';
+        return in_array($this->role, ['laboran', 'admin'], true);
+    }
+
+    /**
+     * Kewenangan admin sistem (akun/import/pengaturan/perangkat).
+     * Sumber utama: role 'admin'. Flag is_admin tetap dihormati sebagai
+     * transisi sampai migrasi role akun admin selesai.
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin' || (bool) $this->is_admin;
     }
 
     /**
@@ -202,16 +230,54 @@ class User extends Authenticatable
     public function getRoleDisplayAttribute(): string
     {
         return match ($this->role) {
-            'laboran'   => 'Admin Laboran',
+            'admin'     => 'Admin',
+            'laboran'   => 'Laboran',
             'dosen'     => 'Dosen',
             'mahasiswa' => 'Mahasiswa',
             default     => ucfirst($this->role),
         };
     }
 
+    /**
+     * Presence — online bila aktif dalam 5 menit terakhir.
+     * `last_seen_at` disentuh oleh EnforceWebSessionTimeout (maks 1x/menit).
+     */
+    public function isOnline(int $withinMinutes = 5): bool
+    {
+        return $this->last_seen_at !== null
+            && $this->last_seen_at->gte(now()->subMinutes($withinMinutes));
+    }
+
+    public function getLastSeenLabelAttribute(): ?string
+    {
+        return $this->last_seen_at?->diffForHumans();
+    }
+
     public function getProfilePhotoUrlAttribute(): ?string
     {
-        return $this->profile_photo_path ? asset($this->profile_photo_path) : null;
+        $raw = trim((string) ($this->profile_photo_path ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $rel = ltrim(str_replace('\\', '/', $raw), '/');
+        if (str_contains($rel, '..')) {
+            return null;
+        }
+
+        if (is_file(public_path($rel))) {
+            return asset($rel);
+        }
+
+        if (is_file(public_path('storage/' . $rel))) {
+            return asset('storage/' . $rel);
+        }
+
+        if (is_file(storage_path('app/public/' . $rel))) {
+            return asset('storage/' . $rel);
+        }
+
+        return null;
     }
 
     public function hasCompleteStudentProfile(): bool

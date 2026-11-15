@@ -3,6 +3,7 @@
 @php
     $applied = $payload['state'] === 'applied';
     $t = $payload['totals'];
+    $codesPendingDownload = $applied && empty($payload['cards_downloaded_at']) ? $t['dibuat'] : 0;
 @endphp
 
 @section('title', $applied ? 'Hasil Import Akun' : 'Pratinjau Import Akun')
@@ -62,7 +63,17 @@
                 <div class="imp-total"><strong>{{ $t['gagal'] }}</strong><span>Gagal validasi</span></div>
                 <div class="imp-total"><strong>{{ $t['dilewati'] }}</strong><span>Dilewati</span></div>
                 <div class="imp-total"><strong>{{ $t['total'] }}</strong><span>Total baris</span></div>
+                @if($applied)
+                    <div class="imp-total"><strong>{{ $codesPendingDownload }}</strong><span>Kode belum diunduh</span></div>
+                    <div class="imp-total"><strong>0</strong><span>Kegagalan kirim undangan</span></div>
+                @endif
             </div>
+            @if($applied)
+                <p class="imp-sub" style="margin-top:12px;">
+                    Tidak ada undangan/email otomatis saat import, sehingga kegagalan pengiriman tidak mengubah status akun yang berhasil dibuat.
+                    Kode dibagikan petugas melalui kartu aktivasi; setelah kartu diunduh, distribusi kepada pemilik dilakukan manual.
+                </p>
+            @endif
 
             <div class="imp-row" style="margin-top:14px;">
                 @if(!$applied)

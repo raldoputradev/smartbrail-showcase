@@ -72,7 +72,7 @@ class FingerprintSyncPolicy
     public static function statusLabel(): string
     {
         if (self::isAuto()) {
-            return 'Otomatis — mesin loker & absensi pull template dari server';
+            return 'Otomatis — mesin absensi pull template dari server';
         }
 
         if (self::burstActive()) {

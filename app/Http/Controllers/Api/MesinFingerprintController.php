@@ -36,14 +36,14 @@ class MesinFingerprintController extends Controller
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => 'finger_id tidak ditemukan. Mahasiswa harus registrasi & verifikasi OTP dulu (finger_id otomatis).',
+                'message' => 'finger_id tidak ditemukan. Assign finger_id dulu lewat halaman admin fingerprint.',
             ], 404);
         }
 
         if (!$user->is_active) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akun mahasiswa belum aktif.',
+                'message' => 'Akun pengguna belum aktif.',
             ], 403);
         }
 
@@ -51,7 +51,7 @@ class MesinFingerprintController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Data mahasiswa ditemukan.',
+            'message' => 'Data pengguna ditemukan.',
             'data' => $this->serializeMahasiswaRow($user),
         ]);
     }
@@ -67,7 +67,7 @@ class MesinFingerprintController extends Controller
         $limit = $validated['limit'] ?? 100;
 
         $rows = User::query()
-            ->where('role', 'mahasiswa')
+            ->whereIn('role', \App\Support\FingerprintSyncService::FP_ROLES)
             ->where('is_active', true)
             ->orderBy('finger_id')
             ->limit($limit)
@@ -135,33 +135,35 @@ class MesinFingerprintController extends Controller
         }
 
         $user = User::query()
-            ->where('role', 'mahasiswa')
+            ->whereIn('role', \App\Support\FingerprintSyncService::FP_ROLES)
             ->where('finger_id', $slot)
             ->first();
 
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => "Tidak ada mahasiswa dengan finger_id #{$slot}. Cek registrasi / admin fingerprint.",
+                'message' => "Tidak ada pengguna dengan finger_id #{$slot}. Cek registrasi / admin fingerprint.",
             ], 404);
         }
 
         if (!$user->is_active) {
             return response()->json([
                 'success' => false,
-                'message' => 'Akun mahasiswa belum aktif.',
+                'message' => 'Akun pengguna belum aktif.',
             ], 403);
         }
 
         if (FingerprintTemplateCodec::hasValidTemplate($user->finger_template)) {
             return response()->json([
                 'success' => false,
-                'message' => "Mahasiswa {$user->nama_lengkap} sudah enroll. Hapus dulu jika perlu daftar ulang.",
+                'message' => "Pengguna {$user->nama_lengkap} sudah enroll. Hapus dulu jika perlu daftar ulang.",
             ], 409);
         }
 
         $user->finger_template = FingerprintTemplateCodec::encodeForStorage($binary);
-        MahasiswaShiftResolver::ensure($user, null, true);
+        if ($user->role === 'mahasiswa') {
+            MahasiswaShiftResolver::ensure($user, null, true);
+        }
         $user->save();
         \App\Support\AbsensiSnapshotSignals::committed(['fingerprint'], 'laboran');
         $shift = $user->shift;
@@ -326,21 +328,21 @@ class MesinFingerprintController extends Controller
         }
 
         $user = User::query()
-            ->where('role', 'mahasiswa')
+            ->whereIn('role', \App\Support\FingerprintSyncService::FP_ROLES)
             ->where('finger_id', $finger_id)
             ->first();
 
         if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => "Tidak ada mahasiswa dengan finger_id #{$finger_id}.",
+                'message' => "Tidak ada pengguna dengan finger_id #{$finger_id}.",
             ], 404);
         }
 
         if (empty($user->finger_template)) {
             return response()->json([
                 'success' => false,
-                'message' => "Mahasiswa {$user->nama_lengkap} belum enroll di sistem.",
+                'message' => "Pengguna {$user->nama_lengkap} belum enroll di sistem.",
                 'code' => 'BELUM_ENROLL',
             ], 409);
         }
@@ -375,11 +377,13 @@ class MesinFingerprintController extends Controller
         }
 
         $user = User::query()
-            ->where('role', 'mahasiswa')
+            ->whereIn('role', \App\Support\FingerprintSyncService::FP_ROLES)
             ->where('finger_id', $slot)
             ->first();
 
-        return $user ? FingerIdAllocator::ensureForMahasiswa($user) : null;
+        return $user && $user->role === 'mahasiswa'
+            ? FingerIdAllocator::ensureForMahasiswa($user)
+            : $user;
     }
 
     /**
@@ -399,6 +403,7 @@ class MesinFingerprintController extends Controller
             'finger_id' => $user->finger_id,
             'nitk_nidn' => $user->nitk_nidn,
             'nama_lengkap' => $user->nama_lengkap,
+            'role' => $user->role,
             'kelas' => $user->kelas,
             'tim' => $user->tim,
             'shift' => $user->shift,

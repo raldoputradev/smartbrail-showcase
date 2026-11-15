@@ -8,6 +8,7 @@ use App\Models\PblTeamMember;
 use App\Models\User;
 use App\Services\PblAssignmentNotifier;
 use App\Services\PblTeamAssignmentNotifier;
+use App\Support\PblActivityLogger;
 use App\Support\PblCsvImporter;
 use App\Support\PblDataReadiness;
 use App\Support\PblDosenLinker;
@@ -22,99 +23,108 @@ use Illuminate\View\View;
 
 class PblProjectController extends Controller
 {
-    public function index(Request $request): View|RedirectResponse
+    use \App\Http\Controllers\Concerns\AdminShellProps;
+
+    public function index(Request $request)
     {
-        $q = $this->normalizeProjectSearchQuery($request->input('q'));
-        $shift = $this->normalizeProjectShift($request->input('shift'));
+        $user = $request->user();
 
-        $query = PblProject::query()
-            ->with(['manproUser:id,nama_lengkap', 'coManproUser:id,nama_lengkap'])
-            ->withCount(['mahasiswa as jumlah_mhs' => function ($qb) {
-                $qb->where('is_active', true);
-            }])
-            ->orderBy('kode');
+        $projects = PblProject::query()
+            ->with([
+                'manproUser:id,nama_lengkap,nitk_nidn,profile_photo_path',
+                'coManproUser:id,nama_lengkap,nitk_nidn,profile_photo_path',
+                'teamMembers.user:id,nama_lengkap,nitk_nidn,kelas,tim,shift,semester,profile_photo_path',
+            ])
+            ->orderBy('kode')
+            ->get();
 
-        try {
-            $this->applyProjectListFilters($query, $q, $shift);
-            $projects = $query->paginate(15)->withQueryString()->fragment('daftar-proyek');
+        $rows = $projects->map(function (PblProject $p) {
+            $meta = \App\Support\PblProjectMeta::card($p);
+            $members = PblTeamService::projectMemberUsers($p);
+            $roleOf = $p->teamMembers->keyBy('user_id');
 
-            $statsBase = PblProject::query();
-            $this->applyProjectListFilters($statsBase, $q, $shift);
-        } catch (\Throwable $e) {
-            report($e);
+            return [
+                'id' => $p->id,
+                'kode' => $p->kode,
+                'nama' => $p->nama,
+                'shift_sesi' => $p->shift_sesi,
+                'aktif' => (bool) $p->aktif,
+                'foto_url' => $meta['foto_url'],
+                'deskripsi' => $meta['deskripsi'],
+                'progress' => $meta['progress'],
+                'status_label' => $meta['status_label'],
+                'tahun_ajaran' => $meta['tahun_ajaran'],
+                'kategori' => $meta['kategori'],
+                'semester' => $meta['semester'],
+                'periode_mulai' => $meta['periode_mulai'],
+                'periode_selesai' => $meta['periode_selesai'],
+                'manpro_id' => $p->manpro_user_id,
+                'manpro' => $p->manproUser?->nama_lengkap ?? $p->manpro,
+                'co_manpro_id' => $p->co_manpro_user_id,
+                'co_manpro' => $p->coManproUser?->nama_lengkap ?? $p->co_manpro,
+                'jumlah_anggota' => $members->count(),
+                'members' => $members->map(fn ($m) => [
+                    'id' => $m->id,
+                    'nama' => $m->nama_lengkap,
+                    'nim' => $m->nitk_nidn,
+                    'kelas' => $m->kelas,
+                    'foto' => $m->profile_photo_url ?? null,
+                    'role' => $roleOf->get($m->id)?->role ?? 'anggota',
+                ])->values(),
+            ];
+        })->values();
 
-            return redirect()
-                ->to(route('admin.pbl.index', array_filter(
-                    $request->only(['mhs_q', 'mhs_filter', 'mhs_tim', 'shift']),
-                    fn ($value) => $value !== null && $value !== ''
-                )).'#daftar-proyek')
-                ->with('error', 'Pencarian proyek gagal diproses. Coba kata kunci lain.');
-        }
-
-        $mahasiswaQuery = $this->mahasiswaPlacementQuery($request);
-
-        $mhsStats = [
-            'total' => User::query()
-                ->where('role', 'mahasiswa')
-                ->where('is_active', true)
-                ->count(),
-            'belum' => User::query()
-                ->where('role', 'mahasiswa')
-                ->where('is_active', true)
-                ->where(function ($q) {
-                    $q->whereNull('tim')->orWhere('tim', '');
-                })
-                ->count(),
-            'sudah' => User::query()
-                ->where('role', 'mahasiswa')
-                ->where('is_active', true)
-                ->whereNotNull('tim')
-                ->where('tim', '!=', '')
-                ->count(),
-        ];
-
-        $mhsFilter = $request->input('mhs_filter', 'semua');
-
-        $allForPlacement = (clone $mahasiswaQuery)
+        $dosenList = User::query()
+            ->where('role', 'dosen')
+            ->where('is_active', true)
             ->orderBy('nama_lengkap')
-            ->get(['id', 'nitk_nidn', 'nama_lengkap', 'tim', 'shift', 'kelas', 'semester']);
+            ->get(['id', 'nama_lengkap', 'nitk_nidn'])
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'nama' => $d->nama_lengkap,
+                'nip' => $d->nitk_nidn,
+                'sebagai_manpro' => $rows->where('manpro_id', $d->id)->count(),
+                'sebagai_co' => $rows->where('co_manpro_id', $d->id)->count(),
+            ])->values();
 
-        $mahasiswaBelum = $allForPlacement->filter(fn (User $m) => blank($m->tim))->values();
-        $mahasiswaByTim = $allForPlacement
-            ->filter(fn (User $m) => filled($m->tim))
-            ->groupBy('tim');
+        $unassigned = PblTeamService::unassignedMahasiswa()
+            ->map(fn ($m) => [
+                'id' => $m->id,
+                'nama' => $m->nama_lengkap,
+                'nim' => $m->nitk_nidn,
+                'kelas' => $m->kelas,
+            ])->values();
 
-        $placementCards = $this->buildPlacementCards($request, $mahasiswaByTim);
+        \Inertia\Inertia::setRootView('app-admin');
 
-        $timOptions = PblProject::query()
-            ->orderBy('nama')
-            ->pluck('nama');
-
-        return view('admin.pbl_projects', [
-            'projects' => $projects,
+        return \Inertia\Inertia::render('AdminPbl', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
             'stats' => [
-                'total' => (clone $statsBase)->count(),
-                'pagi' => (clone $statsBase)->where('shift_sesi', 'pagi')->count(),
-                'malam' => (clone $statsBase)->where('shift_sesi', 'malam')->count(),
-                'aktif' => (clone $statsBase)->where('aktif', true)->count(),
+                'total' => $rows->count(),
+                'aktif' => $rows->where('aktif', true)->count(),
+                'selesai' => $rows->where('status_label', 'Selesai')->count(),
+                'anggota' => $rows->sum('jumlah_anggota'),
             ],
-            'statsFiltered' => $q !== '' || in_array($shift, ['pagi', 'malam'], true),
-            'pblReadiness' => PblDataReadiness::report(),
-            'dosenList' => User::query()
-                ->where('role', 'dosen')
-                ->where('is_active', true)
-                ->where('approval_status', 'approved')
-                ->whereNotNull('email_verified_at')
-                ->orderBy('nama_lengkap')
-                ->get(['id', 'nama_lengkap', 'nitk_nidn', 'email']),
-            'mahasiswaBelum' => $mahasiswaBelum,
-            'placementCards' => $placementCards,
-            'mhsStats' => $mhsStats,
-            'mhsFilter' => $mhsFilter,
-            'mhsQ' => trim((string) $request->input('mhs_q', '')),
-            'mhsTim' => trim((string) $request->input('mhs_tim', '')),
-            'timOptions' => $timOptions,
-            'projectOptions' => PblProject::query()->where('aktif', true)->orderBy('nama')->get(['id', 'kode', 'nama', 'shift_sesi']),
+            'projects' => $rows,
+            'dosen_options' => $dosenList,
+            'unassigned' => $unassigned,
+            'tahun_ajaran_options' => $rows->pluck('tahun_ajaran')->filter()->unique()->sort()->values(),
+            'routes' => [
+                'store' => route('admin.pbl.store'),
+                'update' => url('/admin/pbl/0'),
+                'destroy' => url('/admin/pbl/0'),
+                'staff' => url('/admin/pbl/0/staff'),
+                'ketua' => url('/admin/pbl/0/ketua'),
+                'wakil' => url('/admin/pbl/0/wakil'),
+                'clear_role' => url('/admin/pbl/0/clear-role'),
+                'assign' => route('admin.pbl.assign-mahasiswa'),
+                'clear_tim' => url('/admin/pbl/mahasiswa/0/clear-tim'),
+                'aktivitas' => url('/admin/pbl/0/aktivitas'),
+                'media' => url('/admin/pbl/0/media'),
+                'import' => route('admin.pbl.import-projects'),
+                'csv_template' => route('admin.pbl.csv-template'),
+            ],
         ]);
     }
 
@@ -315,8 +325,17 @@ class PblProjectController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $this->validateProject($request);
+        $meta = $this->validateProjectMeta($request);
 
         $project = PblProject::query()->create($validated);
+        if ($meta !== []) {
+            \App\Support\PblProjectMeta::put($project->id, $meta);
+        }
+
+        PblActivityLogger::record($project, $request->user(), 'buat_proyek', "Proyek {$project->kode} dibuat", null, [
+            'kode' => $project->kode, 'nama' => $project->nama, 'shift' => $project->shift_sesi,
+            'manpro' => $project->manpro, 'co_manpro' => $project->co_manpro, 'meta' => $meta,
+        ]);
 
         app(PblAssignmentNotifier::class)->notifyAssignments(
             $project,
@@ -340,7 +359,18 @@ class PblProjectController extends Controller
         ];
 
         $oldNama = $pbl->nama;
+        $sebelum = $pbl->only(['kode', 'nama', 'shift_sesi', 'manpro', 'co_manpro', 'aktif']);
         $pbl->update($validated);
+
+        $meta = $this->validateProjectMeta($request);
+        if ($meta !== []) {
+            \App\Support\PblProjectMeta::put($pbl->id, $meta);
+        }
+
+        PblActivityLogger::record($pbl, $request->user(), 'ubah_proyek', "Proyek {$pbl->kode} diperbarui", $sebelum, array_merge(
+            $pbl->only(['kode', 'nama', 'shift_sesi', 'manpro', 'co_manpro', 'aktif']),
+            ['meta' => $meta],
+        ));
 
         app(PblAssignmentNotifier::class)->notifyAssignments(
             $pbl->fresh(),
@@ -393,12 +423,17 @@ class PblProjectController extends Controller
             $notifier->notifyChange($mhs, $admin, $nama, $mhs->shift, null, $mhs->shift);
         }
 
+        $snapshot = $pbl->kode.' · '.$nama;
         $pbl->delete();
 
         User::query()
             ->where('role', 'mahasiswa')
             ->where('tim', $nama)
             ->update(['tim' => null]);
+
+        PblActivityLogger::record(null, $admin, 'hapus_proyek', "Proyek {$snapshot} dihapus ({$affected->count()} mahasiswa dilepas)", [
+            'kode' => $pbl->kode, 'nama' => $nama, 'manpro' => $pbl->manpro, 'anggota_dilepas' => $affected->count(),
+        ], null, $snapshot);
 
         $count = $affected->count();
 
@@ -427,6 +462,13 @@ class PblProjectController extends Controller
             return back()->withErrors($e->errors())->withInput();
         }
 
+        PblActivityLogger::record($project, $request->user(), 'tambah_anggota', "{$user->nama_lengkap} dimasukkan ke tim", [
+            'tim' => $prevTim, 'shift' => $prevShift,
+        ], [
+            'user_id' => $user->id, 'nama' => $user->nama_lengkap, 'nim' => $user->nitk_nidn,
+            'tim' => $project->nama, 'shift' => $project->shift_sesi,
+        ]);
+
         app(\App\Services\PblTeamAssignmentNotifier::class)->notifyChange(
             $user->fresh(),
             $request->user(),
@@ -447,8 +489,14 @@ class PblProjectController extends Controller
 
         $prevTim = $user->tim;
         $prevShift = $user->shift;
+        $prevProject = $prevTim ? PblProject::query()->where('nama', $prevTim)->first() : null;
 
         PblTeamService::releaseFromPbl($user);
+
+        PblActivityLogger::record($prevProject, request()->user(), 'keluarkan_anggota', "{$user->nama_lengkap} dikeluarkan dari tim {$prevTim}", [
+            'user_id' => $user->id, 'nama' => $user->nama_lengkap, 'nim' => $user->nitk_nidn,
+            'tim' => $prevTim, 'shift' => $prevShift,
+        ]);
 
         app(\App\Services\PblTeamAssignmentNotifier::class)->notifyChange(
             $user->fresh(),
@@ -486,6 +534,12 @@ class PblProjectController extends Controller
             'co_manpro' => $coUser?->nama_lengkap,
         ]);
 
+        PblActivityLogger::record($pbl, $request->user(), 'ubah_pengampu', "Pengampu {$pbl->kode} diubah", [
+            'manpro_id' => $previous['manpro'], 'co_manpro_id' => $previous['co_manpro'],
+        ], [
+            'manpro' => $manproUser->nama_lengkap, 'co_manpro' => $coUser?->nama_lengkap,
+        ]);
+
         app(PblAssignmentNotifier::class)->notifyAssignments(
             $pbl->fresh(),
             $request->user(),
@@ -513,6 +567,10 @@ class PblProjectController extends Controller
             return back()->withErrors($e->errors())->withInput()->withFragment('penempatan-mhs');
         }
 
+        PblActivityLogger::record($pbl, $request->user(), 'set_ketua', "{$mahasiswa->nama_lengkap} ditetapkan sebagai ketua tim", null, [
+            'user_id' => $mahasiswa->id, 'nama' => $mahasiswa->nama_lengkap, 'nim' => $mahasiswa->nitk_nidn,
+        ]);
+
         return back()->with('success', "{$mahasiswa->nama_lengkap} ditetapkan sebagai ketua tim.")->withFragment('penempatan-mhs');
     }
 
@@ -530,6 +588,10 @@ class PblProjectController extends Controller
             return back()->withErrors($e->errors())->withInput()->withFragment('penempatan-mhs');
         }
 
+        PblActivityLogger::record($pbl, $request->user(), 'set_wakil', "{$mahasiswa->nama_lengkap} ditetapkan sebagai wakil ketua", null, [
+            'user_id' => $mahasiswa->id, 'nama' => $mahasiswa->nama_lengkap, 'nim' => $mahasiswa->nitk_nidn,
+        ]);
+
         return back()->with('success', "{$mahasiswa->nama_lengkap} ditetapkan sebagai wakil ketua.")->withFragment('penempatan-mhs');
     }
 
@@ -545,9 +607,71 @@ class PblProjectController extends Controller
             return back()->withErrors($e->errors())->withFragment('penempatan-mhs');
         }
 
+        PblActivityLogger::record($pbl, $request->user(), 'clear_role', "Peran {$validated['role']} dikosongkan", [
+            'role' => $validated['role'],
+        ]);
+
         $label = $validated['role'] === 'ketua' ? 'Ketua tim' : 'Wakil ketua';
 
         return back()->with('success', "{$label} dikosongkan.")->withFragment('penempatan-mhs');
+    }
+
+    /**
+     * Admin/laboran memasang foto + metadata tampilan proyek — sama seperti
+     * manpro di sisi dosen, tapi berlaku untuk semua proyek. Diaudit.
+     */
+    public function updateMedia(Request $request, PblProject $pbl): RedirectResponse
+    {
+        $validated = $request->validate([
+            'foto' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'deskripsi' => ['nullable', 'string', 'max:500'],
+            'progress' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'status' => ['nullable', 'in:Perencanaan,Berjalan,Evaluasi,Selesai'],
+            'hapus_foto' => ['nullable', 'boolean'],
+        ]);
+
+        if ($request->boolean('hapus_foto')) {
+            \App\Support\PblProjectMeta::removeFoto((int) $pbl->id);
+        }
+        if ($request->hasFile('foto')) {
+            \App\Support\PblProjectMeta::storeFoto((int) $pbl->id, $request->file('foto'));
+        }
+        \App\Support\PblProjectMeta::put((int) $pbl->id, [
+            'deskripsi' => $validated['deskripsi'] ?? null,
+            'progress' => isset($validated['progress']) ? (int) $validated['progress'] : null,
+            'status' => $validated['status'] ?? null,
+        ]);
+
+        PblActivityLogger::record($pbl, $request->user(), 'ubah_media', "Tampilan proyek {$pbl->kode} diperbarui (foto/deskripsi/progress/status)", null, [
+            'foto' => $request->hasFile('foto') ? 'diunggah' : ($request->boolean('hapus_foto') ? 'dihapus' : 'tidak berubah'),
+            'deskripsi' => $validated['deskripsi'] ?? null,
+            'progress' => $validated['progress'] ?? null,
+            'status' => $validated['status'] ?? null,
+        ]);
+
+        return back()->with('success', "Tampilan proyek {$pbl->nama} diperbarui.");
+    }
+
+    /** Riwayat aktivitas proyek (JSON) — append-only, hanya baca. */
+    public function aktivitas(PblProject $pbl): JsonResponse
+    {
+        $logs = \App\Models\PblActivityLog::query()
+            ->where('pbl_project_id', $pbl->id)
+            ->latest('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (\App\Models\PblActivityLog $l) => [
+                'id' => $l->id,
+                'aksi' => $l->aksi,
+                'ringkasan' => $l->ringkasan,
+                'actor' => $l->actor_nama ?? 'Sistem',
+                'actor_role' => $l->actor_role,
+                'sebelum' => $l->sebelum,
+                'sesudah' => $l->sesudah,
+                'waktu' => $l->created_at?->format('d M Y, H:i'),
+            ])->values();
+
+        return response()->json(['ok' => true, 'logs' => $logs]);
     }
 
     /**
@@ -588,6 +712,21 @@ class PblProjectController extends Controller
         }
 
         return $validated;
+    }
+
+    /** Field meta opsional (disimpan di PblProjectMeta JSON — bukan kolom tabel). */
+    private function validateProjectMeta(Request $request): array
+    {
+        return $request->validate([
+            'deskripsi' => ['nullable', 'string', 'max:500'],
+            'tahun_ajaran' => ['nullable', 'string', 'max:20'],
+            'kategori' => ['nullable', 'string', 'max:80'],
+            'semester' => ['nullable', 'string', 'max:20'],
+            'periode_mulai' => ['nullable', 'date'],
+            'periode_selesai' => ['nullable', 'date'],
+            'progress' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'status' => ['nullable', 'string', 'max:30'],
+        ]);
     }
 
     public function importProjectsCsv(Request $request): RedirectResponse

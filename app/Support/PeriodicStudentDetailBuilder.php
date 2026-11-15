@@ -37,8 +37,7 @@ class PeriodicStudentDetailBuilder
         $harianRows = collect();
         $taps = collect();
 
-        if ($aktivitas !== 'loker') {
-            $harianRows = AbsensiHarian::query()
+        $harianRows = AbsensiHarian::query()
                 ->with(['masukLog', 'pulangLog'])
                 ->where('user_id', $student->id)
                 ->whereBetween('tanggal', [$start->toDateString(), $end->toDateString()])
@@ -66,15 +65,11 @@ class PeriodicStudentDetailBuilder
                         : 'Tepat waktu',
                 ])
                 ->values();
-        }
-
-        $lokerRows = collect();
 
         $summary = [
             'hadir' => $harianRows->where('kategori', 'hadir')->count(),
             'tidak_lengkap' => $harianRows->where('kategori', 'tidak_lengkap')->count(),
             'alfa' => $harianRows->where('kategori', 'alfa')->count(),
-            'loker' => $lokerRows->count(),
             'total_tap' => $taps->count(),
         ];
 
@@ -97,7 +92,6 @@ class PeriodicStudentDetailBuilder
             'summary' => $summary,
             'harianRows' => $harianRows,
             'taps' => $taps,
-            'lokerRows' => $lokerRows,
         ];
     }
 

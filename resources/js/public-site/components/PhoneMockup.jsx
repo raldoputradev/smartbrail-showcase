@@ -61,7 +61,7 @@ function ScreenHome({ logoMark }) {
           </motion.div>
           <div className="mt-1 text-[11px] text-slate-300">Tap sidik jari · ESP32</div>
         </motion.div>
-        {['Loker Pintar', 'Pengumuman Lab', 'Profil & Riwayat'].map((label, i) => (
+        {['Akses Ruangan', 'Pengumuman Lab', 'Profil & Riwayat'].map((label, i) => (
           <motion.div
             key={label}
             initial={{ x: -12, opacity: 0 }}
@@ -111,12 +111,12 @@ function ScreenOtp() {
   );
 }
 
-function ScreenLocker() {
+function ScreenRoom() {
   return (
     <div className="flex h-full flex-col">
       <StatusBar />
       <div className="flex-1 px-4 pb-6">
-        <div className="text-sm font-bold">Loker Pintar</div>
+        <div className="text-sm font-bold">Akses Ruangan</div>
         <p className="text-[11px] text-slate-400">BRAIL · Lantai 2</p>
         <motion.div
           animate={{ boxShadow: ['0 0 0 0 rgba(52,211,153,0.4)', '0 0 0 12px rgba(52,211,153,0)', '0 0 0 0 rgba(52,211,153,0)'] }}
@@ -124,7 +124,7 @@ function ScreenLocker() {
           className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-5 text-center"
         >
           <div className="text-4xl">🔓</div>
-          <div className="mt-2 text-lg font-extrabold text-emerald-300">Loker #12 Terbuka</div>
+          <div className="mt-2 text-lg font-extrabold text-emerald-300">Ruang BRAIL Terbuka</div>
           <div className="mt-1 text-[11px] text-slate-400">Akses 15 menit · ESP32</div>
         </motion.div>
         <div className="mt-4 grid grid-cols-4 gap-2">
@@ -209,7 +209,7 @@ function ScreenRegister() {
 const SCREENS = [
   { id: 'home', label: 'Beranda', Component: ScreenHome },
   { id: 'otp', label: 'OTP', Component: ScreenOtp },
-  { id: 'locker', label: 'Loker', Component: ScreenLocker },
+  { id: 'room', label: 'Ruangan', Component: ScreenRoom },
   { id: 'news', label: 'Info', Component: ScreenAnnounce },
   { id: 'register', label: 'Daftar', Component: ScreenRegister },
 ];

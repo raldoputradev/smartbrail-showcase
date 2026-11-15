@@ -1,0 +1,23 @@
+### Variabel — sesuaikan sebelum tes
+@baseUrl = http://127.0.0.1:8000/api
+@apiKey = GANTI_DENGAN_API_KEY_MESIN_ABSENSI
+@idMesin = MESIN_ABSENSI_01
+
+### Tap absensi — berhasil (finger_id harus ada di DB)
+POST {{baseUrl}}/mesin/tap
+Content-Type: application/json
+X-API-KEY: {{apiKey}}
+
+{
+  "id_mesin": "{{idMesin}}",
+  "finger_id": 1
+}
+
+### Tap absensi — tanpa API key (harus 401)
+POST {{baseUrl}}/mesin/tap
+Content-Type: application/json
+
+{
+  "id_mesin": "{{idMesin}}",
+  "finger_id": 1
+}

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\MesinIot;
+use App\Models\RuanganPengajuan;
 use App\Models\StaffOpsDismissal;
 use App\Models\Suggestion;
 use App\Models\User;
@@ -131,6 +132,20 @@ class StaffNotificationService
                     route('admin.users', ['verify_status' => 'ready_approve']),
                     'warning',
                     $pendingUsers
+                ));
+            }
+
+            $pendingPengajuan = RuanganPengajuan::query()
+                ->whereIn('status', RuanganPengajuan::STATUS_AKTIF_MENUNGGU)
+                ->count();
+            if ($pendingPengajuan > 0) {
+                $items->push(self::item(
+                    'ops-pengajuan',
+                    "{$pendingPengajuan} pengajuan ruangan menunggu keputusan",
+                    'Tinjau pemohon, jadwal, dan konflik — keputusan dicatat atas nama akun Anda.',
+                    route('admin.pengajuan.index'),
+                    'warning',
+                    $pendingPengajuan
                 ));
             }
 

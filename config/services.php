@@ -60,4 +60,27 @@ return [
         'read_timeout' => (int) env('GEMINI_READ_TIMEOUT', 30),
     ],
 
+    // Fallback AI gratis saat kuota Gemini habis.
+    'groq' => [
+        'api_key' => env('GROQ_API_KEY'),
+        'model' => env('GROQ_MODEL', 'openai/gpt-oss-120b'),
+    ],
+
+    // Fallback analisis gambar via endpoint OpenAI-compatible (Ollama lokal,
+    // OpenRouter, dsb). Ollama tidak butuh api_key; gagal cepat bila server mati.
+    // Kill-switch lampiran/gambar di semua asisten (admin, dosen, laboran,
+    // mahasiswa) — matikan untuk menghemat kuota/AI vision semester ini.
+    'ai' => [
+        'attachments' => env('AI_ATTACHMENTS_ENABLED', true),
+    ],
+
+    'vision_fallback' => [
+        'enabled' => env('VISION_FALLBACK_ENABLED', true),
+        'base_url' => env('VISION_FALLBACK_BASE_URL', 'http://127.0.0.1:11434/v1'),
+        'api_key' => env('VISION_FALLBACK_API_KEY', ''),
+        'model' => env('VISION_FALLBACK_MODEL', 'qwen2.5vl:3b'),
+        'connect_timeout' => (int) env('VISION_FALLBACK_CONNECT_TIMEOUT', 2),
+        'timeout' => (int) env('VISION_FALLBACK_TIMEOUT', 45),
+    ],
+
 ];

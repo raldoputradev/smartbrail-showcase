@@ -59,7 +59,7 @@ export default function ChatWidget({ urls }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'Selamat datang di AI Helpdesk SIMALAS. Saya siap membantu seputar absensi, loker, unduh APK, OTP, dan cara menggunakan aplikasi.',
+      text: 'Selamat datang di AI Helpdesk SIMALAS. Saya siap membantu seputar absensi, akses ruangan, unduh APK, OTP, dan cara menggunakan aplikasi.',
     },
   ]);
   const endRef = useRef(null);
@@ -128,7 +128,7 @@ export default function ChatWidget({ urls }) {
         data.reply ||
         data.message ||
         (res.ok
-          ? 'Maaf, saya belum bisa menjawab. Coba tanya tentang absensi, loker, atau unduh APK.'
+          ? 'Maaf, saya belum bisa menjawab. Coba tanya tentang absensi, akses ruangan, atau unduh APK.'
           : 'Layanan chat sedang sibuk. Coba lagi sebentar.');
 
       setMessages((m) => [

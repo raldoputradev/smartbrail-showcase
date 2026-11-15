@@ -60,6 +60,7 @@ final class AdminAiActionExecutor
                     'batalkan_alfa' => $this->execBatalkanAlfa($proposal, $admin),
                     'selesai_tidak_lengkap' => $this->execSelesaiTidakLengkap($proposal, $admin),
                     'draft_pengumuman' => $this->execAnnouncement($proposal, $admin),
+                    'create_ruangan' => $this->execCreateRuangan($proposal),
                     default => throw new \RuntimeException('Tool eksekusi tidak didukung: '.$proposal->tool),
                 };
             });
@@ -99,6 +100,28 @@ final class AdminAiActionExecutor
         ]);
 
         return ['ok' => true, 'message' => 'Proposal dibatalkan.'];
+    }
+
+    /** @return array<string, mixed> */
+    private function execCreateRuangan(AiActionProposal $proposal): array
+    {
+        $p = $proposal->payload;
+        $kode = trim((string) ($p['kode'] ?? ''));
+        if ($kode === '') {
+            $kode = 'R-'.str_pad((string) ((\App\Models\Ruangan::max('id') ?? 0) + 1), 3, '0', STR_PAD_LEFT);
+            while (\App\Models\Ruangan::query()->where('kode', $kode)->exists()) {
+                $kode = 'R-'.str_pad((string) random_int(100, 999), 3, '0', STR_PAD_LEFT);
+            }
+        }
+        $r = \App\Models\Ruangan::query()->create([
+            'nama' => (string) $p['nama'],
+            'kode' => $kode,
+            'kapasitas' => isset($p['kapasitas']) ? (int) $p['kapasitas'] : null,
+            'fasilitas' => $p['fasilitas'] ?? null,
+            'aktif' => true,
+        ]);
+
+        return ['message' => "Ruangan {$r->nama} ({$r->kode}) terdaftar.", 'ruangan_id' => $r->id];
     }
 
     /** @return array<string, mixed> */

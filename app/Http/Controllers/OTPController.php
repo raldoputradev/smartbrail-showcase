@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Http\Concerns\ValidatesRecaptcha;
 use App\Models\User;
 use App\Rules\StrongPassword;
+use App\Support\AccountActivation;
 use App\Support\AsyncMailer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class OTPController extends Controller
 {
@@ -62,16 +64,15 @@ class OTPController extends Controller
         $email = $this->normalizeEmail($request->email);
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
-        if (!$user) {
-            return back()->withErrors(['email' => 'Email tidak terdaftar.'])
-                         ->with('auth_panel', 'forgot')
-                         ->withInput();
-        }
+        // Respons seragam — tidak membocorkan ada/tidaknya akun atau statusnya.
+        // Panel verify-otp tetap ditampilkan dengan email yang dikirim pengguna.
+        if (!$user || $user->isAwaitingActivation() || !$user->email_verified_at) {
+            $request->session()->put('password_reset_flow_email', $email);
 
-        if ($user->isAwaitingActivation()) {
-            return back()->withErrors(['email' => 'Akun ini belum diaktivasi. Selesaikan aktivasi di halaman Aktivasi Akun ('.route('activation.show').').'])
-                         ->with('auth_panel', 'forgot')
-                         ->withInput();
+            return back()->with('otp_sent', true)
+                         ->with('auth_panel', 'verify-otp')
+                         ->with('otp_email', $email)
+                         ->with('success', 'Jika email Anda terdaftar dan terverifikasi, kode OTP akan dikirim ke email tersebut.');
         }
 
         if (!$isResend) {
@@ -90,12 +91,13 @@ class OTPController extends Controller
         if ($lastToken) {
             $elapsed = now()->diffInSeconds(\Carbon\Carbon::parse($lastToken->created_at), true);
             if ($elapsed < 60) {
-                $remaining = ceil(60 - $elapsed);
-                return back()->withErrors(['email' => "Tunggu {$remaining} detik sebelum mengirim ulang kode OTP."])
+                // Dalam cooldown → respons sama seperti sukses, tanpa kirim ulang;
+                // perbedaan respons tidak boleh membedakan akun terdaftar/tidak.
+                return back()->with('otp_sent', true)
                              ->with('auth_panel', 'verify-otp')
-                             ->with('password_resend_cooldown', $remaining)
-                             ->with('otp_sent', true)
-                             ->with('otp_email', $email);
+                             ->with('otp_email', $email)
+                             ->with('password_resend_cooldown', (int) ceil(60 - $elapsed))
+                             ->with('success', 'Jika email Anda terdaftar dan terverifikasi, kode OTP akan dikirim ke email tersebut.');
             }
         }
 
@@ -122,16 +124,13 @@ class OTPController extends Controller
 
         // Kirim email OTP sebagai detached child process supaya respons HTTP cepat.
         AsyncMailer::dispatchOtp($user->email, $otpCode, $user->nama_lengkap, 'password_reset');
-        $emailStatus = $isResend
-            ? "Kode OTP baru sedang dikirim ke {$user->email}."
-            : "Kode OTP sedang dikirim ke {$user->email}.";
 
         $request->session()->put('password_reset_flow_email', $email);
 
         return back()->with('otp_sent', true)
                      ->with('auth_panel', 'verify-otp')
                      ->with('otp_email', $email)
-                     ->with('success', $emailStatus);
+                     ->with('success', 'Jika email Anda terdaftar dan terverifikasi, kode OTP akan dikirim ke email tersebut.');
     }
 
     /**
@@ -150,9 +149,10 @@ class OTPController extends Controller
             $request->input('email') ?: $request->session()->get('password_reset_flow_email')
         );
 
+        // Batas tebakan diikat ke record token (bukan IP/email): ganti IP tidak
+        // meloloskan, dan percobaan pada token lama tidak menghapus token baru.
         $record = DB::table('email_verification_tokens')
             ->whereRaw('LOWER(email) = ?', [$email])
-            ->where('otp_code', $request->otp_code)
             ->where('type', 'password_reset')
             ->orderByDesc('id')
             ->first();
@@ -163,6 +163,29 @@ class OTPController extends Controller
                          ->with('otp_sent', true)
                          ->with('otp_email', $email);
         }
+
+        $otpAttemptKey = 'password-reset-otp:' . $record->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($otpAttemptKey, 8)) {
+            // Hanya record INI yang dibatalkan — token terbit kemudian tidak ikut terhapus.
+            DB::table('email_verification_tokens')->where('id', $record->id)->delete();
+            \Illuminate\Support\Facades\RateLimiter::clear($otpAttemptKey);
+            $request->session()->forget('password_reset_flow_email');
+
+            return redirect()->route('login')
+                ->withErrors(['otp_code' => 'Terlalu banyak kode salah. Silakan minta kode OTP baru dari halaman Lupa Password.'])
+                ->with('auth_panel', 'forgot');
+        }
+
+        if (! hash_equals((string) $record->otp_code, (string) $request->otp_code)) {
+            \Illuminate\Support\Facades\RateLimiter::hit($otpAttemptKey, 15 * 60);
+
+            return back()->withErrors(['otp_code' => 'Kode OTP tidak valid atau sudah kadaluarsa.'])
+                         ->with('auth_panel', 'verify-otp')
+                         ->with('otp_sent', true)
+                         ->with('otp_email', $email);
+        }
+
+        \Illuminate\Support\Facades\RateLimiter::clear($otpAttemptKey);
 
         // Mark as verified and extend window for setting a new password.
         DB::table('email_verification_tokens')
@@ -213,8 +236,18 @@ class OTPController extends Controller
 
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
         if (!$user) {
-            return back()->withErrors(['email' => 'Email tidak terdaftar.'])
+            $request->session()->forget('password_reset_flow_email');
+
+            return back()->withErrors(['email' => 'Sesi reset password tidak valid. Silakan ulangi dari Lupa Password.'])
                          ->with('auth_panel', 'forgot');
+        }
+
+        if (!$user->email_verified_at) {
+            $request->session()->forget('password_reset_flow_email');
+
+            return back()->withErrors([
+                'email' => 'Email belum terverifikasi sehingga tidak dapat digunakan untuk reset password mandiri.',
+            ])->with('auth_panel', 'forgot');
         }
 
         // Verify there's a verified OTP record for this email
@@ -233,16 +266,28 @@ class OTPController extends Controller
                 ->with('auth_panel', 'forgot');
         }
 
-        // Update the password
-        $user->update([
+        $payload = [
             'password' => $request->password,
-        ]);
+            'must_change_password' => false,
+            'remember_token' => Str::random(60),
+            'mobile_api_token' => null,
+            'mobile_token_expires_at' => null,
+        ];
+        if (Schema::hasColumn('users', 'failed_login_attempts')) {
+            $payload['failed_login_attempts'] = 0;
+        }
+        if (Schema::hasColumn('users', 'login_locked_until')) {
+            $payload['login_locked_until'] = null;
+        }
+        if (Schema::hasColumn('users', 'login_requires_admin_unlock')) {
+            $payload['login_requires_admin_unlock'] = false;
+        }
+        if (Schema::hasColumn('users', 'login_suspicious_at')) {
+            $payload['login_suspicious_at'] = null;
+        }
 
-        // Clean up all tokens for this email
-        DB::table('email_verification_tokens')
-            ->where('email', $email)
-            ->where('type', 'password_reset')
-            ->delete();
+        $user->forceFill($payload)->save();
+        AccountActivation::revokeActiveTokensAndSessions($user);
 
         $request->session()->forget('password_reset_flow_email');
 

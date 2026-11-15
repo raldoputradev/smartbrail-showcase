@@ -6,9 +6,9 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="app-url" content="{{ rtrim(url('/'), '/') }}">
     <title>AIoT SIMALAS — Sistem Manajemen Laboratorium Pintar Berbasis IoT</title>
-    <meta name="description" content="AIoT SIMALAS — sistem manajemen laboratorium pintar berbasis IoT untuk absensi biometrik dan loker pintar di Politeknik Negeri Batam.">
+    <meta name="description" content="AIoT SIMALAS — sistem manajemen laboratorium pintar berbasis IoT untuk absensi biometrik dan akses ruangan pintar di Politeknik Negeri Batam.">
     <meta property="og:title" content="AIoT SIMALAS — Politeknik Negeri Batam">
-    <meta property="og:description" content="Transformasi manajemen laboratorium berbasis IoT: absensi sidik jari, loker pintar, dan aplikasi mobile mahasiswa.">
+    <meta property="og:description" content="Transformasi manajemen laboratorium berbasis IoT: absensi sidik jari, akses ruangan IoT, dan aplikasi mobile mahasiswa.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">

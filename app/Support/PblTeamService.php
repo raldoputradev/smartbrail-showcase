@@ -105,7 +105,7 @@ class PblTeamService
     {
         $fromMembers = PblTeamMember::query()
             ->where('pbl_project_id', $project->id)
-            ->with('user:id,nama_lengkap,nitk_nidn,kelas,tim,shift,semester')
+            ->with('user:id,nama_lengkap,nitk_nidn,kelas,tim,shift,semester,profile_photo_path')
             ->get()
             ->pluck('user')
             ->filter();
@@ -115,7 +115,7 @@ class PblTeamService
             ->where('tim', $project->nama)
             ->whereNotIn('id', $fromMembers->pluck('id'))
             ->orderBy('nama_lengkap')
-            ->get(['id', 'nama_lengkap', 'nitk_nidn', 'kelas', 'tim', 'shift', 'semester']);
+            ->get(['id', 'nama_lengkap', 'nitk_nidn', 'kelas', 'tim', 'shift', 'semester', 'profile_photo_path']);
 
         return $fromMembers->merge($legacy)->unique('id')->sortBy('nama_lengkap')->values();
     }

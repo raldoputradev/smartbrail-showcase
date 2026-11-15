@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -10,12 +11,13 @@ class HelpdeskAiService
 {
     /**
      * @param  list<array{role: string, content: string}>  $history
+     * @param  array{mime: string, data: string}|null  $image  Gambar base64 (vision)
      * @return array{reply: string, source: string}
      */
-    public function reply(string $message, array $history = []): array
+    public function reply(string $message, array $history = [], ?array $image = null): array
     {
-        $message = trim(Str::limit($message, 500, ''));
-        if ($message === '') {
+        $message = trim(Str::limit($message, 2500, ''));
+        if ($message === '' && $image === null) {
             return [
                 'reply' => 'Halo! 👋 Ketik aja pertanyaanmu soal AIoT SIMALAS ya~',
                 'source' => 'faq',
@@ -23,27 +25,53 @@ class HelpdeskAiService
         }
 
         $apiKey = trim((string) config('services.gemini.api_key', ''));
-        if ($apiKey !== '') {
+        // Circuit breaker: setelah kegagalan, jangan hubungi Gemini dulu selama
+        // jeda singkat — request pengguna tidak boleh menunggu timeout berulang.
+        $geminiDown = $apiKey !== '' && Cache::get('helpdesk_gemini_down') === true;
+        $geminiFailed = false;
+        if ($apiKey !== '' && ! $geminiDown) {
             try {
-                return [
-                    'reply' => $this->replyWithGemini($message, $history, $apiKey),
-                    'source' => 'gemini',
-                ];
-            } catch (\Throwable $e) {
-                Log::warning('Helpdesk Gemini gagal', [
-                    'error' => $e->getMessage(),
-                ]);
+                $reply = $this->replyWithGemini($message, $history, $apiKey, $image);
+                Cache::forget('helpdesk_gemini_down');
 
-                return [
-                    'reply' => $this->replyFromKnowledge($message)
-                        ."\n\n_(Psst, AI Gemini lagi offline bentar — jawaban di atas dari FAQ lokal ya 🙏)_",
-                    'source' => 'faq',
-                ];
+                return ['reply' => $reply, 'source' => 'gemini'];
+            } catch (\Throwable $e) {
+                $geminiFailed = true;
+                Cache::put('helpdesk_gemini_down', true, now()->addMinutes(10));
+                // Pesan error cURL menyertakan URL lengkap beserta ?key= — jangan log API key.
+                $safeError = str_replace($apiKey, '***', (string) $e->getMessage());
+                Log::warning('Helpdesk Gemini gagal (sirkuit dibuka 10 menit)', ['error' => $safeError]);
+            }
+        }
+
+        // Fallback gratis saat Gemini tidak tersedia:
+        // - request bergambar → endpoint vision OpenAI-compatible (Ollama lokal / OpenRouter)
+        // - request teks → Groq (model open-source gratis)
+        if ($image !== null) {
+            $vf = (array) config('services.vision_fallback', []);
+            if (($vf['enabled'] ?? false) && trim((string) ($vf['base_url'] ?? '')) !== '') {
+                try {
+                    return ['reply' => $this->replyWithVisionFallback($message, $history, $image), 'source' => 'vision_fallback'];
+                } catch (\Throwable $e) {
+                    $safeError = str_replace((string) ($vf['api_key'] ?? ''), '***', (string) $e->getMessage());
+                    Log::warning('Helpdesk vision fallback gagal', ['error' => $safeError]);
+                }
+            }
+        } else {
+            $groqKey = trim((string) config('services.groq.api_key', ''));
+            if ($groqKey !== '') {
+                try {
+                    return ['reply' => $this->replyWithGroq($message, $history, $groqKey), 'source' => 'groq'];
+                } catch (\Throwable $e) {
+                    $safeError = str_replace($groqKey, '***', (string) $e->getMessage());
+                    Log::warning('Helpdesk Groq gagal', ['error' => $safeError]);
+                }
             }
         }
 
         return [
-            'reply' => $this->replyFromKnowledge($message),
+            'reply' => $this->replyFromKnowledge($message)
+                .($geminiFailed ? "\n\n_(Psst, AI Gemini lagi offline bentar — jawaban di atas dari FAQ lokal ya 🙏)_" : ''),
             'source' => 'faq',
         ];
     }
@@ -55,8 +83,9 @@ class HelpdeskAiService
 
     /**
      * @param  list<array{role: string, content: string}>  $history
+     * @param  array{mime: string, data: string}|null  $image
      */
-    private function replyWithGemini(string $message, array $history, string $apiKey): string
+    private function replyWithGemini(string $message, array $history, string $apiKey, ?array $image = null): string
     {
         $primary = (string) config('services.gemini.model', 'gemini-flash-latest');
         $fallbacks = config('services.gemini.fallback_models', []);
@@ -78,9 +107,14 @@ class HelpdeskAiService
                 'parts' => [['text' => $text]],
             ];
         }
+        $userParts = [];
+        if ($image !== null && ($image['data'] ?? '') !== '') {
+            $userParts[] = ['inline_data' => ['mime_type' => $image['mime'], 'data' => $image['data']]];
+        }
+        $userParts[] = ['text' => $message !== '' ? $message : 'Apa isi gambar ini?'];
         $contents[] = [
             'role' => 'user',
-            'parts' => [['text' => $message]],
+            'parts' => $userParts,
         ];
 
         $payload = [
@@ -95,11 +129,13 @@ class HelpdeskAiService
         ];
 
         $lastError = 'Gemini unavailable';
+        // Payload gambar base64 lebih berat — beri ruang timeout lebih saat vision.
+        $timeout = $image !== null ? 15 : 5;
 
-        foreach ($models as $model) {
+        foreach (array_slice($models, 0, 2) as $model) {
             $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
 
-            $response = Http::timeout(30)
+            $response = Http::timeout($timeout)
                 ->acceptJson()
                 ->withQueryParameters(['key' => $apiKey])
                 ->post($url, $payload);
@@ -125,6 +161,97 @@ class HelpdeskAiService
         throw new \RuntimeException($lastError);
     }
 
+    /**
+     * Fallback teks gratis via Groq (OpenAI-compatible) — dipakai saat Gemini
+     * tidak tersedia/kuota habis. Model open-source seperti gpt-oss / qwen.
+     *
+     * @param  list<array{role: string, content: string}>  $history
+     */
+    private function replyWithGroq(string $message, array $history, string $apiKey): string
+    {
+        $model = (string) config('services.groq.model', 'openai/gpt-oss-120b');
+        $response = Http::timeout(15)
+            ->withToken($apiKey)
+            ->acceptJson()
+            ->post('https://api.groq.com/openai/v1/chat/completions', [
+                'model' => $model,
+                'messages' => [
+                    ['role' => 'system', 'content' => $this->systemPrompt()],
+                    ['role' => 'user', 'content' => $message],
+                ],
+                'temperature' => 0.6,
+                'max_tokens' => 700,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Groq HTTP '.$response->status().': '.Str::limit((string) $response->body(), 200));
+        }
+
+        $text = trim((string) data_get($response->json(), 'choices.0.message.content'));
+        if ($text === '') {
+            throw new \RuntimeException('Groq empty reply');
+        }
+
+        return Str::limit($text, 1500, '…');
+    }
+
+    /**
+     * Analisis gambar via endpoint OpenAI-compatible apa pun (Ollama lokal,
+     * OpenRouter, dll) — gratis/tanpa key untuk Ollama.
+     *
+     * @param  list<array{role: string, content: string}>  $history
+     * @param  array{mime: string, data: string}  $image
+     */
+    private function replyWithVisionFallback(string $message, array $history, array $image): string
+    {
+        $vf = (array) config('services.vision_fallback', []);
+        $base = rtrim((string) ($vf['base_url'] ?? ''), '/');
+        $model = (string) ($vf['model'] ?? 'qwen2.5vl:3b');
+
+        $messages = [];
+        foreach (array_slice($history, -4) as $row) {
+            $role = ($row['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
+            $text = trim((string) ($row['content'] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+            $messages[] = ['role' => $role, 'content' => $text];
+        }
+        $messages[] = [
+            'role' => 'user',
+            'content' => [
+                ['type' => 'text', 'text' => $message !== '' ? $message : 'Apa isi gambar ini?'],
+                ['type' => 'image_url', 'image_url' => ['url' => "data:{$image['mime']};base64,{$image['data']}"]],
+            ],
+        ];
+
+        $req = Http::connectTimeout((int) ($vf['connect_timeout'] ?? 2))
+            ->timeout((int) ($vf['timeout'] ?? 45))
+            ->acceptJson();
+        $apiKey = trim((string) ($vf['api_key'] ?? ''));
+        if ($apiKey !== '') {
+            $req = $req->withToken($apiKey);
+        }
+
+        $response = $req->post("{$base}/chat/completions", [
+            'model' => $model,
+            'messages' => $messages,
+            'temperature' => 0.6,
+            'max_tokens' => 700,
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Vision fallback HTTP '.$response->status().': '.Str::limit((string) $response->body(), 200));
+        }
+
+        $text = trim((string) data_get($response->json(), 'choices.0.message.content'));
+        if ($text === '') {
+            throw new \RuntimeException('Vision fallback empty reply');
+        }
+
+        return Str::limit($text, 1500, '…');
+    }
+
     private function replyFromKnowledge(string $message): string
     {
         $q = Str::lower($message);
@@ -137,7 +264,7 @@ class HelpdeskAiService
             }
         }
 
-        return 'AIoT SIMALAS itu sistem lab pintar di BRAIL Polibatam 🔥 absensi sidik jari ESP32, loker IoT, plus app mobile mahasiswa. '
+        return 'AIoT SIMALAS itu sistem lab pintar di BRAIL Polibatam 🔥 absensi sidik jari ESP32, akses ruangan IoT, plus app mobile mahasiswa. '
             .'Coba tanya: cara unduh APK, login mahasiswa, enroll sidik jari, atau lokasi lab ya ✨ '
             .'(Biar makin natural, admin bisa isi GEMINI_API_KEY di server.)';
     }
@@ -155,7 +282,7 @@ GAYA NGOMONG (WAJIB):
 - Jangan kaku kayak dokumen resmi. Tetap sopan, jangan kasar / toxic / SARA.
 
 TOPIK:
-- Hanya bahas SIMALAS: absensi biometrik, loker pintar, app mobile mahasiswa, portal dosen/laboran, unduh APK, OTP, enroll sidik jari, lokasi lab, siapa pengembang.
+- Hanya bahas SIMALAS: absensi biometrik, akses ruangan pintar, app mobile mahasiswa, portal dosen/laboran, unduh APK, OTP, enroll sidik jari, lokasi lab, siapa pengembang.
 - Kalau ditanya “kamu siapa”: bilang kamu asisten AI helpdesk AIoT SIMALAS yang siap bantu.
 - Kalau di luar topik: tolak santai + arahkan balik ke SIMALAS.
 
@@ -187,7 +314,7 @@ TXT;
         return [
             [
                 'keys' => ['siapa kamu', 'kamu siapa', 'who are you', 'asisten'],
-                'a' => 'Haii! 👋 Aku asisten AI helpdesk AIoT SIMALAS. Tinggal tanya aja soal absensi sidik jari, loker IoT, unduh APK, atau cara pakai sistem di BRAIL Polibatam~ ✨',
+                'a' => 'Haii! 👋 Aku asisten AI helpdesk AIoT SIMALAS. Tinggal tanya aja soal absensi sidik jari, akses ruangan, unduh APK, atau cara pakai sistem di BRAIL Polibatam~ ✨',
             ],
             [
                 'keys' => ['siapa yang bikin', 'siapa pembuat', 'siapa develop', 'developer', 'pengembang', 'dibuat siapa', 'yang kerjakan', 'dibuat oleh siapa', 'tim aiot'],
@@ -199,7 +326,7 @@ TXT;
             ],
             [
                 'keys' => ['apa itu', 'simalas', 'aiot', 'project', 'proyek', 'tentang'],
-                'a' => 'AIoT SIMALAS = platform lab pintar di BRAIL Polibatam 🔥 Ada absensi sidik jari ESP32, loker IoT, sama app mobile mahasiswa. Dosen & laboran kelola lewat portal web staff.',
+                'a' => 'AIoT SIMALAS = platform lab pintar di BRAIL Polibatam 🔥 Ada absensi sidik jari ESP32, akses ruangan IoT, sama app mobile mahasiswa. Dosen & laboran kelola lewat portal web staff.',
             ],
             [
                 'keys' => ['unduh', 'download', 'apk', 'instal', 'install'],
@@ -232,10 +359,6 @@ TXT;
             [
                 'keys' => ['password', 'lupa'],
                 'a' => 'Di app: Lupa Password → masukin email → OTP → bikin password baru. Gampang kok 🔑',
-            ],
-            [
-                'keys' => ['loker'],
-                'a' => 'Loker pintar dibuka pakai sidik jari di mesin loker IoT (setelah akun & enrollment aktif) 🔐 Riwayat aksesnya bisa dilihat di app mobile.',
             ],
         ];
     }

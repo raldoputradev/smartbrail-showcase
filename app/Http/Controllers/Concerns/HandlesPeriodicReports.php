@@ -76,6 +76,46 @@ trait HandlesPeriodicReports
 
     public function reports(Request $request)
     {
+        $panel = $this->periodicReportPanel();
+
+        // Panel admin/laboran → halaman React (app-admin root). Dosen punya
+        // method reports() sendiri yang merender DosenReports — jalur ini hanya
+        // dipakai AdminController.
+        if (!($panel['is_dosen'] ?? false)) {
+            $user = $request->user();
+            $p = $this->buildPeriodicReportPayload($request);
+            $routes = $panel['routes'];
+
+            \Inertia\Inertia::setRootView('app-admin');
+
+            return \Inertia\Inertia::render('LaporanPeriodik', [
+                'menu' => $this->adminSidebarMenu($user),
+                'notif' => $this->adminNotifications($user),
+                'report' => [
+                    'filter' => $p['filter'],
+                    'periode_label' => $p['periodeLabel'],
+                    'activity_label' => $p['activityLabel'],
+                    'kelas_options' => collect($p['kelasOptions'])->values()->all(),
+                    'tim_options' => collect($p['timOptions'])->values()->all(),
+                    'summary' => $p['summary'],
+                    'chart' => $p['chart'],
+                    'machines' => collect($p['topMachines'])->values()->all(),
+                    'students' => collect($p['studentRecapsActive'])->map(fn ($r) => array_merge($r, [
+                        'terakhir' => !empty($r['terakhir'])
+                            ? \Carbon\Carbon::parse($r['terakhir'])->translatedFormat('d M Y · H:i')
+                            : null,
+                    ]))->values()->all(),
+                ],
+                'urls' => [
+                    'index' => route($routes['index']),
+                    'excel' => route($routes['export_excel']),
+                    'word' => route($routes['export_word']),
+                    'print' => route($routes['print']),
+                    'rekap_harian' => route($routes['rekap']),
+                ],
+            ]);
+        }
+
         return view($this->periodicReportView(), $this->buildPeriodicReportPayload($request));
     }
 
@@ -90,7 +130,7 @@ trait HandlesPeriodicReports
         $validated = $request->validate([
             'tanggal_mulai' => ['required', 'date'],
             'tanggal_akhir' => ['required', 'date'],
-            'aktivitas' => ['sometimes', 'in:semua,absensi,loker'],
+            'aktivitas' => ['sometimes', 'in:semua,absensi'],
         ]);
 
         $aktivitas = $validated['aktivitas'] ?? 'semua';
@@ -116,8 +156,22 @@ trait HandlesPeriodicReports
         }
     }
 
+    protected function guardDosenKelasAssignment(Request $request): ?\Illuminate\Http\RedirectResponse
+    {
+        $user = $request->user();
+        if ($user && $user->isDosen() && ! $user->isLaboran()
+            && ! \App\Support\DosenKelasScope::hasSupervision($user)) {
+            return back()->with('error', 'Belum ada mahasiswa dalam bimbingan Anda. Minta laboran menugaskan kelas atau peran tim PBL.');
+        }
+
+        return null;
+    }
+
     public function exportReportExcel(Request $request)
     {
+        if ($guard = $this->guardDosenKelasAssignment($request)) {
+            return $guard;
+        }
         $payload = $this->buildPeriodicReportPayload($request, paginateTables: false);
         $filter = $payload['filter'];
         $scope = collect([
@@ -132,87 +186,117 @@ trait HandlesPeriodicReports
         ];
 
         $callback = static function () use ($payload): void {
-            $esc = [SimalasExcelExportLayout::class, 'esc'];
+            $esc = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+            $cellS = static fn ($v, string $style = '') => '<Cell' . ($style ? ' ss:StyleID="' . $style . '"' : '') . '><Data ss:Type="String">' . $esc($v) . '</Data></Cell>';
+            $cellN = static fn ($v, string $style = '') => '<Cell' . ($style ? ' ss:StyleID="' . $style . '"' : '') . '><Data ss:Type="Number">' . (int) $v . '</Data></Cell>';
+            $row = static fn (array $cells) => '<Row>' . implode('', $cells) . '</Row>';
             $filter = $payload['filter'];
+            $summary = $payload['summary'];
             $rows = $payload['studentRecapsActive'] ?? $payload['studentRecaps'];
-            $isAbsensi = ($filter['aktivitas'] ?? 'absensi') !== 'loker';
+            $totalSesi = (int) ($summary['hadir'] ?? 0) + (int) ($summary['tidak_lengkap'] ?? 0) + (int) ($summary['alfa'] ?? 0);
 
-            echo SimalasExcelExportLayout::openDocument();
-            echo SimalasExcelExportLayout::reportHeaderBlock('LAPORAN ABSENSI SIMALAS', [
-                'AIoT · Sistem Manajemen Laboratorium Pintar Berbasis IoT',
-                'Politeknik Negeri Batam',
-            ]);
+            echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+            echo '<?mso-application progid="Excel.Sheet"?>' . "\n";
+            echo '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+            echo '<Styles>'
+                . '<Style ss:ID="title"><Font ss:Bold="1" ss:Size="14" ss:Color="#1E3A5F"/></Style>'
+                . '<Style ss:ID="head"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1E3A5F" ss:Pattern="Solid"/></Style>'
+                . '<Style ss:ID="lbl"><Font ss:Bold="1"/></Style>'
+                . '<Style ss:ID="num"><NumberFormat ss:Format="#,##0"/></Style>'
+                . '<Style ss:ID="pct"><NumberFormat ss:Format="0.0&quot;%&quot;"/></Style>'
+                . '</Styles>';
 
-            echo SimalasExcelExportLayout::metaTableOpen();
-            echo SimalasExcelExportLayout::metaRow([
-                ['Periode', ($payload['periodeLabel'] ?? '') . ' (' . $filter['tanggal_mulai'] . ' s/d ' . $filter['tanggal_akhir'] . ')'],
-            ]);
-            echo SimalasExcelExportLayout::metaRow([
-                ['Cakupan data', $payload['activityLabel']],
-                ['Rekor', ($filter['rekor'] ?? 'terajin') . ' / ' . ($filter['rekor_group'] ?? 'semua')],
-            ]);
-            echo SimalasExcelExportLayout::metaRow([
-                ['Kelas', $filter['kelas'] ?: 'Semua'],
-                ['Tim PBL', $filter['tim'] ?: 'Semua'],
-            ]);
-            echo '<tr>';
-            echo '<td class="stats-label">Mahasiswa dalam cakupan (orang)</td><td class="right">' . $esc(number_format($payload['summary']['mahasiswa'])) . '</td>';
-            echo '<td class="stats-label">Mahasiswa dalam laporan (orang)</td><td class="right">' . $esc(number_format($rows->count())) . '</td>';
-            if ($isAbsensi) {
-                echo '<td class="stats-label">Hadir (sesi-mahasiswa)</td><td class="right">' . $esc(number_format($payload['summary']['hadir'] ?? 0)) . '</td>';
-                echo '<td class="stats-label">Tidak lengkap (sesi-mahasiswa)</td><td class="right">' . $esc(number_format($payload['summary']['tidak_lengkap'] ?? 0)) . '</td>';
+            // Sheet 1: PETUNJUK
+            echo '<Worksheet ss:Name="PETUNJUK"><Table>';
+            echo $row([$cellS('SMARTBRAIL | TEMPLATE LAPORAN ABSENSI PERIODIK', 'title')]);
+            echo $row([$cellS('')]);
+            foreach ([
+                'Workbook ini dihasilkan otomatis oleh SmartBrail sesuai filter halaman Laporan Periodik.',
+                'Sheet RINGKASAN: informasi periode dan total status kehadiran.',
+                'Sheet REKAP_MAHASISWA: rekap per mahasiswa yang tercatat di periode.',
+                'Sheet REKAP_HARIAN: total status per tanggal.',
+                'Sheet DETAIL_ABSENSI: cuplikan log tap perangkat (maks. 250 baris terakhir).',
+                'Catatan: 1 sesi-mahasiswa = 1 mahasiswa pada 1 sesi di 1 tanggal.',
+            ] as $line) {
+                echo $row([$cellS('• ' . $line)]);
             }
-            echo '</tr>';
-            if ($isAbsensi) {
-                echo '<tr>';
-                echo '<td class="stats-label">Alfa (sesi-mahasiswa)</td><td class="right" colspan="7">' . $esc(number_format($payload['summary']['alfa'] ?? 0)) . '</td>';
-                echo '</tr>';
-            }
-            echo '<tr><td colspan="8" class="muted">Dalam laporan = mahasiswa dalam cakupan yang punya catatan hadir/tidak lengkap/alfa di periode. 1 sesi-mahasiswa = 1 mahasiswa pada 1 sesi di 1 tanggal; dua sesi di tanggal yang sama dihitung dua.</td></tr>';
-            echo SimalasExcelExportLayout::metaTableClose();
+            echo '</Table></Worksheet>';
 
-            // Rekor ringkas
-            $rankings = $payload['rankings'] ?? null;
-            if ($rankings && !empty($rankings['items'])) {
-                echo '<table class="data">';
-                echo '<tr><td colspan="5" class="section">REKOR: ' . $esc($rankings['title'] ?? '') . '</td></tr>';
-                echo '<tr><th>Peringkat</th><th>Nama / Grup</th><th>Keterangan</th><th>Nilai</th></tr>';
-                foreach ($rankings['items'] as $item) {
-                    echo '<tr>';
-                    echo '<td class="right">' . $esc($item['rank']) . '</td>';
-                    echo '<td>' . $esc($item['label']) . '</td>';
-                    echo '<td>' . $esc($item['meta'] ?? '') . '</td>';
-                    echo '<td class="right">' . $esc($item['value_label'] ?? $item['value']) . '</td>';
-                    echo '</tr>';
-                }
-                echo '</table>';
-            }
+            // Sheet 2: RINGKASAN
+            echo '<Worksheet ss:Name="RINGKASAN"><Table>';
+            echo $row([$cellS('SMARTBRAIL | LAPORAN ABSENSI PERIODIK', 'title')]);
+            echo $row([$cellS('')]);
+            echo $row([$cellS('Periode', 'lbl'), $cellS(($payload['periodeLabel'] ?? '') . ' (' . $filter['tanggal_mulai'] . ' s/d ' . $filter['tanggal_akhir'] . ')')]);
+            echo $row([$cellS('Tanggal cetak', 'lbl'), $cellS(now()->translatedFormat('d F Y H:i'))]);
+            echo $row([$cellS('Kelas', 'lbl'), $cellS($filter['kelas'] ?: 'Semua'), $cellS('Tim PBL', 'lbl'), $cellS($filter['tim'] ?: 'Semua')]);
+            echo $row([$cellS('')]);
+            echo $row([$cellS('Metrik', 'head'), $cellS('Nilai', 'head')]);
+            echo $row([$cellS('Mahasiswa dalam cakupan (orang)'), $cellN($summary['mahasiswa'] ?? 0, 'num')]);
+            echo $row([$cellS('Mahasiswa dalam laporan (orang)'), $cellN($rows->count(), 'num')]);
+            echo $row([$cellS('TOTAL SESI'), $cellN($totalSesi, 'num')]);
+            echo $row([$cellS('HADIR'), $cellN($summary['hadir'] ?? 0, 'num')]);
+            echo $row([$cellS('TIDAK LENGKAP'), $cellN($summary['tidak_lengkap'] ?? 0, 'num')]);
+            echo $row([$cellS('ALFA'), $cellN($summary['alfa'] ?? 0, 'num')]);
+            echo $row([$cellS('')]);
+            echo $row([$cellS('Dalam laporan = mahasiswa dalam cakupan yang punya catatan hadir/tidak lengkap/alfa di periode.')]);
+            echo '</Table></Worksheet>';
 
-            echo '<table class="data">';
-            echo '<tr><td colspan="7" class="section">REKAP MAHASISWA DALAM LAPORAN (punya catatan hadir/tidak lengkap/alfa di periode)</td></tr>';
-            echo '<tr><th>No</th><th>Nama</th><th>NIM</th><th>Kelas</th><th>Tim</th><th>Hadir (sesi)</th><th>Tidak Lengkap (sesi)</th><th>Alfa (sesi)</th></tr>';
+            // Sheet 3: REKAP_MAHASISWA
+            echo '<Worksheet ss:Name="REKAP_MAHASISWA"><Table>';
+            echo $row([$cellS('REKAPITULASI PER MAHASISWA (DALAM LAPORAN)', 'title')]);
+            echo $row(array_map(fn ($h) => $cellS($h, 'head'), ['No', 'NIM', 'Nama', 'Kelas', 'Tim PBL', 'Hadir', 'Tidak Lengkap', 'Alfa', 'Total Sesi', '% Hadir', 'Catatan']));
             $no = 1;
-            foreach ($rows as $row) {
-                if (!$isAbsensi) {
-                    continue;
-                }
-                echo '<tr>';
-                echo '<td class="right">' . $esc($no++) . '</td>';
-                echo '<td>' . $esc($row['nama']) . '</td>';
-                echo '<td class="nim">' . $esc($row['nim']) . '</td>';
-                echo '<td>' . $esc($row['kelas']) . '</td>';
-                echo '<td>' . $esc($row['tim']) . '</td>';
-                echo '<td class="right">' . $esc($row['hadir'] ?? 0) . '</td>';
-                echo '<td class="right">' . $esc($row['tidak_lengkap'] ?? 0) . '</td>';
-                echo '<td class="right">' . $esc($row['alfa'] ?? 0) . '</td>';
-                echo '</tr>';
+            foreach ($rows as $r) {
+                $tot = (int) ($r['hadir'] ?? 0) + (int) ($r['tidak_lengkap'] ?? 0) + (int) ($r['alfa'] ?? 0);
+                $pctHadir = $tot > 0 ? round(($r['hadir'] / $tot) * 100, 1) : 0;
+                echo $row([
+                    $cellN($no++), $cellS($r['nim'] ?? '-'), $cellS($r['nama'] ?? '-'),
+                    $cellS($r['kelas'] ?? '-'), $cellS($r['tim'] ?? '-'),
+                    $cellN($r['hadir'] ?? 0, 'num'), $cellN($r['tidak_lengkap'] ?? 0, 'num'), $cellN($r['alfa'] ?? 0, 'num'),
+                    $cellN($tot, 'num'),
+                    '<Cell ss:StyleID="pct"><Data ss:Type="Number">' . $pctHadir . '</Data></Cell>',
+                    $cellS(!empty($r['terakhir']) ? 'Terakhir: ' . \Carbon\Carbon::parse($r['terakhir'])->format('d/m/Y') : ''),
+                ]);
             }
             if ($rows->isEmpty()) {
-                echo '<tr><td colspan="8" class="muted">Tidak ada data sesuai filter periode/kelas/tim.</td></tr>';
+                echo $row([$cellS('Tidak ada data sesuai filter periode/kelas/tim.')]);
             }
-            echo '</table>';
+            echo '</Table></Worksheet>';
 
-            echo SimalasExcelExportLayout::closeDocument();
+            // Sheet 4: REKAP_HARIAN
+            echo '<Worksheet ss:Name="REKAP_HARIAN"><Table>';
+            echo $row([$cellS('REKAP HARIAN', 'title')]);
+            echo $row(array_map(fn ($h) => $cellS($h, 'head'), ['Tanggal', 'Hadir', 'Tidak Lengkap', 'Alfa', 'Total Sesi', 'Catatan']));
+            foreach (($payload['chart']['labels'] ?? []) as $ci => $tgl) {
+                $h = (int) ($payload['chart']['hadir'][$ci] ?? 0);
+                $tl = (int) ($payload['chart']['tidak_lengkap'][$ci] ?? 0);
+                $a = (int) ($payload['chart']['alfa'][$ci] ?? 0);
+                echo $row([
+                    $cellS(\Carbon\Carbon::parse($tgl)->format('d/m/Y')),
+                    $cellN($h, 'num'), $cellN($tl, 'num'), $cellN($a, 'num'), $cellN($h + $tl + $a, 'num'), $cellS(''),
+                ]);
+            }
+            echo '</Table></Worksheet>';
+
+            // Sheet 5: DETAIL_ABSENSI
+            echo '<Worksheet ss:Name="DETAIL_ABSENSI"><Table>';
+            echo $row([$cellS('DETAIL ABSENSI (LOG TAP PERANGKAT — MAKS. 250 BARIS TERAKHIR)', 'title')]);
+            echo $row(array_map(fn ($h) => $cellS($h, 'head'), ['Tanggal', 'Waktu Masuk', 'Waktu Pulang', 'NIM', 'Nama', 'Kelas', 'Tim PBL', 'Mesin', 'Status', 'Keterangan']));
+            foreach (($payload['detailRows'] ?? []) as $d) {
+                $waktu = !empty($d['waktu']) ? \Carbon\Carbon::parse($d['waktu']) : null;
+                $isMasuk = ($d['tap_jenis'] ?? '') === 'masuk';
+                echo $row([
+                    $cellS($waktu ? $waktu->format('d/m/Y') : '-'),
+                    $cellS($waktu && $isMasuk ? $waktu->format('H:i:s') : ''),
+                    $cellS($waktu && !$isMasuk ? $waktu->format('H:i:s') : ''),
+                    $cellS($d['nim'] ?? '-'), $cellS($d['nama'] ?? '-'),
+                    $cellS($d['kelas'] ?? '-'), $cellS($d['tim'] ?? '-'),
+                    $cellS($d['id_mesin'] ?? '-'), $cellS($d['status'] ?? '-'), $cellS($d['status_meta'] ?? ''),
+                ]);
+            }
+            echo '</Table></Worksheet>';
+
+            echo '</Workbook>';
         };
 
         return response()->stream($callback, Response::HTTP_OK, $headers);
@@ -220,6 +304,9 @@ trait HandlesPeriodicReports
 
     public function exportReportWord(Request $request)
     {
+        if ($guard = $this->guardDosenKelasAssignment($request)) {
+            return $guard;
+        }
         $payload = $this->buildPeriodicReportPayload($request, paginateTables: false);
         $filter = $payload['filter'];
         $scope = collect([
@@ -253,39 +340,41 @@ trait HandlesPeriodicReports
                 .muted{color:#64748b}
             </style></head><body>';
 
-            $logoUrl = asset('images/logo-aiot.png');
+            $logoUrl = asset('images/logo-smartbrail.png');
+
+            $summary = $payload['summary'];
+            $totalSesi = (int) ($summary['hadir'] ?? 0) + (int) ($summary['tidak_lengkap'] ?? 0) + (int) ($summary['alfa'] ?? 0);
 
             echo '<table class="meta">';
-            echo '<tr><td colspan="2" rowspan="3" style="width:72px;"><img src="' . $esc($logoUrl) . '" alt="AIoT" height="64" style="max-width:64px;"></td>';
-            echo '<td colspan="6" class="title">LAPORAN ABSENSI SIMALAS</td></tr>';
-            echo '<tr><td colspan="6" class="subtitle">AIoT · Sistem Manajemen Laboratorium Pintar Berbasis IoT</td></tr>';
+            echo '<tr><td colspan="2" rowspan="3" style="width:72px;"><img src="' . $esc($logoUrl) . '" alt="SmartBrail" height="64" style="max-width:64px;"></td>';
+            echo '<td colspan="6" class="title">LAPORAN ABSENSI | SMARTBRAIL</td></tr>';
+            echo '<tr><td colspan="6" class="subtitle">SISTEM INFORMASI MANAJEMEN LABORATORIUM</td></tr>';
             echo '<tr><td colspan="6" class="subtitle">Politeknik Negeri Batam</td></tr>';
-            echo '<tr><td>Periode</td><td colspan="7">' . $esc(($payload['periodeLabel'] ?? '') . ' · ' . $filter['tanggal_mulai'] . ' s/d ' . $filter['tanggal_akhir']) . '</td></tr>';
-            echo '<tr><td>Cakupan</td><td colspan="7">' . $esc($payload['activityLabel']) . ' · Kelas: ' . $esc($filter['kelas'] ?: 'Semua') . ' · Tim: ' . $esc($filter['tim'] ?: 'Semua') . '</td></tr>';
-            echo '<tr><td>Mahasiswa dalam cakupan</td><td>' . $esc(number_format($payload['summary']['mahasiswa'])) . ' orang</td><td>Mahasiswa dalam laporan</td><td>' . $esc(number_format($rows->count())) . ' orang</td><td colspan="4"></td></tr>';
-            echo '<tr><td>Hadir</td><td>' . $esc(number_format($payload['summary']['hadir'] ?? 0)) . ' sesi-mahasiswa</td><td>Tidak lengkap</td><td>' . $esc(number_format($payload['summary']['tidak_lengkap'] ?? 0)) . ' sesi-mahasiswa</td><td>Alfa</td><td>' . $esc(number_format($payload['summary']['alfa'] ?? 0)) . ' sesi-mahasiswa</td><td colspan="2"></td></tr>';
-            echo '<tr><td colspan="8" class="muted">Dalam laporan = mahasiswa dalam cakupan yang punya catatan hadir/tidak lengkap/alfa di periode. 1 sesi-mahasiswa = 1 mahasiswa pada 1 sesi di 1 tanggal; dua sesi di tanggal yang sama dihitung dua.</td></tr>';
             echo '</table>';
 
-            $rankings = $payload['rankings'] ?? null;
-            if ($rankings && !empty($rankings['items'])) {
-                echo '<table>';
-                echo '<tr><td colspan="4" class="section">REKOR: ' . $esc($rankings['title'] ?? '') . '</td></tr>';
-                echo '<tr><th>#</th><th>Nama / Grup</th><th>Keterangan</th><th>Nilai</th></tr>';
-                foreach ($rankings['items'] as $item) {
-                    echo '<tr>';
-                    echo '<td class="right">' . $esc($item['rank']) . '</td>';
-                    echo '<td>' . $esc($item['label']) . '</td>';
-                    echo '<td>' . $esc($item['meta'] ?? '') . '</td>';
-                    echo '<td class="right">' . $esc($item['value_label'] ?? $item['value']) . '</td>';
-                    echo '</tr>';
-                }
-                echo '</table>';
-            }
+            echo '<table>';
+            echo '<tr><td colspan="4" class="section">01 · INFORMASI LAPORAN</td></tr>';
+            echo '<tr><td>Periode</td><td>' . $esc(($payload['periodeLabel'] ?? '') . ' · ' . $filter['tanggal_mulai'] . ' s/d ' . $filter['tanggal_akhir']) . '</td><td>Tanggal Cetak</td><td>' . $esc(now()->translatedFormat('d F Y')) . '</td></tr>';
+            echo '<tr><td>Mode</td><td>' . $esc($payload['activityLabel']) . '</td><td>Unit/Prodi</td><td>BRAIL · Politeknik Negeri Batam</td></tr>';
+            echo '<tr><td>Filter Kelas</td><td>' . $esc($filter['kelas'] ?: 'Semua') . '</td><td>Filter Tim PBL</td><td>' . $esc($filter['tim'] ?: 'Semua') . '</td></tr>';
+            echo '<tr><td>Disusun Oleh</td><td>' . $esc(auth()->user()->nama_lengkap ?? '-') . '</td><td>Diperiksa Oleh</td><td>____________________</td></tr>';
+            echo '</table>';
 
             echo '<table>';
-            echo '<tr><td colspan="8" class="section">REKAP MAHASISWA DALAM LAPORAN (punya catatan hadir/tidak lengkap/alfa di periode)</td></tr>';
-            echo '<tr><th>No</th><th>Nama</th><th>NIM</th><th>Kelas</th><th>Tim</th><th>Hadir (sesi)</th><th>Tidak Lengkap (sesi)</th><th>Alfa (sesi)</th></tr>';
+            echo '<tr><td colspan="5" class="section">02 · RINGKASAN KEHADIRAN</td></tr>';
+            echo '<tr><th>Mhs dalam Cakupan</th><th>Mhs dalam Laporan</th><th>Hadir</th><th>Tidak Lengkap</th><th>Alfa</th></tr>';
+            echo '<tr>'
+                . '<td class="right">' . $esc(number_format($summary['mahasiswa'] ?? 0)) . '</td>'
+                . '<td class="right">' . $esc(number_format($rows->count())) . '</td>'
+                . '<td class="right">' . $esc(number_format($summary['hadir'] ?? 0)) . '</td>'
+                . '<td class="right">' . $esc(number_format($summary['tidak_lengkap'] ?? 0)) . '</td>'
+                . '<td class="right">' . $esc(number_format($summary['alfa'] ?? 0)) . '</td></tr>';
+            echo '<tr><td colspan="5" class="muted">Total sesi-mahasiswa: ' . $esc(number_format($totalSesi)) . '. Dalam laporan = mahasiswa dalam cakupan yang punya catatan hadir/tidak lengkap/alfa di periode. 1 sesi-mahasiswa = 1 mahasiswa pada 1 sesi di 1 tanggal.</td></tr>';
+            echo '</table>';
+
+            echo '<table>';
+            echo '<tr><td colspan="9" class="section">03 · REKAPITULASI PER MAHASISWA</td></tr>';
+            echo '<tr><th>No</th><th>Nama Lengkap</th><th>NIM/ID</th><th>Kelas</th><th>Tim PBL</th><th>Hadir (sesi)</th><th>Tidak Lengkap (sesi)</th><th>Alfa (sesi)</th><th>Aktivitas Terakhir</th></tr>';
             $no = 1;
             foreach ($rows as $row) {
                 echo '<tr>';
@@ -297,10 +386,11 @@ trait HandlesPeriodicReports
                 echo '<td class="right">' . $esc($row['hadir'] ?? 0) . '</td>';
                 echo '<td class="right">' . $esc($row['tidak_lengkap'] ?? 0) . '</td>';
                 echo '<td class="right">' . $esc($row['alfa'] ?? 0) . '</td>';
+                echo '<td>' . $esc(!empty($row['terakhir']) ? \Carbon\Carbon::parse($row['terakhir'])->format('d/m/Y') : '-') . '</td>';
                 echo '</tr>';
             }
             if ($rows->isEmpty()) {
-                echo '<tr><td colspan="8" class="muted">Tidak ada data sesuai filter.</td></tr>';
+                echo '<tr><td colspan="9" class="muted">Tidak ada data sesuai filter.</td></tr>';
             }
             echo '</table>';
 
@@ -312,6 +402,10 @@ trait HandlesPeriodicReports
 
     public function printReport(Request $request)
     {
+        if ($guard = $this->guardDosenKelasAssignment($request)) {
+            return $guard;
+        }
+
         return view($this->periodicReportPrintView(), $this->buildPeriodicReportPayload($request, paginateTables: false));
     }
 }

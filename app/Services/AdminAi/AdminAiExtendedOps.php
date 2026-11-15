@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 /**
- * Operasi tambahan Asisten AI (attention, laporan, absensi sync, loker slot).
+ * Operasi tambahan Asisten AI (attention, laporan, absensi sync).
  */
 final class AdminAiExtendedOps
 {
@@ -120,7 +120,6 @@ final class AdminAiExtendedOps
                 'hadir' => $summary['hadir'] ?? 0,
                 'tidak_lengkap' => $summary['tidak_lengkap'] ?? 0,
                 'alfa' => $summary['alfa'] ?? 0,
-                'loker' => $summary['loker'] ?? 0,
             ],
             'ranking' => [
                 'title' => $rankings['title'] ?? 'Peringkat',
@@ -133,7 +132,7 @@ final class AdminAiExtendedOps
                     'user_id' => $row['user_id'] ?? null,
                 ])->all(),
             ],
-            'catatan' => 'Ringkasan tanpa file export. Absensi (hadir/alfa/TL) terpisah dari hitungan akses loker.',
+            'catatan' => 'Ringkasan tanpa file export.',
         ];
     }
 

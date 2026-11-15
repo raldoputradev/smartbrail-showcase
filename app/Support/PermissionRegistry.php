@@ -22,7 +22,6 @@ class PermissionRegistry
             'mesin'          => ['Mesin IoT', 'Admin'],
             'log_absensi'    => ['Log Absensi Real', 'Monitoring'],
             'announcements'  => ['Pengumuman', 'Komunikasi'],
-            'role_access'    => ['Kelola Akses Role', 'Admin'],
             'suggestions'    => ['Saran & Masukan', 'Komunikasi'],
             'notifications'  => ['Notifikasi', 'Komunikasi'],
             'monitoring'     => ['Monitoring', 'Monitoring'],
@@ -31,6 +30,10 @@ class PermissionRegistry
             'reports'        => ['Laporan', 'Monitoring'],
             'settings'       => ['Pengaturan', 'Admin'],
             'ai_assistant'   => ['Asisten AI', 'Umum'],
+            // SMART BRAIL — BMS ruangan
+            'ruangan'        => ['Ruangan & Aturan', 'BMS'],
+            'ruangan_persetujuan' => ['Persetujuan Pengajuan', 'BMS'],
+            'petugas'        => ['Petugas Ruangan', 'BMS'],
             // Khusus dosen
             'dosen_absensi'  => ['Absensi Mahasiswa', 'Dosen'],
             'dosen_mahasiswa'=> ['Data Mahasiswa', 'Dosen'],
@@ -48,6 +51,7 @@ class PermissionRegistry
         $empty = array_fill_keys($menus, [false, false, false, false]);
 
         $defaults = [
+            'admin' => $empty,
             'laboran' => $empty,
             'dosen' => $empty,
             'mahasiswa' => $empty,
@@ -60,7 +64,6 @@ class PermissionRegistry
             'mesin'          => [true, true, true, true],
             'log_absensi'    => [true, false, false, false],
             'announcements'  => [true, true, true, true],
-            'role_access'    => [true, true, true, true],
             'suggestions'    => [true, false, true, true],
             'notifications'  => [true, false, false, false],
             'monitoring'     => [true, false, false, false],
@@ -69,11 +72,18 @@ class PermissionRegistry
             'reports'        => [true, false, false, false],
             'settings'       => [true, true, true, false],
             'ai_assistant'   => [true, false, false, false],
+            'ruangan'        => [true, true, true, false],
+            'ruangan_persetujuan' => [true, false, true, false],
+            'petugas'        => [true, true, true, false],
         ]);
+
+        // Role admin mewarisi seluruh kapabilitas operasional laboran;
+        // aksi khusus admin tetap digerbang middleware admin.only di level route.
+        $defaults['admin'] = $defaults['laboran'];
 
         $defaults['dosen'] = array_replace($defaults['dosen'], [
             'dashboard'       => [true, false, false, false],
-            'announcements'   => [true, false, false, false],
+            'announcements'   => [true, true, false, false],
             'dosen_absensi'   => [true, false, true, false],
             'dosen_mahasiswa' => [true, false, false, false],
             'dosen_pbl'       => [true, true, true, true],
@@ -92,6 +102,12 @@ class PermissionRegistry
     public static function seedDefaults(): void
     {
         foreach (self::defaults() as $role => $menus) {
+            // Role 'admin' tidak ditulis ke DB: izinnya berasal dari fallback defaults
+            // (salinan laboran). Migration lama yang memanggil seedDefaults tetap aman
+            // terhadap enum 'role' versi lama tanpa nilai 'admin'.
+            if ($role === 'admin') {
+                continue;
+            }
             foreach ($menus as $menuKey => [$view, $create, $update, $delete]) {
                 RolePermission::query()->updateOrCreate(
                     ['role' => $role, 'menu_key' => $menuKey],
@@ -154,84 +170,4 @@ class PermissionRegistry
         return self::can($user->role, $menuKey, $action);
     }
 
-    public static function roleLabels(): array
-    {
-        return [
-            'laboran' => 'Admin Laboran',
-            'dosen' => 'Dosen',
-            'mahasiswa' => 'Mahasiswa Mobile',
-        ];
-    }
-
-    public static function activeMenuLabels(string $role): array
-    {
-        $menus = self::menus();
-        $items = [];
-
-        foreach ($menus as $menuKey => [$label]) {
-            if (self::can($role, $menuKey)) {
-                $items[$menuKey] = $label;
-            }
-        }
-
-        return $items;
-    }
-
-    public static function roleAccessCards(?string $activeRole = null): array
-    {
-        $cards = [
-            'laboran' => [
-                'title' => 'Admin Laboran',
-                'subtitle' => 'Pusat kontrol IoT SIMALAS',
-                'accent' => 'blue',
-                'summary' => 'Mengelola user, mesin IoT, pengumuman, monitoring, dan saran masuk.',
-                'benefits' => [
-                    'Kelola data dosen, mahasiswa, dan aktivasi akun.',
-                    'Atur mesin absensi, fingerprint, dan API key perangkat.',
-                    'Publikasikan pengumuman dan pantau log real-time.',
-                    'Opsional: batasi menu web dosen lewat konfigurasi lanjutan.',
-                ],
-                'limitations' => [
-                    'Akses tetap mengikuti centang permission yang dibuat superadmin/laboran.',
-                ],
-            ],
-            'dosen' => [
-                'title' => 'Dosen',
-                'subtitle' => 'Monitoring akademik dan rekap mahasiswa',
-                'accent' => 'green',
-                'summary' => 'Melihat dashboard, pengumuman, rekap absensi, dan data mahasiswa sesuai izin admin.',
-                'benefits' => [
-                    'Melihat grafik dan rekap absensi mahasiswa.',
-                    'Membaca pengumuman dari admin laboran.',
-                    'Akses menu dapat dibatasi atau dibuka oleh admin.',
-                ],
-                'limitations' => [
-                    'Tidak dapat mengubah data mesin, user, atau role access.',
-                    'Menu yang dicabut admin akan hilang dan URL langsung ikut diblokir.',
-                ],
-            ],
-            'mahasiswa' => [
-                'title' => 'Mahasiswa Mobile',
-                'subtitle' => 'Akses pribadi lewat aplikasi Flutter',
-                'accent' => 'amber',
-                'summary' => 'Mahasiswa tidak login ke web. Data pribadi, riwayat absensi, dan pengumuman dibuka dari aplikasi mobile.',
-                'benefits' => [
-                    'Melihat riwayat absensi sendiri dari aplikasi mobile.',
-                    'Menerima pengumuman yang ditargetkan ke mahasiswa.',
-                    'Menggunakan fingerprint/finger_id untuk integrasi mesin.',
-                ],
-                'limitations' => [
-                    'Tidak memakai dashboard web admin/dosen.',
-                    'Menu aplikasi mobile tidak dikontrol dari halaman permission.',
-                ],
-            ],
-        ];
-
-        foreach ($cards as $role => $card) {
-            $cards[$role]['is_active'] = $activeRole === $role;
-            $cards[$role]['active_menus'] = self::activeMenuLabels($role);
-        }
-
-        return $cards;
-    }
 }

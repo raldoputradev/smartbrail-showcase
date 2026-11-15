@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "message": "Belum waktunya absen masuk (mulai 07:30).",
+  "code": "BELUM_WAKTU_MASUK"
+}

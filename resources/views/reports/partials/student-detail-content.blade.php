@@ -3,7 +3,6 @@
     $summary = $summary ?? [];
     $harianRows = $harianRows ?? collect();
     $taps = $taps ?? collect();
-    $lokerRows = $lokerRows ?? collect();
     $periode = $periode ?? [];
     $aktivitas = $aktivitas ?? 'semua';
 @endphp
@@ -23,7 +22,7 @@
             </p>
         </div>
         <div class="periodic-student-detail__stats">
-            @if($aktivitas !== 'loker')
+            @if(true)
                 <span class="absensi-badge lengkap">Hadir {{ $summary['hadir'] ?? 0 }}</span>
                 <span class="absensi-badge tidak_lengkap">Tidak lengkap {{ $summary['tidak_lengkap'] ?? 0 }}</span>
                 <span class="absensi-badge alfa">Alfa {{ $summary['alfa'] ?? 0 }}</span>
@@ -31,7 +30,7 @@
         </div>
     </div>
 
-    @if($aktivitas !== 'loker')
+    @if(true)
         <div class="periodic-student-detail__section">
             <h5>Rekap per hari</h5>
             <div style="overflow-x:auto;">

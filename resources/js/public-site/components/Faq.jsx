@@ -37,7 +37,7 @@ const FAQS = [
   },
   {
     q: 'Bisa absen tanpa aplikasi mobile?',
-    a: 'Tap sidik jari dilakukan di mesin fisik, tetapi pendaftaran, profil, loker, dan riwayat absensi memerlukan aplikasi mobile.',
+    a: 'Tap sidik jari dilakukan di mesin fisik, tetapi pendaftaran, profil, dan riwayat absensi memerlukan aplikasi mobile.',
   },
   {
     q: 'Bagaimana jika lupa password?',
@@ -124,7 +124,7 @@ export default function Faq() {
             <div className="sticky top-24 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#1c2540]">
               <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">Masih ada pertanyaan?</h3>
               <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                Tim kami siap membantu terkait registrasi, absensi, loker, dan penggunaan aplikasi mobile
+                Tim kami siap membantu terkait registrasi, absensi, dan penggunaan aplikasi mobile
                 SIMALAS.
               </p>
               <div className="mt-5 flex flex-col gap-2.5">

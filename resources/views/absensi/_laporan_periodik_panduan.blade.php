@@ -32,7 +32,7 @@
 
             <strong>Tujuan halaman ini:</strong> melihat <em>rekap status absensi</em> per mahasiswa dalam rentang tanggal
 
-            (<strong>Hadir</strong>, <strong>Tidak Lengkap</strong>, <strong>Alfa</strong>) plus akses loker.
+            (<strong>Hadir</strong>, <strong>Tidak Lengkap</strong>, <strong>Alfa</strong>).
 
             Untuk koreksi harian per tanggal, gunakan
 

@@ -93,14 +93,7 @@ class OtpMail extends Mailable
         ];
 
         if (in_array($this->tipe, ['registration', 'resend'], true) && filled($this->email)) {
-            if ($user?->role === 'dosen') {
-                $data['verifyUrl'] = URL::temporarySignedRoute(
-                    'register.verify',
-                    now()->addMinutes(30),
-                    ['email' => $this->email],
-                    absolute: true
-                );
-            } elseif ($user?->role === 'mahasiswa') {
+            if ($user?->role === 'mahasiswa') {
                 $data['mobileResumeHint'] = true;
             }
         }

@@ -9,8 +9,6 @@
     $periodeMode = $filter['periode'] ?? 'bulan_ini';
     $aktivitas = $filter['aktivitas'] ?? 'absensi';
     $queryKeep = request()->except(['rekor', 'rekor_group', 'page', 'recap_page', 'detail_page']);
-    $showLokerOnly = false;
-    $showLokerKpi = false;
     $aktifCount = is_countable($studentRecapsActive ?? null) ? count($studentRecapsActive) : 0;
 @endphp
 
@@ -25,46 +23,60 @@
 @section('content')
     @include('absensi._styles')
 
-    <div class="lp-toolbar animate-in">
-        <div class="lp-toolbar__left">
-            <span class="lp-live"><span class="lp-live__dot"></span>PERIODIK</span>
-            <div>
-                <strong>{{ $periodeLabel ?? 'Periode' }}</strong>
-                <small>{{ $activityLabel }} · {{ \Carbon\Carbon::parse($filter['tanggal_mulai'])->translatedFormat('d M Y') }} — {{ \Carbon\Carbon::parse($filter['tanggal_akhir'])->translatedFormat('d M Y') }}</small>
+    <div class="lpx-hero animate-in">
+        <div class="lpx-hero__main">
+            <span class="lpx-hero__badge">📋 Laporan Absensi Laboratorium</span>
+            <h2>Laporan Absensi Laboratorium</h2>
+            <p>Rekap kehadiran mahasiswa, analisis tren, dan ringkasan aktivitas dalam periode tertentu.</p>
+            <div class="lpx-hero__meta">
+                <span class="lpx-hero__chip">{{ $periodeLabel ?? 'Periode' }}</span>
+                <span class="lpx-hero__chip">{{ \Carbon\Carbon::parse($filter['tanggal_mulai'])->translatedFormat('d M Y') }} — {{ \Carbon\Carbon::parse($filter['tanggal_akhir'])->translatedFormat('d M Y') }}</span>
+                <span class="lpx-hero__chip">{{ $activityLabel }}</span>
             </div>
         </div>
-        <div class="lp-toolbar__right">
-            <button type="button" class="lp-btn lp-btn--ghost" onclick="openLpHelp()" title="Panduan">
-                <span class="lp-help-q">?</span>
-            </button>
-            <a href="{{ route($routes['rekap']) }}" class="lp-btn lp-btn--ghost">Rekap Harian</a>
+        <div class="lpx-dl">
+            <div class="lpx-dl__head">
+                <strong>⬇ Unduh Laporan</strong>
+                <small>Ekspor laporan sesuai filter yang dipilih.</small>
+            </div>
+            <div class="lpx-dl__btns">
+                <a href="{{ route($routes['export_excel'], request()->query()) }}" class="lpx-dlbtn lpx-dlbtn--excel">Excel</a>
+                <a href="{{ route($routes['print'], request()->query()) }}" target="_blank" class="lpx-dlbtn lpx-dlbtn--pdf">PDF</a>
+                <a href="{{ route($routes['export_word'], request()->query()) }}" class="lpx-dlbtn lpx-dlbtn--word">Word</a>
+            </div>
+            <div class="lpx-dl__foot">
+                <a href="{{ route($routes['rekap']) }}">Rekap Harian →</a>
+                <button type="button" onclick="openLpHelp()" title="Panduan">?</button>
+            </div>
         </div>
     </div>
 
-    <form method="GET" action="{{ route($routes['index']) }}" class="lp-filter animate-in" id="lpFilterForm" data-no-loader="1">
+    <form method="GET" action="{{ route($routes['index']) }}" class="lpx-filter animate-in" id="lpFilterForm" data-no-loader="1">
         <input type="hidden" name="rekor" value="{{ $rekor }}">
         <input type="hidden" name="rekor_group" value="{{ $rekorGroup }}">
+        <input type="hidden" name="aktivitas" value="absensi">
 
-        <div class="lp-period">
-            <span class="lp-period__label">Periode kalender</span>
-            <div class="lp-period__chips">
-                @foreach([
-                    'minggu_ini' => 'Minggu ini',
-                    'minggu_lalu' => 'Minggu lalu',
-                    'bulan_ini' => 'Bulan ini',
-                    'bulan_lalu' => 'Bulan lalu',
-                    'tahun_bulan' => 'Tahun-bulan',
-                    'custom' => 'Rentang custom',
-                ] as $key => $label)
-                    <label class="lp-chip {{ $periodeMode === $key ? 'is-active' : '' }}">
-                        <input type="radio" name="periode" value="{{ $key }}" @checked($periodeMode === $key) onchange="lpTogglePeriode()">
-                        {{ $label }}
-                    </label>
-                @endforeach
-            </div>
+        <div class="lpx-filter__head">
+            <strong>🔽 Filter Laporan</strong>
+            <small>Periode: {{ $periodeLabel ?? '—' }}@if(!empty($filter['kelas'])) · kelas {{ $filter['kelas'] }}@endif @if(!empty($filter['tim'])) · tim {{ $filter['tim'] }}@endif · {{ number_format($aktifCount) }} mhs aktif</small>
         </div>
 
-        <div class="lp-filter__grid">
+        <div class="lpx-filter__grid">
+            <label>
+                <span>Periode</span>
+                <select name="periode" onchange="lpTogglePeriode()">
+                    @foreach([
+                        'minggu_ini' => 'Minggu ini',
+                        'minggu_lalu' => 'Minggu lalu',
+                        'bulan_ini' => 'Bulan ini',
+                        'bulan_lalu' => 'Bulan lalu',
+                        'tahun_bulan' => 'Tahun-bulan',
+                        'custom' => 'Rentang custom',
+                    ] as $key => $label)
+                        <option value="{{ $key }}" @selected($periodeMode === $key)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </label>
             <label id="lpBulanWrap" class="{{ $periodeMode === 'tahun_bulan' ? '' : 'is-hidden' }}">
                 <span>Tahun-bulan</span>
                 <input type="month" name="bulan" value="{{ $filter['bulan'] ?? now()->format('Y-m') }}">
@@ -77,7 +89,6 @@
                 <span>Sampai</span>
                 <input type="date" name="tanggal_akhir" value="{{ $filter['tanggal_akhir'] }}">
             </label>
-            <input type="hidden" name="aktivitas" value="absensi">
             <label>
                 <span>Kelas</span>
                 <select name="kelas">
@@ -96,86 +107,102 @@
                     @endforeach
                 </select>
             </label>
-            <div class="lp-filter__actions">
-                <button type="submit" class="lp-btn lp-btn--primary">Terapkan filter</button>
-                <a href="{{ route($routes['index']) }}" class="lp-btn lp-btn--ghost">Reset</a>
+            <div class="lpx-filter__actions">
+                <button type="submit" class="lpx-btn lpx-btn--primary">Terapkan Filter</button>
+                <a href="{{ route($routes['index']) }}" class="lpx-btn lpx-btn--ghost">↻ Reset</a>
             </div>
         </div>
     </form>
 
-    <div class="lp-export animate-in">
-        <div class="lp-export__info">
-            <strong>Export mengikuti filter di atas</strong>
-            <small>Bukan dump semua mahasiswa. Periode: <b>{{ $periodeLabel ?? '—' }}</b>
-                @if(!empty($filter['kelas'])) · kelas {{ $filter['kelas'] }} @endif
-                @if(!empty($filter['tim'])) · tim {{ $filter['tim'] }} @endif
-                · {{ number_format($aktifCount) }} mhs aktif di periode
-            </small>
+    <div class="lpx-kpis animate-in">
+        <div class="lpx-kpi">
+            <span class="lpx-kpi__icon" style="background:#dbeafe;color:#1d4ed8">👥</span>
+            <div>
+                <span>Mahasiswa dalam Cakupan</span>
+                <strong>{{ number_format($summary['mahasiswa'] ?? 0) }}</strong>
+                <small>orang sesuai filter</small>
+            </div>
         </div>
-        <div class="lp-export__btns">
-            <a href="{{ route($routes['export_excel'], request()->query()) }}" class="lp-btn lp-btn--excel">Excel</a>
-            <a href="{{ route($routes['print'], request()->query()) }}" target="_blank" class="lp-btn lp-btn--pdf">PDF</a>
-            <a href="{{ route($routes['export_word'], request()->query()) }}" class="lp-btn lp-btn--word">Word</a>
+        <div class="lpx-kpi">
+            <span class="lpx-kpi__icon" style="background:#ede9fe;color:#7c3aed">📋</span>
+            <div>
+                <span>Mahasiswa dalam Laporan</span>
+                <strong>{{ number_format($aktifCount) }}</strong>
+                <small title="Punya catatan hadir/tidak lengkap/alfa di periode (baris Excel/Word/cetak)">punya catatan di periode</small>
+            </div>
         </div>
-    </div>
-
-    <div class="lp-kpis animate-in">
-        <div class="lp-kpi">
-            <span>Mahasiswa dalam cakupan</span>
-            <strong>{{ number_format($summary['mahasiswa'] ?? 0) }}</strong>
-            <small title="Dalam laporan = punya catatan hadir/tidak lengkap/alfa di periode (baris Excel/Word/cetak)">orang · {{ number_format($aktifCount) }} dalam laporan</small>
-        </div>
-        @unless($showLokerOnly)
-            <div class="lp-kpi lp-kpi--ok">
-                <span>Hadir</span>
-                <strong>{{ number_format($summary['hadir'] ?? 0) }}</strong>
-                <small>sesi-mahasiswa · lengkap</small>
+        
+            <div class="lpx-kpi">
+                <span class="lpx-kpi__icon" style="background:#d1fae5;color:#047857">✓</span>
+                <div>
+                    <span>Hadir</span>
+                    <strong>{{ number_format($summary['hadir'] ?? 0) }}</strong>
+                    <small>sesi-mahasiswa · lengkap</small>
+                </div>
             </div>
-            <div class="lp-kpi lp-kpi--warn">
-                <span>Tidak lengkap</span>
-                <strong>{{ number_format($summary['tidak_lengkap'] ?? 0) }}</strong>
-                <small>sesi-mahasiswa · masuk tanpa pulang</small>
+            <div class="lpx-kpi">
+                <span class="lpx-kpi__icon" style="background:#fef3c7;color:#b45309">⏱</span>
+                <div>
+                    <span>Tidak Lengkap</span>
+                    <strong>{{ number_format($summary['tidak_lengkap'] ?? 0) }}</strong>
+                    <small>sesi-mahasiswa · masuk tanpa pulang</small>
+                </div>
             </div>
-            <div class="lp-kpi lp-kpi--bad">
-                <span>Alfa</span>
-                <strong>{{ number_format($summary['alfa'] ?? 0) }}</strong>
-                <small>sesi-mahasiswa · tanpa tap wajib</small>
+            <div class="lpx-kpi">
+                <span class="lpx-kpi__icon" style="background:#fee2e2;color:#b91c1c">✕</span>
+                <div>
+                    <span>Alfa</span>
+                    <strong>{{ number_format($summary['alfa'] ?? 0) }}</strong>
+                    <small>sesi-mahasiswa · tanpa tap wajib</small>
+                </div>
             </div>
-        @endunless
-        @if($showLokerKpi)
-            <div class="lp-kpi lp-kpi--violet">
-                <span>Loker</span>
-                <strong>{{ number_format($summary['loker'] ?? 0) }}</strong>
-                <small>{{ $isDosen ? 'Tim PBL Anda' : 'Akses buka/tutup' }}</small>
-            </div>
-        @endif
+        
     </div>
 
     <div class="lp-charts animate-in">
         <section class="lp-card lp-card--chart">
             <div class="lp-card__head">
                 <div>
-                    <h3>Tren {{ $showLokerOnly ? 'akses loker' : 'kehadiran' }} harian</h3>
+                    <h3>Tren Kehadiran Harian</h3>
                     <p>
-                        @if($showLokerOnly)
-                            Akses loker per hari
-                        @else
-                            Hadir · tidak lengkap · alfa
-                        @endif
+                        Hadir · tidak lengkap · alfa
+                        
                     </p>
                 </div>
-                <button type="button" class="lp-help-q" onclick="openLpHelp('chart')" aria-label="Panduan grafik">?</button>
+                <div class="lpx-seg" role="tablist">
+                    <button type="button" class="lpx-seg__btn is-active" id="lpxSegGrafik" onclick="lpxTrenMode('grafik')">Grafik</button>
+                    <button type="button" class="lpx-seg__btn" id="lpxSegTabel" onclick="lpxTrenMode('tabel')">Tabel</button>
+                    <button type="button" class="lp-help-q" onclick="openLpHelp('chart')" aria-label="Panduan grafik">?</button>
+                </div>
             </div>
-            <div class="lp-chart-body">
+            <div class="lp-chart-body" id="lpxTrenGrafik">
                 <canvas id="reportChartLine" height="280" aria-label="Grafik aktivitas harian"></canvas>
+            </div>
+            <div class="lp-table-wrap" id="lpxTrenTabel" hidden style="max-height:300px;overflow:auto;">
+                <table class="data-table lp-table">
+                    <thead>
+                        <tr><th>Tanggal</th><th>Hadir</th><th>Tidak Lengkap</th><th>Alfa</th><th>Total Sesi</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach(($chart['labels'] ?? []) as $ci => $tgl)
+                            <tr>
+                                <td class="lp-mono">{{ \Carbon\Carbon::parse($tgl)->translatedFormat('d M Y') }}</td>
+                                <td>{{ number_format($chart['hadir'][$ci] ?? 0) }}</td>
+                                <td>{{ number_format($chart['tidak_lengkap'][$ci] ?? 0) }}</td>
+                                <td>{{ number_format($chart['alfa'][$ci] ?? 0) }}</td>
+                                <td>{{ number_format(($chart['hadir'][$ci] ?? 0) + ($chart['tidak_lengkap'][$ci] ?? 0) + ($chart['alfa'][$ci] ?? 0)) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
             </div>
         </section>
 
         <section class="lp-card">
             <div class="lp-card__head">
                 <div>
-                    <h3>{{ $showLokerOnly ? 'Komposisi loker' : 'Komposisi absensi' }}</h3>
-                    <p>{{ $showLokerOnly ? 'Proporsi akses loker di periode' : 'Khusus status absensi — Hadir · TL · Alfa (bukan mesin)' }}</p>
+                    <h3>Komposisi absensi</h3>
+                    <p>Khusus status absensi — Hadir · TL · Alfa (bukan mesin)</p>
                 </div>
             </div>
             <div class="lp-chart-body lp-chart-body--donut">
@@ -185,23 +212,19 @@
                 $donutHadir = (int) ($summary['hadir'] ?? 0);
                 $donutTl = (int) ($summary['tidak_lengkap'] ?? 0);
                 $donutAlfa = (int) ($summary['alfa'] ?? 0);
-                $donutLoker = (int) ($summary['loker'] ?? 0);
-                $donutSum = $showLokerOnly ? max(0, $donutLoker) : max(0, $donutHadir + $donutTl + $donutAlfa);
+                $donutSum = max(0, $donutHadir + $donutTl + $donutAlfa);
                 $pct = static function (int $n, int $sum): string {
                     return $sum > 0 ? (string) round(($n / $sum) * 100) : '0';
                 };
             @endphp
             <div class="lp-donut-legend" aria-label="Persentase komposisi">
-                @if($showLokerOnly)
-                    <span><i style="background:#7c3aed"></i> Loker ({{ $pct($donutLoker, $donutSum) }}%)</span>
-                @else
-                    <span><i style="background:#0f766e"></i> Hadir ({{ $pct($donutHadir, $donutSum) }}%)</span>
-                    <span><i style="background:#ea580c"></i> Tidak lengkap ({{ $pct($donutTl, $donutSum) }}%)</span>
-                    <span><i style="background:#e11d48"></i> Alfa ({{ $pct($donutAlfa, $donutSum) }}%)</span>
-                @endif
+                <span><i style="background:#0f766e"></i> Hadir — {{ number_format($donutHadir) }} ({{ $pct($donutHadir, $donutSum) }}%)</span>
+                    <span><i style="background:#ea580c"></i> Tidak lengkap — {{ number_format($donutTl) }} ({{ $pct($donutTl, $donutSum) }}%)</span>
+                    <span><i style="background:#e11d48"></i> Alfa — {{ number_format($donutAlfa) }} ({{ $pct($donutAlfa, $donutSum) }}%)</span>
+                
             </div>
             <div class="lp-machines">
-                <strong>{{ $showLokerOnly ? 'Top mesin loker' : 'Top mesin absensi' }}</strong>
+                <strong>Top mesin absensi</strong>
                 <small class="lp-machines__hint">Log perangkat — terpisah dari komposisi status di atas</small>
                 @forelse($topMachines->take(5) as $machine)
                     <div class="lp-machines__row">
@@ -216,6 +239,53 @@
     </div>
 
     <section class="lp-card animate-in">
+        <div class="lp-card__head">
+            <div>
+                <h3>Rekap per Mahasiswa (Dalam Laporan)</h3>
+                <p>Rincian hadir, tidak lengkap, dan alfa per mahasiswa pada periode terpilih.</p>
+            </div>
+            <div class="lpx-rekap-tools">
+                <input type="search" id="lpxRekapSearch" class="lpx-search" placeholder="Cari nama atau NIM..." oninput="lpxFilterRekap()">
+                <a href="{{ route($routes['export_excel'], request()->query()) }}" class="lpx-iconbtn" title="Unduh Excel">⬇</a>
+            </div>
+        </div>
+        <div class="lp-table-wrap" style="max-height:420px;overflow:auto;">
+            <table class="data-table lp-table" id="lpxRekapTable">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Nama</th>
+                        <th>NIM</th>
+                        <th>Kelas</th>
+                        <th>Tim PBL</th>
+                        <th>Hadir</th>
+                        <th>Tidak Lengkap</th>
+                        <th>Alfa</th>
+                        <th>Aktivitas Terakhir</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse(($studentRecapsActive ?? $studentRecaps) as $i => $row)
+                        <tr data-search="{{ \Illuminate\Support\Str::lower(($row['nama'] ?? '') . ' ' . ($row['nim'] ?? '')) }}">
+                            <td class="lp-mono">{{ $i + 1 }}</td>
+                            <td><strong>{{ $row['nama'] }}</strong></td>
+                            <td class="lp-mono">{{ $row['nim'] }}</td>
+                            <td>{{ $row['kelas'] }}</td>
+                            <td>{{ $row['tim'] }}</td>
+                            <td>{{ number_format($row['hadir'] ?? 0) }}</td>
+                            <td>{{ number_format($row['tidak_lengkap'] ?? 0) }}</td>
+                            <td>{{ number_format($row['alfa'] ?? 0) }}</td>
+                            <td class="lp-mono">{{ !empty($row['terakhir']) ? \Carbon\Carbon::parse($row['terakhir'])->translatedFormat('d M Y') : '—' }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="9" class="lp-empty">Tidak ada mahasiswa dalam laporan pada filter ini.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="lp-card animate-in">
         <div class="lp-card__head lp-card__head--wrap">
             <div>
                 <h3>{{ $rankings['title'] }}</h3>
@@ -224,7 +294,7 @@
             <button type="button" class="lp-help-q" onclick="openLpHelp('rekor')" aria-label="Panduan rekor">?</button>
         </div>
 
-        @unless($showLokerOnly)
+        
             <div class="lp-rekor-block">
                 <span class="lp-rekor-label">Metrik</span>
                 <div class="lp-rekor-tabs">
@@ -253,7 +323,7 @@
                     @endforeach
                 </div>
             </div>
-        @endunless
+        
 
         <div class="lp-rank-list">
             @forelse($rankings['items'] as $item)
@@ -261,8 +331,7 @@
                     $barHadir = (int) ($item['bars']['hadir'] ?? 0);
                     $barTl = (int) ($item['bars']['tidak_lengkap'] ?? 0);
                     $barAlfa = (int) ($item['bars']['alfa'] ?? 0);
-                    $barLoker = (int) ($item['bars']['loker'] ?? 0);
-                    $barTotal = max(1, $showLokerOnly ? $barLoker : ($barHadir + $barTl + $barAlfa));
+                    $barTotal = max(1, $barHadir + $barTl + $barAlfa);
                     $medal = $item['rank'] === 1 ? 'gold' : ($item['rank'] === 2 ? 'silver' : ($item['rank'] === 3 ? 'bronze' : ''));
                 @endphp
                 <article class="lp-rank {{ $medal ? 'lp-rank--'.$medal : '' }}">
@@ -294,11 +363,7 @@
                                 <small>{{ $rankings['metric'] }}</small>
                             </div>
                         </div>
-                        @if($showLokerOnly && $barLoker > 0)
-                            <div class="lp-rank__bars" title="Loker">
-                                <i style="width:100%;background:#7c3aed;"></i>
-                            </div>
-                        @elseif(!$showLokerOnly && ($barHadir + $barTl + $barAlfa) > 0)
+                        @if(($barHadir + $barTl + $barAlfa) > 0)
                             <div class="lp-rank__bars" title="Hadir / Tidak lengkap / Alfa">
                                 <i style="width:{{ round(($barHadir / $barTotal) * 100, 1) }}%;background:#0f766e;"></i>
                                 <i style="width:{{ round(($barTl / $barTotal) * 100, 1) }}%;background:#ea580c;"></i>
@@ -312,13 +377,10 @@
             @endforelse
         </div>
         <div class="lp-legend">
-            @if($showLokerOnly)
-                <span><i style="background:#7c3aed"></i> Loker</span>
-            @else
-                <span><i style="background:#0f766e"></i> Hadir</span>
+            <span><i style="background:#0f766e"></i> Hadir</span>
                 <span><i style="background:#ea580c"></i> Tidak lengkap</span>
                 <span><i style="background:#e11d48"></i> Alfa</span>
-            @endif
+            
         </div>
     </section>
 
@@ -375,7 +437,7 @@
         <div class="abs-modal periodic-student-modal">
             <div class="abs-modal-h">
                 <h3 id="periodicStudentModalTitle">Detail Mahasiswa</h3>
-                <button type="button" class="access-modal-close" id="periodicStudentModalClose" aria-label="Tutup" style="position:static;width:36px;height:36px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-main);cursor:pointer;font-size:22px;line-height:1;">×</button>
+                <button type="button" id="periodicStudentModalClose" aria-label="Tutup" style="position:static;width:36px;height:36px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-main);cursor:pointer;font-size:22px;line-height:1;">×</button>
             </div>
             <div class="abs-modal-b periodic-student-modal__body" id="periodicStudentModalBody" style="max-height:min(72vh,720px);overflow:auto;">
                 <p style="text-align:center;color:var(--text-muted);padding:32px 16px;">Pilih nama di daftar rekor.</p>
@@ -398,6 +460,53 @@
 @endsection
 
 @section('scripts')
+<style>
+.lpx-hero{display:grid;grid-template-columns:1.6fr minmax(260px,.9fr);gap:14px;margin-bottom:16px}
+.lpx-hero__main{position:relative;padding:22px 24px;border-radius:18px;background:linear-gradient(120deg,#0b3d91 0%,#1456c8 55%,#0ea5e9 120%);color:#fff;overflow:hidden}
+.lpx-hero__main::after{content:"📋";position:absolute;right:18px;bottom:8px;font-size:88px;opacity:.16;transform:rotate(-8deg)}
+.lpx-hero__badge{display:inline-block;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.16);font-size:11px;font-weight:800;letter-spacing:.04em}
+.lpx-hero__main h2{margin:10px 0 6px;font-size:21px;color:#fff}
+.lpx-hero__main p{margin:0;font-size:13px;color:rgba(255,255,255,.85);max-width:56ch}
+.lpx-hero__meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.lpx-hero__chip{padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.14);font-size:11.5px;font-weight:700}
+.lpx-dl{display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:18px;border:1px solid var(--border-subtle);background:var(--bg-card)}
+.lpx-dl__head strong{display:block;font-size:14px;color:var(--text-dark)}
+.lpx-dl__head small{display:block;margin-top:3px;font-size:12px;color:var(--text-muted)}
+.lpx-dl__btns{display:grid;gap:8px}
+.lpx-dlbtn{display:flex;align-items:center;justify-content:center;min-height:40px;border-radius:10px;font-size:13px;font-weight:800;color:#fff;text-decoration:none}
+.lpx-dlbtn--excel{background:#15803d}.lpx-dlbtn--pdf{background:#1e3a5f}.lpx-dlbtn--word{background:#1d4ed8}
+.lpx-dl__foot{display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.lpx-dl__foot a{color:#2563eb;text-decoration:none;font-weight:700}
+.lpx-dl__foot button{width:20px;height:20px;border-radius:999px;border:1px solid var(--border-subtle);background:rgba(15,118,110,.12);color:#0f766e;font-size:11px;font-weight:800;cursor:pointer}
+.lpx-filter{margin-bottom:16px;padding:16px;border-radius:16px;border:1px solid var(--border-subtle);background:var(--bg-card)}
+.lpx-filter__head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.lpx-filter__head strong{font-size:14px;color:var(--text-dark)}
+.lpx-filter__head small{font-size:11.5px;color:var(--text-muted)}
+.lpx-filter__grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.lpx-filter__grid>label{flex:1 1 150px;min-width:150px}
+.lpx-filter__grid>.lpx-filter__actions{flex:0 0 auto}
+.lpx-filter label{display:grid;gap:5px}
+.lpx-filter label.is-hidden{display:none}
+.lpx-filter span{font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.lpx-filter input,.lpx-filter select{width:100%;min-height:40px;padding:0 11px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-main);color:var(--text-dark);font-size:13px}
+.lpx-filter__actions{display:flex;gap:8px;flex-wrap:wrap}
+.lpx-btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 15px;border-radius:10px;border:1px solid var(--border-subtle);font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none;font-family:inherit}
+.lpx-btn--primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.lpx-btn--ghost{background:transparent;color:var(--text-dark)}
+.lpx-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.lpx-kpi{display:flex;align-items:center;gap:12px;padding:15px 16px;border-radius:15px;border:1px solid var(--border-subtle);background:var(--bg-card)}
+.lpx-kpi__icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;font-size:18px;flex-shrink:0}
+.lpx-kpi span{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.lpx-kpi strong{display:block;margin-top:2px;font-size:24px;color:var(--text-dark);line-height:1.1}
+.lpx-kpi small{display:block;margin-top:2px;font-size:11px;color:var(--text-muted)}
+.lpx-seg{display:inline-flex;align-items:center;gap:4px;padding:3px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-main)}
+.lpx-seg__btn{padding:6px 14px;border:0;border-radius:8px;background:transparent;color:var(--text-muted);font-size:12px;font-weight:700;cursor:pointer}
+.lpx-seg__btn.is-active{background:#2563eb;color:#fff}
+.lpx-rekap-tools{display:flex;align-items:center;gap:8px}
+.lpx-search{min-height:38px;min-width:220px;padding:0 12px;border-radius:10px;border:1px solid var(--border-subtle);background:var(--bg-main);color:var(--text-dark);font-size:13px}
+.lpx-iconbtn{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;border:1px solid var(--border-subtle);background:rgba(21,128,61,.12);color:#15803d;font-size:15px;text-decoration:none}
+@media (max-width:900px){.lpx-hero{grid-template-columns:1fr}.lpx-filter__grid{grid-template-columns:1fr 1fr}}
+</style>
 <style>
 .lp-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px;padding:14px 16px;border-radius:14px;border:1px solid var(--border-subtle);background:var(--bg-card)}
 .lp-toolbar__left{display:flex;align-items:center;gap:12px}
@@ -565,7 +674,8 @@ function closeLpHelp() {
 function lpTogglePeriode() {
     const form = document.getElementById('lpFilterForm');
     if (!form) return;
-    const mode = (form.querySelector('input[name="periode"]:checked') || {}).value || 'bulan_ini';
+    const field = form.querySelector('[name="periode"]');
+    const mode = (field && field.value) || (form.querySelector('input[name="periode"]:checked') || {}).value || 'bulan_ini';
     form.querySelectorAll('.lp-chip').forEach((el) => {
         const input = el.querySelector('input');
         el.classList.toggle('is-active', input && input.value === mode);
@@ -578,6 +688,26 @@ function lpTogglePeriode() {
     if (sampai) sampai.classList.toggle('is-hidden', mode !== 'custom');
 }
 
+function lpxTrenMode(mode) {
+    const g = document.getElementById('lpxTrenGrafik');
+    const t = document.getElementById('lpxTrenTabel');
+    const bg = document.getElementById('lpxSegGrafik');
+    const bt = document.getElementById('lpxSegTabel');
+    const isGrafik = mode !== 'tabel';
+    if (g) g.hidden = !isGrafik;
+    if (t) t.hidden = isGrafik;
+    if (bg) bg.classList.toggle('is-active', isGrafik);
+    if (bt) bt.classList.toggle('is-active', !isGrafik);
+}
+
+function lpxFilterRekap() {
+    const q = (document.getElementById('lpxRekapSearch') || {}).value || '';
+    const needle = q.trim().toLowerCase();
+    document.querySelectorAll('#lpxRekapTable tbody tr[data-search]').forEach((tr) => {
+        tr.hidden = needle !== '' && !tr.dataset.search.includes(needle);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     lpTogglePeriode();
 
@@ -587,16 +717,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const activity = @json($aktivitas);
 
     if (canvas && typeof SimalasCharts !== 'undefined') {
-        if (activity === 'loker') {
-            SimalasCharts.buildLineChart(canvas, {
-                labels,
-                activity: 'loker',
-                loker: @json($chart['loker'] ?? []),
-                lokerLabel: 'Akses Loker',
-                fill: true,
-            });
-        } else {
-            // Absensi & "semua": grafik fokus Hadir / TL / Alfa — tanpa Loker.
+        {
+            // Grafik fokus Hadir / TL / Alfa.
             SimalasCharts.buildMultiLineChart(canvas, {
                 labels,
                 series: [
@@ -609,7 +731,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    if (donut && typeof SimalasCharts !== 'undefined' && activity !== 'loker') {
+    if (donut && typeof SimalasCharts !== 'undefined') {
         SimalasCharts.buildDonutChart(donut, {
             labels: ['Hadir', 'Tidak lengkap', 'Alfa'],
             values: [
@@ -620,15 +742,6 @@ document.addEventListener('DOMContentLoaded', function () {
             colors: ['#0f766e', '#ea580c', '#e11d48'],
             centerMain: {{ (int) (($summary['hadir'] ?? 0) + ($summary['tidak_lengkap'] ?? 0) + ($summary['alfa'] ?? 0)) }},
             centerSub: 'sesi-mahasiswa',
-            hideLegend: true,
-        });
-    } else if (donut && typeof SimalasCharts !== 'undefined') {
-        SimalasCharts.buildDonutChart(donut, {
-            labels: ['Loker'],
-            values: [{{ (int) ($summary['loker'] ?? 0) }}],
-            colors: ['#7c3aed'],
-            centerMain: {{ (int) ($summary['loker'] ?? 0) }},
-            centerSub: 'Akses',
             hideLegend: true,
         });
     }

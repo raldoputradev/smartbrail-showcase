@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\MobileCaptchaController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\MobileDataController;
 use App\Http\Controllers\Api\MobilePblTeamController;
+use App\Http\Controllers\Api\RuanganAccessController;
 use App\Http\Controllers\HelpdeskChatController;
 use Illuminate\Support\Facades\Route;
 
@@ -33,6 +34,12 @@ Route::prefix('mesin')->group(function () {
         Route::post('/fingerprint/enroll', [MesinFingerprintController::class, 'enrollConfirm']);
         Route::delete('/fingerprint/{finger_id}', [MesinFingerprintController::class, 'deleteEnroll'])
             ->whereNumber('finger_id');
+    });
+
+    // SMART BRAIL — akses ruangan. Ruangan dari binding mesin, bukan payload klien.
+    Route::middleware('mesin.auth')->prefix('ruangan')->group(function () {
+        Route::post('/access/check', [RuanganAccessController::class, 'check']);
+        Route::post('/access/event', [RuanganAccessController::class, 'event']);
     });
 
 });

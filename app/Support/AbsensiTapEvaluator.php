@@ -4,126 +4,219 @@ namespace App\Support;
 
 use App\Models\AbsensiAlfa;
 use App\Models\AbsensiHarian;
-use App\Models\AbsensiKalenderLibur;
 use App\Models\AbsensiSesiSetting;
-use App\Models\AbsensiTidakLengkap;
 use App\Models\LogAbsensi;
 use App\Models\User;
-use App\Support\AbsensiKebijakan;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
+/**
+ * Evaluasi satu tap fingerprint mahasiswa -> tentukan masuk/pulang, validasi urutan & jadwal efektif,
+ * simpan log_absensi dan sinkronkan absensi_harian (kelengkapan vs ketepatan waktu).
+ */
 class AbsensiTapEvaluator
 {
-    /**
-     * @return array{ok: bool, http: int, message: string, code: string, data?: array<string, mixed>}
-     */
+    /** Cooldown minimal antar tap agar jari nempel dua kali tidak langsung jadi "pulang". */
+    public const COOLDOWN_DUPLIKAT_DETIK = 60;
+
     public function evaluate(User $user, string $idMesin, ?Carbon $at = null): array
     {
-        if ($user->role !== 'mahasiswa' || !$user->is_active) {
-            return $this->fail('Akun tidak aktif untuk absensi.', 'AKUN_TIDAK_AKTIF', 403);
+        if ($user->role !== 'mahasiswa') {
+            return $this->fail('Hanya akun mahasiswa yang memiliki sesi absensi.', 'BUKAN_MAHASISWA', 422);
         }
 
-        if (! FingerprintTemplateCodec::hasValidTemplate($user->finger_template)) {
+        if (! $user->is_active || $user->approval_status !== 'approved') {
+            return $this->fail('Akun mahasiswa belum aktif / belum disetujui.', 'AKUN_TIDAK_AKTIF', 403);
+        }
+
+        $shift = $user->shift ?: 'pagi';
+        $baseSetting = AbsensiSesiSetting::forShift($shift);
+        $tz = $baseSetting->timezone ?: 'Asia/Jakarta';
+        $now = ($at ? $at->copy() : now())->timezone($tz);
+
+        $setting = AbsensiEffectiveSchedule::effectiveSesiSetting($now, $shift);
+
+        if (! $setting->aktif) {
+            return $this->fail("Sesi {$shift} sedang dinonaktifkan oleh laboran.", 'SESI_NONAKTIF', 403);
+        }
+
+        [$jamMasuk, $jamPulang] = AbsensiLatenessCalculator::sessionDateTimes($now, $setting);
+        $tanggalSesi = $jamMasuk->format('Y-m-d');
+
+        return DB::transaction(function () use ($user, $idMesin, $shift, $setting, $now, $tanggalSesi, $jamMasuk, $jamPulang) {
+            $harian = AbsensiHarian::query()
+                ->where('user_id', $user->id)
+                ->whereDate('tanggal', $tanggalSesi)
+                ->where('sesi', $shift)
+                ->lockForUpdate()
+                ->first();
+
+            // Penentuan otomatis jenis tap (masuk vs pulang) berdasarkan state harian.
+            if (! $harian || ! $harian->masuk_log_id) {
+                $jenis = 'masuk';
+            } elseif (! $harian->pulang_log_id) {
+                if (in_array($harian->status, ['izin', 'sakit', 'dispensasi'], true)) {
+                    return $this->fail(
+                        "Kehadiran tanggal {$tanggalSesi} sudah tercatat sebagai {$harian->status}.",
+                        'STATUS_FINAL',
+                        409
+                    );
+                }
+
+                // Cek cooldown terhadap tap masuk supaya tap ganda cepat tidak langsung dianggap pulang.
+                $masukLog = LogAbsensi::find($harian->masuk_log_id);
+                if ($masukLog && $masukLog->waktu_tap) {
+                    $selisih = abs($now->diffInSeconds($masukLog->waktu_tap));
+                    if ($selisih < self::COOLDOWN_DUPLIKAT_DETIK) {
+                        return $this->fail(
+                            'Tap masuk baru saja tercatat. Tunggu sebentar sebelum tap lagi.',
+                            'TAP_DUPLIKAT',
+                            429
+                        );
+                    }
+                }
+                $jenis = 'pulang';
+            } else {
+                return $this->fail(
+                    'Absensi hari ini sudah lengkap (masuk & pulang sudah tercatat).',
+                    'SUDAH_LENGKAP',
+                    409
+                );
+            }
+
+            // Validasi jendela waktu sesi.
+            // Tap lebih awal, terlambat, atau pulang lebih awal (pulang cepat) tetap dicatat selama sesi masih buka.
+            $windowCheck = $this->assertWithinSessionWindow($now, $setting, $jenis);
+            if ($windowCheck !== null) {
+                return $windowCheck;
+            }
+
+            $menitTelat = $jenis === 'masuk'
+                ? AbsensiLatenessCalculator::menitTerlambatMasuk($now, $setting, $shift)
+                : AbsensiLatenessCalculator::menitTerlambatPulang($now, $setting, $shift);
+
+            $menitPulangCepat = $jenis === 'pulang'
+                ? AbsensiLatenessCalculator::menitPulangCepat($now, $setting, $shift)
+                : 0;
+            $pulangCepat = $jenis === 'pulang' && $menitPulangCepat > 0;
+
+            $slotLab = ($jenis === 'masuk' && $shift === 'pagi')
+                ? AbsensiLabSlotResolver::resolveForShift($setting, $now)
+                : null;
+
+            $pulangLembur = $jenis === 'pulang' && ! $pulangCepat
+                ? AbsensiLatenessCalculator::isPulangLembur($now, $setting, $shift)
+                : false;
+
+            $logPayload = [
+                'user_id' => $user->id,
+                'id_mesin' => $idMesin,
+                'sesi' => $shift,
+                'jenis' => $jenis,
+                'menit_terlambat' => $menitTelat,
+                'slot_lab' => $slotLab,
+                'pulang_lembur' => $pulangLembur,
+                'waktu_tap' => $now,
+            ];
+            if (Schema::hasColumn('log_absensi', 'menit_pulang_cepat')) {
+                $logPayload['menit_pulang_cepat'] = $menitPulangCepat;
+                $logPayload['pulang_cepat'] = $pulangCepat;
+            }
+
+            $log = LogAbsensi::create($logPayload);
+
+            $hasHarianPulangCepat = Schema::hasColumn('absensi_harian', 'menit_pulang_cepat');
+
+            if ($jenis === 'masuk') {
+                if (! $harian) {
+                    $harianPayload = [
+                        'user_id' => $user->id,
+                        'tanggal' => $tanggalSesi,
+                        'sesi' => $shift,
+                        'status' => 'masuk',
+                        'masuk_log_id' => $log->id,
+                        'menit_terlambat_masuk' => $menitTelat,
+                        'slot_lab_masuk' => $slotLab,
+                    ];
+                    $harian = AbsensiHarian::create($harianPayload);
+                } else {
+                    $harian->update([
+                        'status' => 'masuk',
+                        'masuk_log_id' => $log->id,
+                        'menit_terlambat_masuk' => $menitTelat,
+                        'slot_lab_masuk' => $slotLab,
+                    ]);
+                }
+
+                // Jika sebelumnya sudah terlanjur digenerate alfa (mis. re-open), bersihkan.
+                AbsensiAlfa::query()
+                    ->where('user_id', $user->id)
+                    ->whereDate('tanggal', $tanggalSesi)
+                    ->where('sesi', $shift)
+                    ->delete();
+            } else {
+                $updateHarian = [
+                    'pulang_log_id' => $log->id,
+                    'menit_terlambat_pulang' => $menitTelat,
+                    'pulang_lembur' => $pulangLembur,
+                    'status' => 'lengkap',
+                    'lengkap_at' => $now,
+                ];
+                if ($hasHarianPulangCepat) {
+                    $updateHarian['menit_pulang_cepat'] = $menitPulangCepat;
+                    $updateHarian['pulang_cepat'] = $pulangCepat;
+                }
+                $harian->update($updateHarian);
+            }
+
+            return [
+                'ok' => true,
+                'http' => 200,
+                'code' => $jenis === 'masuk' ? 'MASUK_OK' : 'PULANG_OK',
+                'message' => $this->buildSuccessMessage($jenis, $menitTelat, $slotLab, $pulangLembur, $pulangCepat, $menitPulangCepat),
+                'data' => [
+                    'log_id' => $log->id,
+                    'harian_id' => $harian->id,
+                    'user_id' => $user->id,
+                    'nama' => $user->nama_lengkap,
+                    'nim' => $user->nitk_nidn,
+                    'tanggal' => $tanggalSesi,
+                    'sesi' => $shift,
+                    'jenis' => $jenis,
+                    'status_harian' => $harian->status,
+                    'menit_terlambat' => $menitTelat,
+                    'menit_pulang_cepat' => $menitPulangCepat,
+                    'slot_lab' => $slotLab,
+                    'pulang_lembur' => $pulangLembur,
+                    'pulang_cepat' => $pulangCepat,
+                    'waktu_tap' => $now->toIso8601String(),
+                    'jadwal' => [
+                        'masuk' => $jamMasuk->format('H:i'),
+                        'pulang' => $jamPulang->format('H:i'),
+                    ],
+                ],
+            ];
+        });
+    }
+
+    private function assertWithinSessionWindow(Carbon $now, AbsensiSesiSetting $setting, string $jenis): ?array
+    {
+        $bukaTapMasuk = AbsensiLatenessCalculator::tapMasukBukaAt($now, $setting);
+        $tutup = AbsensiLatenessCalculator::sessionCloseAt($now, $setting);
+
+        if ($jenis === 'masuk' && $now->lessThan($bukaTapMasuk)) {
             return $this->fail(
-                'Sidik jari belum enroll. Scan enroll di mesin terlebih dahulu (menu e).',
-                'BELUM_ENROLL',
+                'Sesi absensi belum dibuka (buka pukul ' . $bukaTapMasuk->format('H:i') . ').',
+                'BELUM_BUKA_SESI',
                 403
             );
         }
 
-        $shift = MahasiswaShiftResolver::ensure($user, $at);
-        if (!in_array($shift, ['pagi', 'malam'], true)) {
-            return $this->fail('Shift absensi belum diatur. Isi shift (pagi/malam) di profil mahasiswa atau tim PBL.', 'SHIFT_BELUM_DIATUR', 422);
-        }
-
-        $user->refresh();
-        $setting = AbsensiSesiSetting::forShift($shift);
-        if (!$setting) {
-            return $this->fail('Sesi absensi sedang nonaktif.', 'SESI_NONAKTIF', 403);
-        }
-
-        $now = $setting->timezoneCarbon($at);
-        $tanggal = $now->toDateString();
-
-        if (AbsensiKalenderLibur::isLibur($tanggal)) {
-            return $this->fail('Hari libur — mesin tidak beroperasi.', 'HARI_LIBUR', 403);
-        }
-
-        // Hari non-wajib: tap sukarela tetap dicatat (muncul di rekap sebagai hadir), tanpa alfa.
-
-        $harian = AbsensiHarian::query()
-            ->where('user_id', $user->id)
-            ->whereDate('tanggal', $tanggal)
-            ->where('sesi', $shift)
-            ->first();
-
-        if ($harian?->status === 'libur') {
-            return $this->fail('Hari libur — absensi tidak dihitung.', 'HARI_LIBUR', 403);
-        }
-
-        if ($harian && ($harian->status === 'lengkap' || ($harian->masuk_log_id && $harian->pulang_log_id))) {
-            return $this->fail('Absensi sesi ini sudah lengkap.', 'SUDAH_SELESAI', 409);
-        }
-
-        $hasMasuk = $harian?->masuk_log_id !== null;
-        $jenis = $hasMasuk ? 'pulang' : 'masuk';
-
-        $windowCheck = $this->assertWithinSessionWindow($setting, $now, $jenis);
-        if ($windowCheck !== null) {
-            return $windowCheck;
-        }
-
-        if ($jenis === 'pulang' && !$hasMasuk) {
-            return $this->fail('Belum absen masuk hari ini.', 'BELUM_MASUK', 403);
-        }
-
-        if (!$harian) {
-            $harian = AbsensiHarian::query()->create([
-                'user_id' => $user->id,
-                'tanggal' => $tanggal,
-                'sesi' => $shift,
-                'status' => 'belum',
-            ]);
-        }
-
-        if ($jenis === 'masuk') {
-            return $this->recordMasuk($user, $idMesin, $setting, $now, $harian);
-        }
-
-        return $this->recordPulang($user, $idMesin, $setting, $now, $harian);
-    }
-
-    /**
-     * @return array{ok: bool, http: int, message: string, code: string}|null
-     */
-    private function assertWithinSessionWindow(AbsensiSesiSetting $setting, Carbon $now, string $jenis): ?array
-    {
-        $jamMasuk = $setting->jamMasukOn($now);
-        $jamPulang = $setting->jamPulangOn($now);
-
-        if ($jenis === 'masuk') {
-            $earliest = $this->earliestMasukTap($setting, $now);
-            if ($now->lessThan($earliest)) {
-                return $this->fail(
-                    'Belum waktunya absen masuk (mulai ' . $earliest->format('H:i') . ').',
-                    'BELUM_WAKTU_MASUK',
-                    403
-                );
-            }
-            if ($now->greaterThanOrEqualTo($jamPulang)) {
-                return $this->fail(
-                    'Sesi sudah lewat jam pulang (' . $jamPulang->format('H:i') . '). Tap masuk tidak dicatat.',
-                    'SESI_DITUTUP',
-                    403
-                );
-            }
-        }
-
-        if ($jenis === 'pulang' && $now->lessThan($jamPulang)) {
+        if ($now->greaterThan($tutup)) {
             return $this->fail(
-                'Belum waktunya absen pulang (mulai ' . $jamPulang->format('H:i') . ').',
-                'BELUM_WAKTU_PULANG',
+                'Sesi absensi sudah ditutup (tutup pukul ' . $tutup->format('H:i') . ').',
+                'SESI_DITUTUP',
                 403
             );
         }
@@ -131,294 +224,41 @@ class AbsensiTapEvaluator
         return null;
     }
 
-    private function earliestMasukTap(AbsensiSesiSetting $setting, Carbon $now): Carbon
-    {
-        if ($setting->shift === 'pagi' && $setting->jam_mulai_tap_masuk) {
-            return $setting->jamMulaiTapOn($now);
-        }
-
-        return $setting->jamMasukOn($now)->copy()->subMinutes((int) $setting->toleransi_masuk_menit);
-    }
-
-    /**
-     * @return array{ok: bool, http: int, message: string, code: string, data?: array<string, mixed>}
-     */
-    private function recordMasuk(User $user, string $idMesin, AbsensiSesiSetting $setting, Carbon $now, AbsensiHarian $harian): array
-    {
-        $menitTerlambat = AbsensiLatenessCalculator::menitTerlambatMasuk($setting, $now);
-        $slotLab = AbsensiLabSlotResolver::resolveForShift($setting, $now);
-
-        return DB::transaction(function () use ($user, $idMesin, $setting, $now, $harian, $menitTerlambat, $slotLab) {
-            $log = LogAbsensi::query()->create([
-                'user_id' => $user->id,
-                'id_mesin' => $idMesin,
-                'sesi' => $setting->shift,
-                'jenis' => 'masuk',
-                'menit_terlambat' => $menitTerlambat,
-                'slot_lab' => $slotLab,
-                'waktu_tap' => $now->copy()->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-            ]);
-
-            $harian->update([
-                'status' => 'masuk',
-                'masuk_log_id' => $log->id,
-                'menit_terlambat_masuk' => $menitTerlambat,
-                'slot_lab_masuk' => $slotLab,
-            ]);
-
-            $this->deactivateAlfaIfAny($user->id, $harian->tanggal->toDateString(), $setting->shift);
-
-            $message = 'MASUK OK';
-            if ($menitTerlambat > 0) {
-                $message = "MASUK TERLAMBAT {$menitTerlambat}m";
-            }
-            if ($slotLab !== null) {
-                $message .= " · S{$slotLab}";
+    private function buildSuccessMessage(
+        string $jenis,
+        int $menitTelat,
+        ?int $slotLab,
+        bool $pulangLembur,
+        bool $pulangCepat = false,
+        int $menitPulangCepat = 0
+    ): string {
+        if ($jenis === 'masuk') {
+            $slotInfo = $slotLab !== null ? " (slot {$slotLab})" : '';
+            if ($menitTelat > 0) {
+                return "Absen masuk tercatat (terlambat {$menitTelat} menit){$slotInfo}. Jangan lupa absen pulang.";
             }
 
-            return $this->ok($message, 'MASUK_OK', [
-                'jenis' => 'masuk',
-                'sesi' => $setting->shift,
-                'menit_terlambat' => $menitTerlambat,
-                'slot_lab' => $slotLab,
-                'log_id' => $log->id,
-                'nama_lengkap' => $user->nama_lengkap,
-                'nitk_nidn' => $user->nitk_nidn,
-                'waktu_tap' => $now->toDateTimeString(),
-            ]);
-        });
-    }
-
-    /**
-     * @return array{ok: bool, http: int, message: string, code: string, data?: array<string, mixed>}
-     */
-    private function recordPulang(User $user, string $idMesin, AbsensiSesiSetting $setting, Carbon $now, AbsensiHarian $harian): array
-    {
-        $pulangMetrics = AbsensiLatenessCalculator::pulangMetrics($setting, $now);
-        $menitTerlambat = $pulangMetrics['menit_terlambat'];
-        $pulangLembur = $pulangMetrics['pulang_lembur'];
-
-        return DB::transaction(function () use ($user, $idMesin, $setting, $now, $harian, $menitTerlambat, $pulangLembur) {
-            $log = LogAbsensi::query()->create([
-                'user_id' => $user->id,
-                'id_mesin' => $idMesin,
-                'sesi' => $setting->shift,
-                'jenis' => 'pulang',
-                'menit_terlambat' => $menitTerlambat,
-                'pulang_lembur' => $pulangLembur,
-                'waktu_tap' => $now->copy()->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-            ]);
-
-            $harian->update([
-                'status' => 'lengkap',
-                'pulang_log_id' => $log->id,
-                'menit_terlambat_pulang' => $menitTerlambat,
-                'pulang_lembur' => $pulangLembur,
-                'lengkap_at' => $now->copy()->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
-            ]);
-
-            $this->resolveTidakLengkap($user->id, $harian->tanggal->toDateString(), $setting->shift, 'tanpa_pulang');
-            $this->deactivateAlfaIfAny($user->id, $harian->tanggal->toDateString(), $setting->shift);
-
-            if ($pulangLembur) {
-                $message = 'PULANG LEMBUR';
-                if ($menitTerlambat > 0) {
-                    $message .= ' +' . $this->formatMenit($menitTerlambat);
-                }
-                $code = 'PULANG_LEMBUR';
-            } elseif ($menitTerlambat > 0) {
-                $message = 'PULANG TERLAMBAT ' . $this->formatMenit($menitTerlambat);
-                $code = 'PULANG_OK';
-            } else {
-                $message = 'PULANG OK';
-                $code = 'PULANG_OK';
-            }
-
-            return $this->ok($message, $code, [
-                'jenis' => 'pulang',
-                'sesi' => $setting->shift,
-                'menit_terlambat' => $menitTerlambat,
-                'pulang_lembur' => $pulangLembur,
-                'status_harian' => 'lengkap',
-                'log_id' => $log->id,
-                'nama_lengkap' => $user->nama_lengkap,
-                'nitk_nidn' => $user->nitk_nidn,
-                'waktu_tap' => $now->toDateTimeString(),
-            ]);
-        });
-    }
-
-    public function finalizeTidakLengkapForDate(string $tanggal, string $sesi): int
-    {
-        $count = 0;
-        $rows = AbsensiHarian::query()
-            ->whereDate('tanggal', $tanggal)
-            ->where('sesi', $sesi)
-            ->whereIn('status', ['masuk'])
-            ->whereNull('pulang_log_id')
-            ->get();
-
-        foreach ($rows as $harian) {
-            $harian->update(['status' => 'tidak_lengkap']);
-            AbsensiTidakLengkap::query()->updateOrCreate(
-                [
-                    'user_id' => $harian->user_id,
-                    'tanggal' => $tanggal,
-                    'sesi' => $sesi,
-                    'jenis' => 'tanpa_pulang',
-                ],
-                ['selesai' => false]
-            );
-            $count++;
+            return "Absen masuk tepat waktu{$slotInfo}. Jangan lupa absen pulang.";
         }
 
-        return $count;
-    }
-
-    /**
-     * Alfa untuk mahasiswa tanpa tap sama sekali di hari wajib (tanpa menunggu grace).
-     */
-    public function assignAlfaForNoTapStudents(string $tanggal, string $sesi): int
-    {
-        if (!AbsensiKebijakan::isHariWajib($tanggal)) {
-            return 0;
+        if ($pulangCepat && $menitPulangCepat > 0) {
+            return "Absen pulang tercatat lebih awal ({$menitPulangCepat} menit sebelum jam jadwal). Absensi hari ini lengkap.";
         }
 
-        if (AbsensiKalenderLibur::isLibur($tanggal)) {
-            return 0;
+        if ($pulangLembur || $menitTelat > 0) {
+            return "Absen pulang tercatat melewati jam jadwal (+{$menitTelat} menit). Absensi hari ini lengkap.";
         }
 
-        $setting = AbsensiSesiSetting::forShift($sesi);
-        if (!$setting) {
-            return 0;
-        }
-
-        $dayAnchor = Carbon::parse($tanggal, $setting->timezone ?: 'Asia/Jakarta');
-
-        $students = User::query()
-            ->where('role', 'mahasiswa')
-            ->where('is_active', true)
-            ->get();
-
-        $count = 0;
-        foreach ($students as $user) {
-            $resolvedShift = MahasiswaShiftResolver::resolve($user, $dayAnchor);
-            if ($resolvedShift !== $sesi) {
-                continue;
-            }
-
-            $userId = $user->id;
-            $hasTap = LogAbsensi::query()
-                ->where('user_id', $userId)
-                ->where('sesi', $sesi)
-                ->whereDate('waktu_tap', $tanggal)
-                ->exists();
-
-            if ($hasTap) {
-                continue;
-            }
-
-            AbsensiHarian::query()->updateOrCreate(
-                [
-                    'user_id' => $userId,
-                    'tanggal' => $tanggal,
-                    'sesi' => $sesi,
-                ],
-                ['status' => 'alfa']
-            );
-
-            AbsensiAlfa::query()->updateOrCreate(
-                [
-                    'user_id' => $userId,
-                    'tanggal' => $tanggal,
-                    'sesi' => $sesi,
-                ],
-                [
-                    'sumber' => 'otomatis',
-                    'aktif' => true,
-                    'dibatalkan_at' => null,
-                    'dibatalkan_oleh' => null,
-                ]
-            );
-
-            $count++;
-        }
-
-        return $count;
+        return 'Absen pulang tercatat. Absensi hari ini lengkap.';
     }
 
-    /** Backfill / tutup sesi paksa: alfa (tanpa tap) + tidak lengkap (hanya masuk). */
-    public function generateAlfaForDate(string $tanggal, string $sesi): int
-    {
-        $alfa = $this->assignAlfaForNoTapStudents($tanggal, $sesi);
-        $this->finalizeTidakLengkapForDate($tanggal, $sesi);
-
-        return $alfa;
-    }
-
-    private function deactivateAlfaIfAny(int $userId, string $tanggal, string $sesi): void
-    {
-        AbsensiAlfa::query()
-            ->where('user_id', $userId)
-            ->whereDate('tanggal', $tanggal)
-            ->where('sesi', $sesi)
-            ->where('aktif', true)
-            ->update([
-                'aktif' => false,
-                'dibatalkan_at' => now(),
-            ]);
-    }
-
-    private function resolveTidakLengkap(int $userId, string $tanggal, string $sesi, string $jenis): void
-    {
-        AbsensiTidakLengkap::query()
-            ->where('user_id', $userId)
-            ->whereDate('tanggal', $tanggal)
-            ->where('sesi', $sesi)
-            ->where('jenis', $jenis)
-            ->update([
-                'selesai' => true,
-                'ditangani_at' => now(),
-            ]);
-    }
-
-    private function formatMenit(int $menit): string
-    {
-        if ($menit < 60) {
-            return "{$menit}m";
-        }
-
-        $jam = intdiv($menit, 60);
-        $sisa = $menit % 60;
-
-        return $sisa > 0 ? "{$jam}j {$sisa}m" : "{$jam}j";
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     * @return array{ok: bool, http: int, message: string, code: string, data?: array<string, mixed>}
-     */
-    private function ok(string $message, string $code, array $data = []): array
-    {
-        return [
-            'ok' => true,
-            'http' => 200,
-            'message' => $message,
-            'code' => $code,
-            'data' => $data,
-        ];
-    }
-
-    /**
-     * @return array{ok: bool, http: int, message: string, code: string}
-     */
     private function fail(string $message, string $code, int $http): array
     {
         return [
             'ok' => false,
             'http' => $http,
-            'message' => $message,
             'code' => $code,
+            'message' => $message,
         ];
     }
 }

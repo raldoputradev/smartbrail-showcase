@@ -95,6 +95,7 @@ class MobileAuthController extends Controller
         ]);
 
         $nitk = trim((string) $validated['nitk_nidn']);
+        $rawPassword = (string) $validated['password'];
         $guard = $loginSecurity->guardBeforeAttempt($request, $nitk);
 
         if ($guard['message']) {
@@ -107,42 +108,61 @@ class MobileAuthController extends Controller
 
         $user = $guard['user'];
 
-        if ($user && $user->isAwaitingActivation() && AccountActivation::secretMatches($user, $validated['password'])) {
+        // 1. Transisi terkontrol untuk akun mahasiswa hasil import lama (menunggu_aktivasi).
+        if ($user && $user->isMahasiswa() && $user->isAwaitingActivation()) {
+            $legacy = AccountActivation::inspectLegacyStudentImportState($user);
+
+            if (!$legacy['eligible']) {
+                return $this->invalidCredentials($request, $loginSecurity, $user, $nitk, countAttempt: false);
+            }
+
+            if ($legacy['mode'] === 'personal_password' && Hash::check($rawPassword, (string) $user->password)) {
+                $user = AccountActivation::transitionLegacyImportedMahasiswa($user, 'personal_password', $request);
+            } elseif ($legacy['mode'] === 'temp_code' && Hash::check(AccountActivation::normalizeCode($rawPassword), (string) $user->password)) {
+                $loginSecurity->recordSuccessfulLogin($user);
+
+                return $this->activationRequiredResponse($user);
+            } else {
+                return $this->invalidCredentials($request, $loginSecurity, $user, $nitk);
+            }
+        } elseif ($user && $user->isAwaitingActivation() && AccountActivation::secretMatches($user, $rawPassword)) {
             $loginSecurity->recordSuccessfulLogin($user);
 
             return $this->activationRequiredResponse($user);
         }
 
-        if (!$user || !Hash::check($validated['password'], $user->password)) {
-            $failMessage = $loginSecurity->recordFailedAttempt($request, $user, $nitk);
-            $status = str_contains($failMessage, 'dikunci') ? 429 : 401;
+        // 2. Mahasiswa aktif dengan password sementara wajib ganti password di web terlebih dahulu.
+        if ($user && $user->isMahasiswa() && $user->mustChangePassword()) {
+            if (!AccountActivation::temporaryPasswordMatches($user, $rawPassword)) {
+                return $this->invalidCredentials($request, $loginSecurity, $user, $nitk);
+            }
 
-            return response()->json([
-                'success' => false,
-                'message' => $failMessage,
-                'code' => $status === 429 ? 'LOGIN_BLOCKED' : 'INVALID_CREDENTIALS',
-            ], $status);
+            if (($user->approval_status ?? 'pending') === 'rejected'
+                || !$user->is_active
+                || ($user->approval_status ?? 'pending') !== 'approved') {
+                return $this->invalidCredentials($request, $loginSecurity, $user, $nitk, countAttempt: false);
+            }
+
+            $loginSecurity->recordSuccessfulLogin($user);
+
+            return $this->passwordChangeRequiredResponse($user);
+        }
+
+        // Hash selalu diverifikasi (dummy saat akun tidak ada) agar waktu respons
+        // tidak membocorkan keberadaan akun; pesan kegagalan seragam untuk semua
+        // penyebab (akun tidak ada, password salah, role salah, status akun).
+        if (!Hash::check($rawPassword, (string) ($user?->password ?? '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'))) {
+            return $this->invalidCredentials($request, $loginSecurity, $user, $nitk);
         }
 
         if ($user->role !== 'mahasiswa') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Aplikasi mobile hanya untuk mahasiswa.',
-            ], 403);
+            return $this->invalidCredentials($request, $loginSecurity, $user, $nitk);
         }
 
-        if (($user->approval_status ?? 'pending') === 'rejected') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Akun ditolak admin. Hubungi laboran jika merasa ini keliru.',
-            ], 403);
-        }
-
-        if (!$user->is_active || ($user->approval_status ?? 'pending') !== 'approved') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Akun menunggu persetujuan admin/laboran. Anda akan bisa login setelah disetujui.',
-            ], 403);
+        if (($user->approval_status ?? 'pending') === 'rejected'
+            || !$user->is_active
+            || ($user->approval_status ?? 'pending') !== 'approved') {
+            return $this->invalidCredentials($request, $loginSecurity, $user, $nitk, countAttempt: false);
         }
 
         $loginSecurity->recordSuccessfulLogin($user);
@@ -169,13 +189,34 @@ class MobileAuthController extends Controller
         ]);
     }
 
+    /** Respons kegagalan seragam — tidak membedakan akun/password/role/status. */
+    private function invalidCredentials(Request $request, LoginSecurityService $loginSecurity, ?User $user, string $nitk, bool $countAttempt = true): JsonResponse
+    {
+        $message = 'Tidak dapat masuk. Periksa data login Anda.';
+        $status = 401;
+
+        if ($countAttempt) {
+            $failMessage = $loginSecurity->recordFailedAttempt($request, $user, $nitk);
+            if (str_contains($failMessage, 'dikunci') || str_contains($failMessage, 'percobaan')) {
+                $message = $failMessage;
+                $status = str_contains($failMessage, 'dikunci') ? 429 : 401;
+            }
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => $message,
+            'code' => $status === 429 ? 'LOGIN_BLOCKED' : 'INVALID_CREDENTIALS',
+        ], $status);
+    }
+
     /** Kredensial benar tetapi akun hasil import belum diaktivasi: tanpa token, arahkan ke /aktivasi. */
     private function activationRequiredResponse(User $user): JsonResponse
     {
         $expired = AccountActivation::codeExpired($user);
         $message = $expired
             ? 'Akun belum aktif dan kode aktivasi sudah kedaluwarsa. Minta admin laboran membuat kode baru, lalu aktivasi di halaman web.'
-            : 'Akun belum aktif penuh. Selesaikan aktivasi di halaman web (buat password, isi email & nomor HP, verifikasi email), lalu kembali ke aplikasi dan login.';
+            : 'Akun belum aktif penuh. Selesaikan aktivasi di halaman web, lalu kembali ke aplikasi dan login.';
 
         return response()->json([
             'success' => false,
@@ -183,6 +224,26 @@ class MobileAuthController extends Controller
             'message' => $message,
             'data' => [
                 'activation_url' => route('activation.show'),
+                'code_expired' => $expired,
+            ],
+        ], 403);
+    }
+
+    /** Kredensial sementara mahasiswa benar tetapi wajib ganti password di web sebelum memakai token mobile. */
+    private function passwordChangeRequiredResponse(User $user): JsonResponse
+    {
+        $expired = AccountActivation::temporaryPasswordExpired($user);
+        $message = $expired
+            ? 'Password sementara sudah kedaluwarsa. Minta admin laboran menerbitkan password sementara baru.'
+            : 'Akun masih menggunakan password sementara. Silakan login di web SIMALAS untuk mengganti password terlebih dahulu.';
+
+        return response()->json([
+            'success' => false,
+            'code' => 'PASSWORD_CHANGE_REQUIRED',
+            'message' => $message,
+            'data' => [
+                'login_url' => route('login', ['role' => 'mahasiswa']),
+                'activation_url' => route('login', ['role' => 'mahasiswa']),
                 'code_expired' => $expired,
             ],
         ], 403);
@@ -334,6 +395,7 @@ class MobileAuthController extends Controller
             'nitk_nidn' => $request->input('nitk_nidn'),
             'email' => $email,
             'password' => Hash::make($request->input('password')),
+            'must_change_password' => false,
             'role' => 'mahasiswa',
             'kelas' => $kelas,
             'tim' => $request->input('tim'),
@@ -674,6 +736,14 @@ class MobileAuthController extends Controller
             ], 422);
         }
 
+        if (!$user->email_verified_at) {
+            return response()->json([
+                'success' => false,
+                'code' => 'EMAIL_NOT_VERIFIED',
+                'message' => 'Email pada akun ini belum terverifikasi sehingga belum dapat digunakan untuk reset password mandiri. Hubungi admin/laboran untuk reset password sementara.',
+            ], 422);
+        }
+
         $pendingReset = DB::table('email_verification_tokens')
             ->where('email', $email)
             ->where('type', 'password_reset')
@@ -853,8 +923,20 @@ class MobileAuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Akun tidak ditemukan.'], 404);
         }
 
+        if (!$user->email_verified_at) {
+            return response()->json([
+                'success' => false,
+                'code' => 'EMAIL_NOT_VERIFIED',
+                'message' => 'Email belum terverifikasi sehingga reset password mandiri tidak dapat dilakukan.',
+            ], 422);
+        }
+
         $payload = [
             'password' => Hash::make($request->input('password')),
+            'must_change_password' => false,
+            'remember_token' => Str::random(60),
+            'mobile_api_token' => null,
+            'mobile_token_expires_at' => null,
         ];
         if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'failed_login_attempts')) {
             $payload['failed_login_attempts'] = 0;
@@ -869,6 +951,7 @@ class MobileAuthController extends Controller
             $payload['login_suspicious_at'] = null;
         }
         $user->forceFill($payload)->save();
+        AccountActivation::revokeActiveTokensAndSessions($user);
 
         DB::table('email_verification_tokens')
             ->where('email', $email)
@@ -1213,13 +1296,15 @@ class MobileAuthController extends Controller
             'password' => ['required', 'string', 'max:128'],
         ]);
 
-        $user = $this->resolveMahasiswaByCredentials($validated['nitk_nidn'], $validated['password']);
-        if (!$user) {
-            $candidate = User::query()->where('nitk_nidn', trim($validated['nitk_nidn']))->where('role', 'mahasiswa')->first();
-            if ($candidate?->isAwaitingActivation() && AccountActivation::secretMatches($candidate, $validated['password'])) {
-                $user = $candidate;
-            }
+        $candidate = User::query()->where('nitk_nidn', trim($validated['nitk_nidn']))->where('role', 'mahasiswa')->first();
+        if ($candidate?->isAwaitingActivation() && AccountActivation::secretMatches($candidate, $validated['password'])) {
+            abort($this->activationRequiredResponse($candidate));
         }
+        if ($candidate?->mustChangePassword() && AccountActivation::temporaryPasswordMatches($candidate, $validated['password'])) {
+            abort($this->passwordChangeRequiredResponse($candidate));
+        }
+
+        $user = $this->resolveMahasiswaByCredentials($validated['nitk_nidn'], $validated['password']);
         if ($user?->isAwaitingActivation()) {
             abort($this->activationRequiredResponse($user));
         }
@@ -1234,7 +1319,7 @@ class MobileAuthController extends Controller
             ->where('role', 'mahasiswa')
             ->first();
 
-        if (!$user || !Hash::check($password, $user->password)) {
+        if (!$user || $user->mustChangePassword() || !Hash::check($password, $user->password)) {
             return null;
         }
 

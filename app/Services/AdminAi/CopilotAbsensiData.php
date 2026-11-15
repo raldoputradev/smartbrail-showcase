@@ -40,8 +40,38 @@ final class CopilotAbsensiData
      * @param  array<string, mixed>  $args
      * @return array{provider: array<string, mixed>, blocks: list<array<string, mixed>>}
      */
+    /**
+     * Dosen tanpa penugasan kelas → pesan jelas, bukan data kosong semu.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function unassignedNotice(User $user): ?array
+    {
+        if (! $user->isDosen() || $user->isLaboran() || \App\Support\DosenKelasScope::hasSupervision($user)) {
+            return null;
+        }
+
+        $pesan = 'Belum ada kelas atau tim PBL yang dibimbing akun Anda. Minta laboran/admin mengaitkan Anda ke kelas atau proyek PBL.';
+
+        return [
+            'provider' => ['kelas_belum_ditugaskan' => true, 'pesan' => $pesan],
+            'blocks' => [
+                [
+                    'type' => 'stats',
+                    'title' => 'Cakupan kelas',
+                    'items' => [['label' => 'Penugasan', 'value' => 'Belum ada kelas yang ditugaskan']],
+                ],
+            ],
+            'notice' => $pesan,
+        ];
+    }
+
     public function ringkasanHariIni(array $args, User $user): array
     {
+        if ($u = $this->unassignedNotice($user)) {
+            return $u;
+        }
+
         $query = $this->rekapQuery($args);
         $snap = $this->rekapSnapshot($query + ['tab' => 'all'], $user);
         $summary = $snap['summary'];
@@ -102,6 +132,10 @@ final class CopilotAbsensiData
      */
     public function daftarHariIni(array $args, User $user): array
     {
+        if ($u = $this->unassignedNotice($user)) {
+            return $u;
+        }
+
         $status = (string) ($args['status'] ?? 'tidak_lengkap');
         $tab = match ($status) {
             'alfa' => 'alfa',
@@ -188,6 +222,9 @@ final class CopilotAbsensiData
      */
     public function laporanPeriode(array $args, User $user): array
     {
+        if ($u = $this->unassignedNotice($user)) {
+            return $u;
+        }
         $periode = (string) ($args['periode'] ?? '');
         $bulan = trim((string) ($args['bulan'] ?? ''));
         $mulai = trim((string) ($args['tanggal_mulai'] ?? ''));
@@ -312,6 +349,9 @@ final class CopilotAbsensiData
      */
     public function cariMahasiswa(array $args, User $user): array
     {
+        if ($u = $this->unassignedNotice($user)) {
+            return $u;
+        }
         $q = trim((string) ($args['q'] ?? ''));
         if (mb_strlen($q) < 2) {
             return [
@@ -320,14 +360,40 @@ final class CopilotAbsensiData
             ];
         }
 
-        $base = User::query()
-            ->where('role', 'mahasiswa')
-            ->where(fn ($w) => $w->where('nama_lengkap', 'like', '%'.$q.'%')->orWhere('nitk_nidn', 'like', '%'.$q.'%'));
+        $dosenScope = $user->isDosen() && ! $user->isLaboran();
+        $tokens = preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [$q];
+
+        // Tiap token harus cocok di nama ATAU NIM — toleran urutan kata & kata sebagian.
+        $applyQ = function ($query) use ($tokens) {
+            return $query->where(function ($w) use ($tokens) {
+                foreach ($tokens as $t) {
+                    $w->where(fn ($x) => $x->where('nama_lengkap', 'like', '%'.$t.'%')
+                        ->orWhere('nitk_nidn', 'like', '%'.$t.'%'));
+                }
+            });
+        };
+
+        $base = $applyQ(User::query()->where('role', 'mahasiswa'));
+        if ($dosenScope) {
+            $base = \App\Support\DosenKelasScope::applySupervisedMahasiswaQuery($base, $user);
+        }
         $total = (clone $base)->count();
         $found = (clone $base)->orderBy('nama_lengkap')->limit(20)->get();
 
+        $saran = null;
+        $diLuarScope = false;
+        if ($total === 0) {
+            // Akun mungkin ada tapi di luar lingkup bimbingan — beri tahu tanpa membuka datanya.
+            if ($dosenScope) {
+                $diLuarScope = $applyQ(User::query()->where('role', 'mahasiswa'))->exists();
+            }
+            // Saran fuzzy — toleran typo pada nama & NIM.
+            $saran = $this->saranMirip($q, $dosenScope ? $user : null);
+        }
+
         $withFinger = $user->isLaboran();
-        $rows = $found->map(fn (User $u) => array_filter([
+        $display = $found->isEmpty() && $saran ? $saran : $found;
+        $rows = $display->map(fn (User $u) => array_filter([
             'nama' => (string) $u->nama_lengkap,
             'nim' => (string) $u->nitk_nidn,
             'kelas' => (string) ($u->kelas ?: '—'),
@@ -344,23 +410,287 @@ final class CopilotAbsensiData
             $withFinger ? ['key' => 'sidik', 'label' => 'Sidik jari'] : null,
         ]));
 
+        $subtitle = $total > 0
+            ? $total.' cocok'
+            : ($saran?->isNotEmpty() ? '0 cocok — mungkin maksud Anda:' : '0 cocok');
+        $note = match (true) {
+            $diLuarScope => 'Akun dengan kata kunci itu ADA, tapi bukan mahasiswa bimbingan Anda — data tidak ditampilkan demi privasi.',
+            $saran?->isNotEmpty() => 'Nama/NIM mirip yang mungkin Anda maksud. Klik salah satu untuk detail.',
+            $total > count($rows) => 'Menampilkan '.count($rows).' dari '.$total.'. Perjelas nama/NIM.',
+            default => null,
+        };
+
         return [
             'provider' => [
                 'sumber' => 'data_mahasiswa',
                 'jumlah' => $total,
                 'ditampilkan_di_tabel' => count($rows),
                 'aktif' => $found->where('is_active', true)->count(),
+                'di_luar_scope' => $diLuarScope,
+                'saran_mirip' => $saran?->map(fn (User $u) => $u->nama_lengkap)->values()->all(),
                 'catatan' => 'Identitas hanya tampil di tabel UI, tidak dikirim ke model.',
             ],
             'blocks' => [[
                 'type' => 'table',
                 'title' => 'Hasil pencarian mahasiswa',
-                'subtitle' => $total.' cocok',
+                'subtitle' => $subtitle,
                 'columns' => $columns,
                 'rows' => $rows,
-                'total' => $total,
+                'total' => $total > 0 ? $total : null,
                 'empty' => 'Tidak ada mahasiswa yang cocok.',
-                'note' => $total > count($rows) ? 'Menampilkan '.count($rows).' dari '.$total.'. Perjelas nama/NIM.' : null,
+                'note' => $note,
+            ]],
+        ];
+    }
+
+    /**
+     * Saran nama/NIM mirip untuk kueri tanpa hasil — toleran typo.
+     * Skor: similar_text nama & levenshtein NIM (hanya bila kueri mengandung digit).
+     *
+     * @return \Illuminate\Support\Collection<int, User>
+     */
+    private function saranMirip(string $q, ?User $scopeUser): \Illuminate\Support\Collection
+    {
+        $qNorm = mb_strtolower(trim($q));
+        $qDigits = preg_replace('/\D/', '', $q);
+
+        $candidates = User::query()->where('role', 'mahasiswa');
+        if ($scopeUser) {
+            $candidates = \App\Support\DosenKelasScope::applySupervisedMahasiswaQuery($candidates, $scopeUser);
+        }
+        $kandidat = $candidates->limit(300)->get(['id', 'nama_lengkap', 'nitk_nidn', 'kelas', 'tim', 'is_active']);
+
+        return $kandidat
+            ->map(function (User $u) use ($qNorm, $qDigits) {
+                $nama = mb_strtolower((string) $u->nama_lengkap);
+                similar_text($qNorm, $nama, $namaPct);
+                // Skor per-kata — satu kata typo tidak menenggelamkan kecocokan lain.
+                $wordPct = 0;
+                foreach (preg_split('/\s+/u', $nama, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $w) {
+                    foreach (preg_split('/\s+/u', $qNorm, -1, PREG_SPLIT_NO_EMPTY) ?: [$qNorm] as $qw) {
+                        similar_text($qw, $w, $p);
+                        $wordPct = max($wordPct, $p);
+                    }
+                }
+                $nimScore = 0;
+                if ($qDigits !== '' && mb_strlen($qDigits) >= 4) {
+                    $nim = (string) $u->nitk_nidn;
+                    if (str_contains($nim, $qDigits) || levenshtein($qDigits, $nim) <= 2) {
+                        $nimScore = 100;
+                    }
+                }
+                $u->setAttribute('_skor', max($namaPct * 0.6 + $wordPct * 0.4, $nimScore));
+
+                return $u;
+            })
+            ->filter(fn (User $u) => (float) $u->getAttribute('_skor') >= 60)
+            ->sortByDesc('_skor')->take(5)->values();
+    }
+
+    /**
+     * Tim PBL aktif yang dibimbing dosen (manpro/co-manpro).
+     * Tanpa argumen → daftar tim + jumlah anggota.
+     * Dengan tim=… → daftar anggota tim itu (ketua/wakil/anggota).
+     *
+     * @param  array<string, mixed>  $args
+     * @return array{provider: array<string, mixed>, blocks: list<array<string, mixed>>}
+     */
+    public function timPblSaya(array $args, User $user): array
+    {
+        if (! $user->isDosen()) {
+            return [
+                'provider' => ['error' => 'Tool ini khusus akun dosen.'],
+                'blocks' => [],
+            ];
+        }
+
+        $timFilter = trim((string) ($args['tim'] ?? ''));
+
+        $projects = \App\Models\PblProject::query()
+            ->where('aktif', true)
+            ->where(fn ($q) => $q->where('manpro_user_id', $user->id)->orWhere('co_manpro_user_id', $user->id))
+            ->orderBy('nama')
+            ->get(['id', 'kode', 'nama', 'manpro_user_id', 'co_manpro_user_id']);
+
+        if ($projects->isEmpty()) {
+            return [
+                'provider' => [
+                    'sumber' => 'pbl_projects',
+                    'jumlah_tim' => 0,
+                    'pesan' => 'Anda belum tercatat membimbing tim PBL aktif manapun.',
+                ],
+                'blocks' => [[
+                    'type' => 'stats',
+                    'title' => 'Tim PBL bimbingan',
+                    'items' => [['label' => 'Status', 'value' => 'Belum ada tim PBL yang Anda bimbing']],
+                    'note' => 'Pengaitan manpro/co-manpro diatur admin/laboran di menu Proyek PBL.',
+                ]],
+            ];
+        }
+
+        if ($timFilter === '') {
+            $rows = $projects->map(fn ($p) => [
+                'tim' => (string) $p->nama,
+                'kode' => (string) ($p->kode ?: '—'),
+                'peran' => (int) $p->manpro_user_id === (int) $user->id ? 'Manpro utama' : 'Co-manpro',
+                'mahasiswa' => $p->mahasiswa()->count().' orang',
+            ])->all();
+
+            return [
+                'provider' => [
+                    'sumber' => 'pbl_projects',
+                    'jumlah_tim' => $projects->count(),
+                    'total_mahasiswa_bimbingan' => $projects->sum(fn ($p) => $p->mahasiswa()->count()),
+                    'catatan' => 'Panggil lagi dengan tim="<nama tim>" untuk daftar anggotanya.',
+                ],
+                'blocks' => [[
+                    'type' => 'table',
+                    'title' => 'Tim PBL yang Anda bimbing',
+                    'subtitle' => $projects->count().' tim aktif',
+                    'columns' => [
+                        ['key' => 'tim', 'label' => 'Tim'],
+                        ['key' => 'kode', 'label' => 'Kode'],
+                        ['key' => 'peran', 'label' => 'Peran Anda'],
+                        ['key' => 'mahasiswa', 'label' => 'Mahasiswa'],
+                    ],
+                    'rows' => $rows,
+                    'total' => count($rows),
+                    'empty' => 'Belum ada tim.',
+                    'note' => 'Tanyakan "anggota tim <nama>" untuk detail anggota.',
+                ]],
+            ];
+        }
+
+        $project = $projects->first(
+            fn ($p) => mb_stripos($p->nama, $timFilter) !== false
+                || mb_stripos((string) $p->kode, $timFilter) !== false
+        );
+
+        if (! $project) {
+            return [
+                'provider' => [
+                    'error' => 'Tim "'.$timFilter.'" tidak ada dalam bimbingan Anda.',
+                    'tim_anda' => $projects->pluck('nama')->values()->all(),
+                ],
+                'blocks' => [],
+            ];
+        }
+
+        $members = $project->teamMembers()->with('user:id,nama_lengkap,nitk_nidn,kelas')->get();
+        $rows = $members->map(fn ($m) => array_filter([
+            'nama' => (string) ($m->user?->nama_lengkap ?? '—'),
+            'nim' => (string) ($m->user?->nitk_nidn ?? '—'),
+            'kelas' => (string) ($m->user?->kelas ?: '—'),
+            'peran' => ucfirst((string) $m->role),
+        ]))->all();
+
+        if ($rows === []) {
+            // Fallback: mahasiswa yang kolom tim-nya merujuk nama proyek.
+            $rows = $project->mahasiswa()
+                ->orderBy('nama_lengkap')
+                ->limit(40)
+                ->get(['nama_lengkap', 'nitk_nidn', 'kelas'])
+                ->map(fn ($u) => [
+                    'nama' => (string) $u->nama_lengkap,
+                    'nim' => (string) $u->nitk_nidn,
+                    'kelas' => (string) ($u->kelas ?: '—'),
+                    'peran' => 'Anggota',
+                ])->all();
+        }
+
+        return [
+            'provider' => [
+                'sumber' => 'pbl_projects',
+                'tim' => (string) $project->nama,
+                'jumlah_anggota' => count($rows),
+                'peran_anda' => (int) $project->manpro_user_id === (int) $user->id ? 'Manpro utama' : 'Co-manpro',
+                'catatan' => 'Identitas hanya tampil di tabel UI, tidak dikirim ke model.',
+            ],
+            'blocks' => [[
+                'type' => 'table',
+                'title' => 'Anggota '.$project->nama,
+                'subtitle' => count($rows).' mahasiswa',
+                'columns' => [
+                    ['key' => 'nama', 'label' => 'Nama'],
+                    ['key' => 'nim', 'label' => 'NIM'],
+                    ['key' => 'kelas', 'label' => 'Kelas'],
+                    ['key' => 'peran', 'label' => 'Peran'],
+                ],
+                'rows' => $rows,
+                'total' => count($rows),
+                'empty' => 'Tim ini belum punya anggota.',
+            ]],
+        ];
+    }
+
+    /**
+     * Daftar mahasiswa dalam lingkup bimbingan dosen (kelas + tim PBL).
+     * Filter opsional kelas/tim.
+     *
+     * @param  array<string, mixed>  $args
+     * @return array{provider: array<string, mixed>, blocks: list<array<string, mixed>>}
+     */
+    public function mahasiswaBimbingan(array $args, User $user): array
+    {
+        if (! $user->isDosen()) {
+            return [
+                'provider' => ['error' => 'Tool ini khusus akun dosen.'],
+                'blocks' => [],
+            ];
+        }
+        if ($u = $this->unassignedNotice($user)) {
+            return $u;
+        }
+
+        $kelas = trim((string) ($args['kelas'] ?? ''));
+        $tim = trim((string) ($args['tim'] ?? ''));
+
+        $base = \App\Support\DosenKelasScope::applySupervisedMahasiswaQuery(User::query(), $user);
+        if ($kelas !== '') {
+            $base->where('kelas', 'like', '%'.$kelas.'%');
+        }
+        if ($tim !== '') {
+            $base->where('tim', 'like', '%'.$tim.'%');
+        }
+
+        $total = (clone $base)->count();
+        $perKelas = (clone $base)->selectRaw('kelas, count(*) as n')->groupBy('kelas')->orderByDesc('n')->limit(8)->pluck('n', 'kelas');
+        $perTim = (clone $base)->selectRaw('tim, count(*) as n')->groupBy('tim')->orderByDesc('n')->limit(8)->pluck('n', 'tim');
+        $found = (clone $base)->orderBy('nama_lengkap')->limit(30)->get(['nama_lengkap', 'nitk_nidn', 'kelas', 'tim', 'is_active']);
+
+        $rows = $found->map(fn (User $u) => [
+            'nama' => (string) $u->nama_lengkap,
+            'nim' => (string) $u->nitk_nidn,
+            'kelas' => (string) ($u->kelas ?: '—'),
+            'tim' => (string) ($u->tim ?: '—'),
+            'akun' => $u->is_active ? 'Aktif' : 'Nonaktif',
+        ])->all();
+
+        return [
+            'provider' => [
+                'sumber' => 'dosen_supervised_scope',
+                'total_mahasiswa' => $total,
+                'ditampilkan' => count($rows),
+                'per_kelas' => $perKelas->all(),
+                'per_tim' => $perTim->all(),
+                'filter' => array_filter(['kelas' => $kelas ?: null, 'tim' => $tim ?: null]),
+                'catatan' => 'Identitas hanya tampil di tabel UI, tidak dikirim ke model.',
+            ],
+            'blocks' => [[
+                'type' => 'table',
+                'title' => 'Mahasiswa bimbingan Anda',
+                'subtitle' => $total.' mahasiswa'.($kelas || $tim ? ' (terfilter)' : ''),
+                'columns' => [
+                    ['key' => 'nama', 'label' => 'Nama'],
+                    ['key' => 'nim', 'label' => 'NIM'],
+                    ['key' => 'kelas', 'label' => 'Kelas'],
+                    ['key' => 'tim', 'label' => 'Tim'],
+                    ['key' => 'akun', 'label' => 'Akun'],
+                ],
+                'rows' => $rows,
+                'total' => $total,
+                'empty' => 'Tidak ada mahasiswa pada filter ini.',
+                'note' => $total > count($rows) ? 'Menampilkan '.count($rows).' dari '.$total.'. Filter per kelas/tim untuk mempersempit.' : null,
             ]],
         ];
     }
@@ -505,10 +835,10 @@ final class CopilotAbsensiData
         }
 
         return [
+            ['label' => 'Preview laporan', 'href' => route($routes[3], $query), 'kind' => 'open'],
             ['label' => 'Buka di menu '.self::laporanPage($user), 'href' => route($routes[0], $query), 'kind' => 'open'],
             ['label' => 'Unduh Excel', 'href' => route($routes[1], $query), 'kind' => 'download'],
             ['label' => 'Unduh Word', 'href' => route($routes[2], $query), 'kind' => 'download'],
-            ['label' => 'Cetak', 'href' => route($routes[3], $query), 'kind' => 'open'],
         ];
     }
 

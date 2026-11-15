@@ -59,7 +59,7 @@ export default function Hero({ urls, stats, appVersion }) {
             transition={{ duration: 0.55, delay: 0.14, ease }}
             className="mt-5 max-w-lg text-base leading-relaxed text-slate-600 sm:text-lg"
           >
-            Platform AIoT untuk absensi sidik jari ESP32, loker pintar, dan aplikasi mobile
+            Platform AIoT untuk absensi sidik jari ESP32, akses ruangan IoT, dan aplikasi mobile
             mahasiswa — dikelola laboran & dosen melalui portal terpisah.
           </motion.p>
 

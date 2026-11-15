@@ -20,8 +20,10 @@ class LogAbsensi extends Model
         'sesi',
         'jenis',
         'menit_terlambat',
+        'menit_pulang_cepat',
         'slot_lab',
         'pulang_lembur',
+        'pulang_cepat',
         'waktu_tap',
         'event_id',
         'diterima_pada',
@@ -33,8 +35,10 @@ class LogAbsensi extends Model
             'waktu_tap' => 'datetime',
             'diterima_pada' => 'datetime',
             'menit_terlambat' => 'integer',
+            'menit_pulang_cepat' => 'integer',
             'slot_lab' => 'integer',
             'pulang_lembur' => 'boolean',
+            'pulang_cepat' => 'boolean',
         ];
     }
 

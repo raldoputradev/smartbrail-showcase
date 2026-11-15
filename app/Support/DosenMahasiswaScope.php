@@ -39,7 +39,7 @@ class DosenMahasiswaScope
     }
 
     /**
-     * Filter query mahasiswa ke tim PBL dosen (khusus modul loker).
+     * Filter query mahasiswa ke tim PBL dosen (untuk scope tim PBL).
      *
      * @param  Builder<User>  $query
      * @return Builder<User>
@@ -55,7 +55,7 @@ class DosenMahasiswaScope
     }
 
     /**
-     * Filter relasi user (log absensi/loker) ke mahasiswa tim PBL dosen.
+     * Filter relasi user (log absensi) ke mahasiswa tim PBL dosen.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      */

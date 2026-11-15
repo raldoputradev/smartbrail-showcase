@@ -10,35 +10,54 @@ use Illuminate\Support\Collection;
 
 class FingerprintSyncService
 {
+    /** Role portal yang boleh punya finger_id + template (enroll di mesin). */
+    public const FP_ROLES = ['mahasiswa', 'laboran', 'dosen', 'admin'];
+
     /**
-     * Mahasiswa dengan template blob valid di database.
+     * Pengguna dengan template blob valid di database.
+     * Default mahasiswa (dipakai statistik halaman); null = semua role (sync mesin).
      */
-    public static function enrolledQuery(): Builder
+    public static function enrolledQuery(array|string|null $roles = 'mahasiswa'): Builder
     {
-        return User::query()
-            ->where('role', 'mahasiswa')
-            ->where('is_active', true)
+        $query = User::query()->where('is_active', true);
+        if ($roles !== null) {
+            $query->whereIn('role', (array) $roles);
+        }
+
+        return $query
             ->whereNotNull('finger_id')
             ->whereNotNull('finger_template')
             ->where('finger_template', '!=', '');
     }
 
-    public static function countEnrolledMahasiswa(): int
+    public static function countEnrolled(array|string $roles = 'mahasiswa'): int
     {
-        return self::enrolledQuery()
+        return self::enrolledQuery($roles)
             ->get()
             ->filter(fn (User $u) => FingerprintTemplateCodec::hasValidTemplate($u->finger_template))
             ->count();
     }
 
-    public static function countPendingEnrollMahasiswa(): int
+    public static function countPendingEnroll(array|string $roles = 'mahasiswa'): int
     {
         return User::query()
-            ->where('role', 'mahasiswa')
+            ->whereIn('role', (array) $roles)
             ->whereNotNull('finger_id')
             ->get()
             ->filter(fn (User $u) => ! FingerprintTemplateCodec::hasValidTemplate($u->finger_template))
             ->count();
+    }
+
+    /** @deprecated gunakan countEnrolled('mahasiswa') */
+    public static function countEnrolledMahasiswa(): int
+    {
+        return self::countEnrolled('mahasiswa');
+    }
+
+    /** @deprecated gunakan countPendingEnroll('mahasiswa') */
+    public static function countPendingEnrollMahasiswa(): int
+    {
+        return self::countPendingEnroll('mahasiswa');
     }
 
     /**
@@ -46,7 +65,7 @@ class FingerprintSyncService
      */
     public static function fetchForSync(?string $since = null, ?int $limit = null, ?int $afterFingerId = null): Collection
     {
-        $query = self::enrolledQuery()
+        $query = self::enrolledQuery(null)
             ->orderBy('finger_id');
 
         if ($afterFingerId !== null && $afterFingerId > 0) {
@@ -100,7 +119,7 @@ class FingerprintSyncService
      */
     public static function buildStatusPayload(MesinIot $mesin): array
     {
-        $rows = self::enrolledQuery()
+        $rows = self::enrolledQuery(null)
             ->orderBy('finger_id')
             ->get(['finger_id', 'finger_template', 'updated_at'])
             ->filter(fn (User $u) => FingerprintTemplateCodec::hasValidTemplate($u->finger_template));
@@ -128,6 +147,7 @@ class FingerprintSyncService
             'finger_id' => (int) $user->finger_id,
             'nitk_nidn' => $user->nitk_nidn,
             'nama_lengkap' => $user->nama_lengkap,
+            'role' => $user->role,
             'kelas' => $user->kelas,
             'tim' => $user->tim,
             'shift' => $user->shift,

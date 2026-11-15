@@ -34,14 +34,14 @@ class RekapAbsensiExportHtml
                 . $c['bg'] . ';color:' . $c['fg'] . ';">' . $esc($label) . '</span>';
         };
 
-        $html = "\xEF\xBB\xBF<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\"><title>Rekap Absensi SIMALAS</title>";
+        $html = "\xEF\xBB\xBF<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\"><title>Rekap Absensi SmartBrail</title>";
         $html .= self::styles() . '</head><body><div class="wrap">';
 
         $html .= '<div class="hero">';
         if ($logo !== '') {
-            $html .= '<img src="' . $logo . '" alt="SIMALAS">';
+            $html .= '<img src="' . $logo . '" alt="SmartBrail">';
         }
-        $html .= '<div><h1>REKAP ABSENSI SIMALAS</h1>';
+        $html .= '<div><h1>REKAP ABSENSI SMARTBRAIL</h1>';
         $html .= '<p>AIoT · Smart Lab System · Politeknik Negeri Batam</p>';
         if ($exportedBy) {
             $html .= '<p class="exported-by">Diekspor oleh: ' . $esc($exportedBy->nama_lengkap)
@@ -91,7 +91,7 @@ class RekapAbsensiExportHtml
         }
 
         $html .= '</tbody></table>';
-        $html .= '<p class="foot">Dokumen ini dibuat otomatis oleh SIMALAS · ' . $esc(now()->format('Y-m-d H:i:s')) . '</p>';
+        $html .= '<p class="foot">Dokumen ini dibuat otomatis oleh SmartBrail · ' . $esc(now()->format('Y-m-d H:i:s')) . '</p>';
         $html .= '</div></div></body></html>';
 
         return $html;
@@ -135,7 +135,7 @@ class RekapAbsensiExportHtml
 
     private static function logoDataUri(): string
     {
-        foreach (['logo-simalas.png', 'logo-aiot.png'] as $file) {
+        foreach (['logo-smartbrail.png', 'logo-simalas.png', 'logo-aiot.png'] as $file) {
             $path = public_path('images/' . $file);
             if (is_readable($path)) {
                 return 'data:image/png;base64,' . base64_encode((string) file_get_contents($path));

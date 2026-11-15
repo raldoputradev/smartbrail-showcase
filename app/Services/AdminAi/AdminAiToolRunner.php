@@ -4,17 +4,23 @@ namespace App\Services\AdminAi;
 
 use App\Models\AbsensiAlfa;
 use App\Models\AbsensiHarian;
+use App\Models\AbsensiKalenderLibur;
 use App\Models\AbsensiTidakLengkap;
 use App\Models\AiActionProposal;
 use App\Models\Announcement;
 use App\Models\LogAbsensi;
 use App\Models\MesinIot;
+use App\Models\Ruangan;
+use App\Models\RuanganPengajuan;
+use App\Models\RuanganPetugas;
 use App\Models\Suggestion;
 use App\Models\User;
+use App\Support\DosenKelasScope;
 use App\Support\FingerprintSyncLogService;
 use App\Support\PblDataReadiness;
 use App\Support\PendingAccountApproval;
 use App\Support\PermissionRegistry;
+use App\Support\RuanganBookingService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -45,7 +51,7 @@ final class AdminAiToolRunner
         }
 
         if ($meta['kind'] === 'write') {
-            if (AdminAiToolRegistry::READ_ONLY) {
+            if (AdminAiToolRegistry::READ_ONLY && ! AdminAiToolRegistry::writeEnabled($tool)) {
                 return ['ok' => false, 'kind' => 'error', 'error' => 'Copilot hanya baca-saja. Lakukan perubahan dari menu SIMALAS terkait.'];
             }
 
@@ -58,6 +64,8 @@ final class AdminAiToolRunner
             'daftar_absensi_hari_ini' => $absensi->daftarHariIni($args, $admin),
             'laporan_absensi_periode' => $absensi->laporanPeriode($args, $admin),
             'cari_mahasiswa' => $absensi->cariMahasiswa($args, $admin),
+            'tim_pbl_saya' => $absensi->timPblSaya($args, $admin),
+            'mahasiswa_bimbingan' => $absensi->mahasiswaBimbingan($args, $admin),
             default => null,
         };
         if ($withBlocks !== null) {
@@ -76,13 +84,19 @@ final class AdminAiToolRunner
             'cari_pengguna' => $this->okRead($this->cariPengguna($args)),
             'hitung_pengguna' => $this->okRead($this->hitungPengguna($args)),
             'monitoring_snapshot' => $this->okRead($this->monitoringSnapshot()),
-            'log_absensi_cari' => $this->okRead($this->logAbsensiCari($args)),
-            'list_alfa' => $this->okRead($this->listAlfa($args)),
+            'log_absensi_cari' => $this->okRead($this->logAbsensiCari($args, $admin)),
+            'list_alfa' => $this->okRead($this->listAlfa($args, $admin)),
             'riwayat_pengguna' => $this->okRead($this->riwayatPengguna($args)),
-            'list_announcements' => $this->okRead($this->listAnnouncements($args)),
+            'list_announcements' => $this->okRead($this->listAnnouncements($args, $admin)),
             'fingerprint_sync_report' => $this->okRead($this->fingerprintSyncReport($args)),
             'attention_today' => $this->okRead(AdminAiExtendedOps::attentionToday()),
             'laporan_periodik_ringkas' => $this->okRead(AdminAiExtendedOps::laporanPeriodikRingkas($args)),
+            'ruangan_status' => $this->okRead($this->ruanganStatus($args)),
+            'pengajuan_pending' => $this->okRead($this->pengajuanPending()),
+            'pengajuan_ruangan_saya' => $this->okRead($this->pengajuanRuanganSaya($args, $admin)),
+            'petugas_list' => $this->okRead($this->petugasList($args)),
+            'kalender_agenda' => $this->okRead($this->kalenderAgenda($args)),
+            'riwayat_aksi_ai' => $this->okRead($this->riwayatAksiAi($args, $admin)),
             default => ['ok' => false, 'kind' => 'error', 'error' => 'Tool read belum diimplementasi'],
         };
     }
@@ -163,6 +177,7 @@ final class AdminAiToolRunner
             'batalkan_alfa' => $this->validateBatalkanAlfa($args),
             'selesai_tidak_lengkap' => $this->validateSelesaiTidakLengkap($args),
             'draft_pengumuman' => $this->validateDraftPengumuman($args),
+            'create_ruangan' => $this->validateCreateRuangan($args),
             default => ['error' => 'Write tool tidak didukung'],
         };
     }
@@ -574,7 +589,7 @@ final class AdminAiToolRunner
     {
         $periode = (string) ($series['periode'] ?? 'periode');
         $filter = trim((string) ($series['filter_label'] ?? ''));
-        $baseTitle = $kind === 'loker' ? 'Akses loker' : 'Tap absensi';
+        $baseTitle = 'Tap absensi';
         $title = $baseTitle.' ('.$periode.')'.($filter !== '' ? ' · '.$filter : '');
 
         $points = count($series['labels'] ?? []);
@@ -606,7 +621,7 @@ final class AdminAiToolRunner
                 'title' => $title,
                 'labels' => $series['labels'],
                 'values' => $series['values'],
-                'color' => $kind === 'loker' ? '#0f766e' : '#0284c7',
+                'color' => '#0284c7',
                 'type' => $chartType,
                 'total' => $total,
                 'note' => ($series['auto_shifted'] ?? false)
@@ -961,7 +976,7 @@ final class AdminAiToolRunner
         $role = (string) ($args['role'] ?? 'semua');
         $listMode = $q === '' || in_array(Str::lower($q), ['list', 'semua', '*', 'daftar'], true);
 
-        if ($listMode && ! in_array($role, ['mahasiswa', 'dosen', 'laboran'], true)) {
+        if ($listMode && ! in_array($role, ['admin', 'mahasiswa', 'dosen', 'laboran'], true)) {
             return [
                 'error' => 'Untuk daftar tanpa kata kunci, tentukan role: mahasiswa / dosen / laboran. Atau beri nama minimal 2 karakter.',
                 'items' => [],
@@ -982,7 +997,7 @@ final class AdminAiToolRunner
             });
         }
 
-        if (in_array($role, ['mahasiswa', 'dosen', 'laboran'], true)) {
+        if (in_array($role, ['admin', 'mahasiswa', 'dosen', 'laboran'], true)) {
             $query->where('role', $role);
         }
 
@@ -1025,9 +1040,9 @@ final class AdminAiToolRunner
     private function hitungPengguna(array $args): array
     {
         $role = (string) ($args['role'] ?? 'semua');
-        $roles = in_array($role, ['mahasiswa', 'dosen', 'laboran'], true)
+        $roles = in_array($role, ['admin', 'mahasiswa', 'dosen', 'laboran'], true)
             ? [$role]
-            : ['mahasiswa', 'dosen', 'laboran'];
+            : ['admin', 'mahasiswa', 'dosen', 'laboran'];
 
         $byRole = [];
         foreach ($roles as $r) {
@@ -1108,7 +1123,7 @@ final class AdminAiToolRunner
      * @param  array<string, mixed>  $args
      * @return array<string, mixed>
      */
-    private function logAbsensiCari(array $args): array
+    private function logAbsensiCari(array $args, User $admin): array
     {
         $q = trim((string) ($args['q'] ?? ''));
         $idMesin = trim((string) ($args['id_mesin'] ?? ''));
@@ -1119,6 +1134,9 @@ final class AdminAiToolRunner
         }
 
         $query = LogAbsensi::query()->with(['user:id,nama_lengkap,nitk_nidn']);
+        if ($admin->isDosen()) {
+            $query->whereHas('user', fn ($u) => DosenKelasScope::applySupervisedMahasiswaQuery($u, $admin));
+        }
         if ($idMesin !== '') {
             $query->where('id_mesin', $idMesin);
         }
@@ -1156,7 +1174,7 @@ final class AdminAiToolRunner
      * @param  array<string, mixed>  $args
      * @return array<string, mixed>
      */
-    private function listAlfa(array $args): array
+    private function listAlfa(array $args, User $admin): array
     {
         $tanggal = trim((string) ($args['tanggal'] ?? '')) ?: now()->toDateString();
         $kelas = trim((string) ($args['kelas'] ?? ''));
@@ -1166,6 +1184,10 @@ final class AdminAiToolRunner
             ->with(['user:id,nama_lengkap,kelas,tim,nitk_nidn'])
             ->where('aktif', true)
             ->whereDate('tanggal', $tanggal);
+
+        if ($admin->isDosen()) {
+            $query->whereHas('user', fn ($u) => DosenKelasScope::applySupervisedMahasiswaQuery($u, $admin));
+        }
 
         if ($kelas !== '') {
             $query->whereHas('user', fn ($q) => $q->where('kelas', $kelas));
@@ -1235,10 +1257,13 @@ final class AdminAiToolRunner
      * @param  array<string, mixed>  $args
      * @return array<string, mixed>
      */
-    private function listAnnouncements(array $args): array
+    private function listAnnouncements(array $args, User $admin): array
     {
         $status = (string) ($args['status'] ?? 'semua');
         $query = Announcement::query()->latest('id');
+        if ($admin->isDosen()) {
+            $query->forAudience($admin);
+        }
         if ($status === 'aktif') {
             $query->where('is_active', true);
         } elseif ($status === 'draft') {
@@ -1255,6 +1280,45 @@ final class AdminAiToolRunner
                 'prioritas' => $a->prioritas,
                 'aktif' => (bool) $a->is_active,
                 'dibuat' => optional($a->created_at)?->toDateTimeString(),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * DOSEN: pengajuan ruangan dari tim PBL yang dibimbing.
+     *
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function pengajuanRuanganSaya(array $args, User $admin): array
+    {
+        $timIds = RuanganBookingService::timBimbingan($admin)->pluck('id');
+        if ($timIds->isEmpty()) {
+            return ['total' => 0, 'items' => [], 'catatan' => 'Anda belum membimbing tim PBL manapun.'];
+        }
+
+        $status = (string) ($args['status'] ?? 'semua');
+        $query = RuanganPengajuan::query()
+            ->with(['ruangan:id,nama,kode', 'project:id,nama', 'pengaju:id,nama_lengkap'])
+            ->whereIn('pbl_project_id', $timIds)
+            ->latest('tanggal')->latest('id');
+        if ($status !== 'semua') {
+            $query->where('status', $status);
+        }
+
+        $rows = $query->limit(20)->get();
+
+        return [
+            'total' => $rows->count(),
+            'items' => $rows->map(fn (RuanganPengajuan $p) => [
+                'id' => $p->id,
+                'ruangan' => $p->ruangan->nama ?? '-',
+                'tim' => $p->project->nama ?? '-',
+                'pemohon' => $p->pengaju->nama_lengkap ?? '-',
+                'tujuan' => $p->tujuan,
+                'tanggal' => optional($p->tanggal)?->toDateString(),
+                'jam' => ($p->jam_mulai ?? '').' - '.($p->jam_selesai ?? ''),
+                'status' => $p->status_efektif ?? $p->status,
             ])->all(),
         ];
     }
@@ -1279,6 +1343,163 @@ final class AdminAiToolRunner
                 'templates' => (int) $log->templates_count,
                 'pesan' => $log->message,
             ])->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function ruanganStatus(array $args): array
+    {
+        $q = trim((string) ($args['q'] ?? ''));
+        $mesinMap = MesinIot::query()->whereNotNull('ruangan_id')->get(['id', 'id_mesin', 'ruangan_id', 'status'])
+            ->groupBy('ruangan_id');
+        $rows = Ruangan::query()
+            ->when($q !== '', fn ($qb) => $qb->where('nama', 'like', "%{$q}%"))
+            ->orderBy('nama')->limit(20)->get();
+
+        return [
+            'total' => $rows->count(),
+            'items' => $rows->map(function (Ruangan $r) use ($mesinMap) {
+                $mesin = $mesinMap->get($r->id) ?? collect();
+
+                return [
+                    'nama' => $r->nama,
+                    'kode' => $r->kode,
+                    'aktif' => (bool) $r->aktif,
+                    'kapasitas' => $r->kapasitas,
+                    'fasilitas' => $r->fasilitas,
+                    'mesin' => $mesin->map(fn ($m) => ['id_mesin' => $m->id_mesin, 'status' => $m->status])->values()->all(),
+                ];
+            })->all(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function pengajuanPending(): array
+    {
+        $rows = RuanganPengajuan::query()->with(['ruangan:id,nama', 'pengaju:id,nama_lengkap'])
+            ->whereIn('status', RuanganPengajuan::STATUS_AKTIF_MENUNGGU)
+            ->orderBy('tanggal')->limit(20)->get();
+
+        return [
+            'total' => $rows->count(),
+            'items' => $rows->map(fn (RuanganPengajuan $p) => [
+                'pemohon' => $p->pengaju->nama_lengkap ?? '-',
+                'ruangan' => $p->ruangan->nama ?? '-',
+                'tanggal' => optional($p->tanggal)->toDateString(),
+                'jam' => trim(($p->jam_mulai ?? '').' - '.($p->jam_selesai ?? '')),
+                'status' => $p->status,
+                'tujuan' => Str::limit((string) ($p->tujuan ?? ''), 80),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function petugasList(array $args): array
+    {
+        $q = trim((string) ($args['q'] ?? ''));
+        $rows = RuanganPetugas::query()
+            ->when($q !== '', fn ($qb) => $qb->where('nama', 'like', "%{$q}%"))
+            ->orderBy('nama')->limit(20)->get();
+
+        return [
+            'total' => $rows->count(),
+            'items' => $rows->map(fn (RuanganPetugas $p) => [
+                'nama' => $p->nama,
+                'status' => $p->status,
+                'id_internal' => $p->id_internal,
+                'ruangan_akses' => collect((array) ($p->jadwal ?? []))->pluck('ruangan')->filter()->unique()->values()->all(),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function kalenderAgenda(array $args): array
+    {
+        $bulan = trim((string) ($args['bulan'] ?? ''));
+        if ($bulan !== '' && preg_match('/^\d{4}-\d{2}$/', $bulan)) {
+            $from = Carbon::createFromFormat('Y-m', $bulan)->startOfMonth();
+            $to = $from->copy()->endOfMonth();
+        } else {
+            $from = now()->startOfDay();
+            $to = now()->addDays(60)->endOfDay();
+        }
+        $rows = AbsensiKalenderLibur::query()
+            ->where(function ($qb) use ($from, $to) {
+                $qb->whereBetween('tanggal', [$from->toDateString(), $to->toDateString()])
+                    ->orWhereBetween('tanggal_selesai', [$from->toDateString(), $to->toDateString()])
+                    ->orWhere(fn ($q2) => $q2->where('tanggal', '<=', $from->toDateString())->where('tanggal_selesai', '>=', $to->toDateString()));
+            })
+            ->orderBy('tanggal')->limit(40)->get();
+
+        return [
+            'periode' => $from->toDateString().' s/d '.$to->toDateString(),
+            'total' => $rows->count(),
+            'items' => $rows->map(fn (AbsensiKalenderLibur $a) => [
+                'nama' => $a->nama ?? $a->keterangan,
+                'jenis' => $a->jenis,
+                'tanggal' => optional($a->tanggal)->toDateString() ?? (string) $a->tanggal,
+                'tanggal_selesai' => optional($a->tanggal_selesai)->toDateString(),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function riwayatAksiAi(array $args, User $admin): array
+    {
+        $status = (string) ($args['status'] ?? '');
+        $rows = AiActionProposal::query()->where('requested_by', $admin->id)
+            ->when($status !== '', fn ($qb) => $qb->where('status', $status))
+            ->latest()->limit(min(20, max(1, (int) ($args['limit'] ?? 10))))->get();
+
+        return [
+            'total' => $rows->count(),
+            'items' => $rows->map(fn (AiActionProposal $p) => [
+                'tool' => $p->tool,
+                'judul' => $p->title,
+                'ringkasan' => $p->summary,
+                'status' => $p->status,
+                'waktu' => optional($p->created_at)?->toDateTimeString(),
+            ])->all(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $args
+     * @return array<string, mixed>
+     */
+    private function validateCreateRuangan(array $args): array
+    {
+        $nama = trim((string) ($args['nama'] ?? ''));
+        if ($nama === '') {
+            return ['error' => 'Nama ruangan wajib diisi.'];
+        }
+        $kode = trim((string) ($args['kode'] ?? ''));
+        if ($kode !== '' && Ruangan::query()->where('kode', $kode)->exists()) {
+            return ['error' => "Kode ruangan {$kode} sudah dipakai."];
+        }
+
+        return [
+            'summary' => "Daftarkan ruangan baru \"{$nama}\"".($kode !== '' ? " ({$kode})" : ''),
+            'payload' => [
+                'nama' => $nama,
+                'kode' => $kode !== '' ? $kode : null,
+                'kapasitas' => isset($args['kapasitas']) ? (int) $args['kapasitas'] : null,
+                'fasilitas' => collect(explode(',', (string) ($args['fasilitas'] ?? '')))
+                    ->map(fn ($f) => trim($f))->filter()->values()->all(),
+            ],
+            'action_label' => 'Daftarkan ruangan',
         ];
     }
 

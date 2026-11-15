@@ -23,7 +23,7 @@ export default function CtaBanner({ urls }) {
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-slate-600">
                 Unduh aplikasi mobile SIMALAS sekarang — registrasi mahasiswa, absensi
-                biometrik, dan loker pintar dalam satu app.
+                biometrik, dan akses ruangan pintar dalam satu app.
               </p>
               <a
                 href={urls.download}

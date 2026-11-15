@@ -3,7 +3,7 @@
 @section('title', 'Copilot')
 
 @section('styles')
-<link rel="stylesheet" href="{{ asset('css/copilot.css') }}?v=2">
+<link rel="stylesheet" href="{{ asset('css/copilot.css') }}?v=3">
 @endsection
 
 @section('content')
@@ -14,7 +14,7 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
                 <span class="cp-side__text">Kembali ke SIMALAS</span>
             </a>
-            <button type="button" class="cp-iconbtn cp-side__collapse" id="cpCollapse" aria-label="Ciutkan riwayat" title="Ciutkan riwayat">
+            <button type="button" class="cp-iconbtn cp-side__collapse" id="cpCollapse" aria-label="Tutup riwayat" title="Tutup riwayat">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
             </button>
         </div>
@@ -39,16 +39,21 @@
 
     <main class="cp-main">
         <header class="cp-head">
-            <button type="button" class="cp-iconbtn" id="cpToggle" aria-label="Buka riwayat" aria-controls="cpSide" aria-expanded="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-            </button>
+            <a class="cp-iconbtn" href="{{ $backUrl }}" aria-label="Kembali ke SIMALAS" title="Kembali">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            </a>
             <h1 class="cp-head__title">SIMALAS Copilot</h1>
             <span class="cp-head__status" title="{{ $aiEnabled ? 'Jawaban dari Gemini, tampil bertahap' : 'Gemini belum dikonfigurasi; jawaban dari data lokal' }}">
-                <span class="cp-dot {{ $aiEnabled ? 'is-on' : '' }}" aria-hidden="true"></span>{{ $aiEnabled ? 'Gemini' : 'Mode lokal' }} · baca-saja
+                <span class="cp-dot {{ $aiEnabled ? 'is-on' : '' }}" aria-hidden="true"></span>{{ $aiEnabled ? 'Gemini' : 'Mode lokal' }}
             </span>
-            <a class="cp-head__back" href="{{ $backUrl }}" aria-label="Kembali ke SIMALAS">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>SIMALAS</span>
-            </a>
+            <div class="cp-head__actions">
+                <button type="button" class="cp-iconbtn" id="cpNewHead" aria-label="Percakapan baru" title="Percakapan baru">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <button type="button" class="cp-iconbtn" id="cpToggle" aria-label="Buka riwayat" aria-controls="cpSide" aria-expanded="false" title="Riwayat">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+            </div>
         </header>
 
         <div class="cp-thread-wrap">
@@ -105,5 +110,5 @@
 @endsection
 
 @section('scripts')
-<script src="{{ asset('js/copilot.js') }}?v=4" defer></script>
+<script src="{{ asset('js/copilot.js') }}?v=5" defer></script>
 @endsection

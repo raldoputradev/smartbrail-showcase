@@ -3,6 +3,8 @@
 namespace App\Services\AdminAi;
 
 use App\Models\User;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -22,12 +24,13 @@ final class AdminAiOrchestrator
      *
      * @param  list<array{role: string, content: string}>  $history
      * @param  callable(): bool  $alive  false = klien sudah putus
+     * @param  list<array{name: string, path: string, mime: string, image: bool}>  $attachments
      * @return string sumber jawaban: gemini | local
      *
      * @throws CopilotStreamAborted
      * @throws CopilotProviderError
      */
-    public function streamChat(string $message, array $history, User $user, CopilotTurn $turn, callable $alive): string
+    public function streamChat(string $message, array $history, User $user, CopilotTurn $turn, callable $alive, array $attachments = []): string
     {
         $message = trim(Str::limit($message, 2000, ''));
 
@@ -37,24 +40,68 @@ final class AdminAiOrchestrator
         }
         RateLimiter::hit($key, 60);
 
-        // Pencarian nama/NIM dijawab lokal agar identitas tidak dikirim ke provider.
-        if (! $this->isGeminiConfigured() || $this->directSearchQuery($message) !== null) {
-            $this->streamLocal($message, $user, $turn);
+        // Slash command (/help, /menu …) dan pencarian nama/NIM dijawab lokal
+        // — instan, tanpa menunggu provider, dan identitas tidak dikirim ke provider.
+        $q = Str::lower($message);
+        if (! $this->isGeminiConfigured()
+            || ($attachments === [] && (
+                $this->directSearchQuery($message) !== null
+                || str_starts_with($q, '/')
+                || in_array($q, ['help', 'bantuan', 'apa yang bisa kamu lakukan', 'kemampuan'], true)
+            ))
+        ) {
+            $this->streamLocal($message, $user, $turn, $attachments);
 
             return 'local';
         }
 
-        $this->streamGemini($message, $history, $user, $turn, $alive);
-        $this->ensureChartBlock($message, $user, $turn);
+        // Circuit breaker: provider sedang padam → langsung mode lokal
+        // (tool lokal masih bisa menyusun laporan/grafik tanpa menunggu timeout).
+        if (Cache::has('admin-ai-provider-down')) {
+            $this->streamLocal($message, $user, $turn, $attachments);
+
+            return 'local';
+        }
+
+        try {
+            $this->streamGemini($message, $history, $user, $turn, $alive, $attachments);
+            $this->ensureChartBlock($message, $user, $turn);
+            Cache::forget('admin-ai-provider-down');
+        } catch (CopilotStreamAborted $e) {
+            throw $e;
+        } catch (CopilotProviderError $e) {
+            Cache::put('admin-ai-provider-down', 1, now()->addMinutes(10));
+            if ($turn->started) {
+                // Kartu/teks sudah terkirim — jangan hanguskan; tandai jawaban terpotong.
+                $turn->text("\n\n_(Jawaban terpotong — layanan AI sedang padam. Data kartu di atas tetap valid; coba beberapa menit lagi untuk analisis teks.)_");
+
+                return 'gemini';
+            }
+            // Provider padam sebelum ada jawaban — jawab lokal agar pengguna tidak menunggu sia-sia.
+            Log::warning('Copilot: provider gagal, fallback lokal', ['error' => $e->getMessage()]);
+            $this->streamLocal($message, $user, $turn, $attachments);
+
+            return 'local';
+        }
 
         return 'gemini';
     }
 
-    private function streamLocal(string $message, User $user, CopilotTurn $turn): void
+    /**
+     * @param  list<array{name: string, path: string, mime: string, image: bool}>  $attachments
+     */
+    private function streamLocal(string $message, User $user, CopilotTurn $turn, array $attachments = []): void
     {
         $proposals = [];
         $charts = [];
         $blocks = [];
+        if ($attachments !== []) {
+            $names = implode(', ', array_column($attachments, 'name'));
+            $hasImage = count(array_filter($attachments, fn ($a) => $a['image'])) > 0;
+            $turn->text($hasImage
+                ? "📎 Lampiran diterima ({$names}). Mode lokal tidak bisa membaca isi gambar — analisis gambar membutuhkan AI online. Jawaban di bawah berdasarkan teks pertanyaan Anda; kirim ulang nanti saat provider aktif untuk analisis gambar.\n\n"
+                : "📎 Lampiran teks diterima ({$names}). Mode lokal tidak merangkum file — jawaban berdasarkan teks pertanyaan Anda.\n\n");
+        }
         $reply = $this->localFallback($message, $user, $proposals, $charts, $blocks);
         $turn->text($reply);
         foreach ($blocks as $block) {
@@ -63,12 +110,16 @@ final class AdminAiOrchestrator
         foreach ($charts as $chart) {
             $turn->block(['type' => 'chart', 'chart' => $chart]);
         }
+        foreach ($proposals as $p) {
+            $turn->block(['type' => 'proposal', 'proposal' => $p]);
+        }
     }
 
     /**
      * @param  list<array{role: string, content: string}>  $history
+     * @param  list<array{name: string, path: string, mime: string, image: bool}>  $attachments
      */
-    private function streamGemini(string $message, array $history, User $user, CopilotTurn $turn, callable $alive): void
+    private function streamGemini(string $message, array $history, User $user, CopilotTurn $turn, callable $alive, array $attachments = []): void
     {
         $apiKey = trim((string) config('services.gemini.api_key', ''));
         $fallbacks = config('services.gemini.fallback_models', []);
@@ -85,7 +136,21 @@ final class AdminAiOrchestrator
                 $contents[] = ['role' => ($row['role'] ?? '') === 'assistant' ? 'model' : 'user', 'parts' => [['text' => $privacy->redact($text)]]];
             }
         }
-        $contents[] = ['role' => 'user', 'parts' => [['text' => $privacy->redact($message)]]];
+        $userParts = [['text' => $privacy->redact($message)]];
+        foreach ($attachments as $att) {
+            if ($att['image']) {
+                $raw = @file_get_contents($att['path']);
+                if ($raw !== false) {
+                    $userParts[] = ['inlineData' => ['mimeType' => $att['mime'], 'data' => base64_encode($raw)]];
+                }
+            } else {
+                $raw = @file_get_contents($att['path']);
+                if ($raw !== false) {
+                    $userParts[] = ['text' => "[Isi lampiran: {$att['name']}]\n".$privacy->redact(Str::limit($raw, 6000, '…'))];
+                }
+            }
+        }
+        $contents[] = ['role' => 'user', 'parts' => $userParts];
 
         $declarations = AdminAiToolRegistry::geminiDeclarationsForUser($user);
         $context = $user->isLaboran()
@@ -96,6 +161,7 @@ final class AdminAiOrchestrator
         $last = null;
         foreach ($models as $model) {
             try {
+                $turn->status('Menghubungi Gemini ('.$model.')…');
                 $this->streamGeminiModel($model, $apiKey, $contents, $declarations, $system, $user, $turn, $alive, $privacy);
 
                 return;
@@ -209,11 +275,14 @@ final class AdminAiOrchestrator
                 $meta = AdminAiToolRegistry::get($name);
                 $turn->status('Mengambil data: '.Str::lower((string) ($meta['title'] ?? $name)));
 
-                $result = in_array($name, AdminAiToolRegistry::COPILOT_TOOLS, true)
+                $result = in_array($name, AdminAiToolRegistry::copilotToolsFor($user->role), true)
                     ? $this->tools->run($name, $privacy->restoreValue($args), $user)
-                    : ['ok' => false, 'kind' => 'error', 'error' => 'Tool tidak tersedia di Copilot'];
+                    : ['ok' => false, 'kind' => 'error', 'error' => 'Tidak punya izin untuk tool ini'];
                 foreach ($result['blocks'] ?? [] as $block) {
                     $turn->block($block);
+                }
+                if (($result['kind'] ?? '') === 'proposal' && isset($result['proposal'])) {
+                    $turn->block(['type' => 'proposal', 'proposal' => $result['proposal']]);
                 }
                 if (isset($result['chart']) && is_array($result['chart'])) {
                     $turn->block(['type' => 'chart', 'chart' => $result['chart']]);
@@ -325,23 +394,16 @@ final class AdminAiOrchestrator
         $q = Str::lower($message);
         $wantsAbsensi = (bool) preg_match('/\b(grafik|chart|tren|visual)\b/u', $q)
             && (bool) preg_match('/\b(absen|tap|kehadiran)\b/u', $q);
-        $wantsLoker = (bool) preg_match('/\b(grafik|chart|tren|visual)\b/u', $q)
-            && str_contains($q, 'loker');
         // Frasa umum: "tampilkan grafik absensi yang ada data"
         if (! $wantsAbsensi && str_contains($q, 'grafik') && (str_contains($q, 'absen') || str_contains($q, 'kehadiran'))) {
             $wantsAbsensi = true;
         }
-        if (! $wantsLoker && str_contains($q, 'grafik') && str_contains($q, 'loker')) {
-            $wantsLoker = true;
-        }
-        if (! $wantsAbsensi && ! $wantsLoker) {
+        if (! $wantsAbsensi) {
             return;
         }
 
         $args = $this->parseChartArgsFromMessage($message);
         $needAbsensi = $wantsAbsensi && ! $this->chartsContain($charts, 'absensi');
-        $needLoker = $wantsLoker && ! $this->chartsContain($charts, 'loker');
-
         if ($needAbsensi) {
             $r = $this->tools->run('chart_absensi', $args, $admin);
             if (isset($r['chart'])) {
@@ -368,11 +430,29 @@ final class AdminAiOrchestrator
             'chart_type' => 'line',
         ];
 
+        $bulanNama = ['januari' => 1, 'februari' => 2, 'maret' => 3, 'april' => 4, 'mei' => 5, 'juni' => 6,
+            'juli' => 7, 'agustus' => 8, 'september' => 9, 'oktober' => 10, 'november' => 11, 'desember' => 12];
+        $bn = implode('|', array_keys($bulanNama));
+
         // Rentang custom: YYYY-MM-DD … YYYY-MM-DD
         if (preg_match('/(\d{4}-\d{2}-\d{2}).{0,24}?(\d{4}-\d{2}-\d{2})/u', $message, $m)) {
             $args['mode'] = 'custom';
             $args['tanggal_mulai'] = $m[1];
             $args['tanggal_akhir'] = $m[2];
+            $args['prefer_data'] = false;
+        } elseif (preg_match('/\b('.$bn.')\s+(\d{4})\s*(?:sampai|hingga|ke|s\.d\.?|\-)\s*('.$bn.')\s+(\d{4})/u', $q, $mm)) {
+            // Rentang nama bulan: "grafik absensi mei 2026 sampai juli 2026"
+            $start = Carbon::create((int) $mm[2], $bulanNama[$mm[1]], 1)->startOfMonth();
+            $end = Carbon::create((int) $mm[4], $bulanNama[$mm[3]], 1)->endOfMonth();
+            $args['mode'] = 'custom';
+            $args['tanggal_mulai'] = $start->toDateString();
+            $args['tanggal_akhir'] = $end->toDateString();
+            $args['prefer_data'] = false;
+        } elseif (preg_match('/\b('.$bn.')\s+(\d{4})/u', $q, $mm)) {
+            // Satu bulan bernama: "grafik absensi juli 2026"
+            $args['mode'] = 'custom';
+            $args['tanggal_mulai'] = Carbon::create((int) $mm[2], $bulanNama[$mm[1]], 1)->startOfMonth()->toDateString();
+            $args['tanggal_akhir'] = Carbon::create((int) $mm[2], $bulanNama[$mm[1]], 1)->endOfMonth()->toDateString();
             $args['prefer_data'] = false;
         } elseif (preg_match('/\b(setahun|tahunan|tahun\s*ini|1\s*tahun|satu\s*tahun)\b/u', $q)
             || preg_match('/\bgrafik\b.{0,40}\btahun\b/u', $q)) {
@@ -514,13 +594,18 @@ final class AdminAiOrchestrator
         $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $peran = $user->isLaboran()
             ? 'staf lab (admin/laboran)'
-            : 'dosen/KPS — hanya mahasiswa, absensi, rekap, dan laporan; tidak ada data operasional admin (akun/approval, mesin, fingerprint, pengumuman)';
+            : 'dosen/KPS — mahasiswa & tim PBL bimbingan, absensi, rekap, dan laporan; tidak ada data operasional admin (akun/approval, mesin, fingerprint, pengumuman)';
         $toolLain = $user->isLaboran()
             ? ' Jumlah akun → hitung_pengguna. Hal yang perlu perhatian → attention_today.'
-            : '';
+            : ' Tim PBL & anggota → tim_pbl_saya. Semua mahasiswa bimbingan → mahasiswa_bimbingan. Siapa alfa → list_alfa. Log tap → log_absensi_cari. Pengajuan ruangan tim → pengajuan_ruangan_saya. Pengumuman → list_announcements.';
 
         return <<<TXT
-Kamu SIMALAS Copilot untuk {$peran} di AIoT SIMALAS (absensi lab BRAIL Polibatam). Mode BACA-SAJA.
+Kamu SIMALAS Copilot untuk {$peran} di AIoT SIMALAS (absensi lab BRAIL Polibatam).
+
+AKSI TULIS
+- Tool bertipe write (approve_user, bulk_approve_ready, create_ruangan, draft_pengumuman, create_announcement, toggle_mesin, dll) TIDAK langsung mengeksekusi — hasilnya kartu konfirmasi yang diputuskan pengguna di UI.
+- Saat pengguna minta aksi (setujui akun, daftarkan ruangan, buat pengumuman, nyalakan/matikan mesin), panggil tool write yang sesuai, lalu jawab SATU kalimat bahwa kartu konfirmasi sudah dibuat. Jangan mengeklaim aksi sudah terjadi.
+- Jika data untuk tool write kurang (mis. nama ruangan belum ada), tanya dulu — jangan mengarang argumen.
 
 GAYA
 - Bahasa Indonesia. Langsung ke jawaban: kalimat pertama berisi inti, rincian sesudahnya bila perlu.
@@ -541,8 +626,13 @@ DATA
 - Hanya tool yang dideklarasikan yang tersedia. Jika diminta data di luar itu, katakan tidak tersedia untuk akun ini.
 - Jangan menulis URL sendiri; tautan unduh muncul otomatis bila pengguna berhak.
 
+LAMPIRAN
+- Pengguna bisa melampirkan gambar (JPG/PNG/WebP) dan file teks (TXT/CSV/LOG) lewat tombol klip; isinya tiba sebagai bagian pesanmu (gambar inline, teks sebagai kutipan "[Isi lampiran: …]").
+- Jika ditanya apakah kamu bisa membaca gambar/foto/file, jawab BISA lewat lampiran (maks 4 MB, 3 file) — jangan pernah menjawab tidak bisa. Analisislah isi lampiran yang benar-benar tiba; jika tidak ada lampiran di pesan, minta pengguna mengklik ikon klip dulu.
+- Impor akun massal (Excel template) tetap di halaman Impor Akun, bukan lewat lampiran.
+
 BATAS
-- Tidak bisa mengubah apa pun: absensi, akun/approval, mesin, finger_id/template, pengumuman, email. Jika diminta, jelaskan singkat bahwa Copilot baca-saja dan sebut menu SIMALAS yang relevan.
+- Kamu tidak mengeksekusi perubahan sendiri — aksi tulis hanya lewat tool write, hasilnya kartu konfirmasi untuk pengguna.
 - Loker bukan bagian aplikasi ini.
 - Jangan menampilkan atau meminta password, token, API key, OTP, atau template sidik jari.
 - Di luar absensi/operasional lab: tolak singkat dan beri satu contoh pertanyaan yang bisa dijawab.
@@ -566,11 +656,153 @@ TXT;
             return $this->absensiToolReply('cari_mahasiswa', ['q' => $search], $admin, $blocks);
         }
 
-        if (AdminAiToolRegistry::READ_ONLY && $this->looksLikeWriteRequest($q)) {
-            return 'Copilot hanya baca-saja, jadi tidak bisa mengubah data. Lakukan perubahan dari menu SIMALAS terkait '
-                .($admin->isLaboran()
-                    ? '(Manajemen User, Cek Absensi, Fingerprint, Mesin IoT, atau Pengumuman).'
-                    : '(Absensi Mahasiswa atau Tim PBL), sesuai izin akunmu.');
+        // Kendala upload/paste lampiran — panduan singkat, tidak membebani.
+        if (preg_match('/(upload|unggah|lampir|paste|tempel|kirim)\b.{0,25}(foto|gambar|file|lampiran|screenshot|ss|berkas)/iu', $q)
+            || preg_match('/(foto|gambar|file|lampiran|screenshot|berkas)\b.{0,25}(gagal|gabisa|tidak bisa|gak bisa|ga bisa|error|terkirim|terupload|diupload|diunggah|dikirim|dilampirkan|masuk)/iu', $q)) {
+            return 'Kendala lampiran hampir selalu soal format atau ukuran. Aturannya: gambar JPG/PNG/WebP atau teks TXT/CSV/LOG, **maks 4 MB per file, maks 3 file per pesan**. Cara: klik ikon klip 📎 atau paste screenshot (Ctrl+V) di kolom pesan — tunggu chip "Mengunggah…" selesai lalu kirim. Jika masih gagal: kompres/perkecil gambar, coba format PNG, atau muat ulang halaman lalu ulangi. Sampaikan pesan error yang muncul bila tetap bermasalah.';
+        }
+
+        // Pertanyaan kemampuan lampiran — jawaban tetap benar walau provider mati.
+        if (preg_match('/(gambar|foto|png|jpe?g|webp|file|berkas|lampiran|dokumen)\b.{0,30}(bisa|dapat|dibaca|diproses|dianalisis|dilihat)/iu', $q)
+            || preg_match('/(bisa|dapat)\s+(kamu\s+)?(baca|membaca|memproses|proses|lihat|melihat|analisis|menganalisis)\b.{0,30}(gambar|foto|png|jpe?g|webp|file|berkas|lampiran|dokumen)/iu', $q)) {
+            return 'Ya, bisa. Klik ikon klip 📎 di kolom pesan untuk melampirkan gambar (JPG/PNG/WebP) atau file teks (TXT/CSV/LOG), maks 4 MB per file, 3 file per pesan — lalu kirim pertanyaan Anda. Gambar saya analisis saat provider AI aktif; file teks saya baca langsung. Impor akun massal (template Excel) tetap lewat halaman Impor Akun.';
+        }
+
+        if (preg_match('/^\/help\b/i', $q) || in_array($q, ['help', 'bantuan', 'apa yang bisa kamu lakukan', 'kemampuan'], true)) {
+            return $this->helpReply($admin, $blocks);
+        }
+        if (preg_match('/^\/menu(?:\s+([a-z]+))?\s*$/', $q, $mm)) {
+            return $this->menuReply($mm[1] ?? '', $admin, $blocks);
+        }
+        if (preg_match('/^\/grafik(?:\s+(.+))?\s*$/', $q, $gm)) {
+            $arg = trim((string) ($gm[1] ?? ''));
+            if ($arg === '') {
+                $blocks[] = ['type' => 'options', 'title' => 'Pilih periode grafik', 'items' => [
+                    ['label' => 'Hari ini', 'message' => 'grafik absensi hari ini'],
+                    ['label' => 'Minggu ini', 'message' => 'grafik absensi minggu ini'],
+                    ['label' => 'Bulan ini', 'message' => 'grafik absensi bulan ini'],
+                    ['label' => 'Tahun ini', 'message' => 'grafik absensi tahun ini'],
+                ]];
+
+                return 'Grafik absensi untuk periode mana?'
+                    ."\nBisa juga sebutkan bulan/rentang, misalnya:"
+                    ."\n- `grafik absensi juli 2026`"
+                    ."\n- `grafik absensi mei 2026 sampai juli 2026`"
+                    ."\n- `grafik absensi 2026-11-01 sampai 2026-11-15`";
+            }
+            $r = $this->tools->run('chart_absensi', $this->parseChartArgsFromMessage('grafik absensi '.$arg), $admin);
+            if (isset($r['chart'])) {
+                $blocks[] = ['type' => 'chart', 'chart' => $r['chart']];
+
+                return 'Grafik siap — ini tren absensinya:';
+            }
+
+            return (string) ($r['error'] ?? 'Grafik tidak bisa dibuat.');
+        }
+        if (preg_match('/^\/pengguna(?:\s+(.+))?\s*$/', $q, $pm)) {
+            $name = trim((string) ($pm[1] ?? ''));
+            if ($name !== '') {
+                $r = $this->tools->run('cari_pengguna', ['q' => $name], $admin);
+                foreach ((array) ($r['blocks'] ?? []) as $b) {
+                    $blocks[] = $b;
+                }
+                if (! ($r['ok'] ?? false)) {
+                    return (string) ($r['error'] ?? "Tidak ada pengguna cocok dengan \"{$name}\".");
+                }
+
+                return "Hasil pencarian pengguna untuk \"{$name}\":";
+            }
+            $r = $this->tools->run('hitung_pengguna', ['role' => 'semua'], $admin);
+            $d = (array) ($r['data'] ?? []);
+            $grand = (array) ($d['grand_total'] ?? []);
+            $items = [];
+            foreach (['total' => 'Total akun', 'aktif' => 'Aktif', 'pending' => 'Menunggu approval', 'nonaktif' => 'Nonaktif'] as $k => $lbl) {
+                if (isset($grand[$k])) {
+                    $items[] = ['label' => $lbl, 'value' => number_format((int) $grand[$k])];
+                }
+            }
+            foreach ((array) ($d['by_role'] ?? []) as $role => $c) {
+                $items[] = [
+                    'label' => Str::headline((string) $role).' aktif',
+                    'value' => number_format((int) ($c['aktif'] ?? 0)),
+                    'meta' => number_format((int) ($c['total'] ?? 0)).' total',
+                ];
+            }
+            if ($items !== []) {
+                $blocks[] = ['type' => 'stats', 'title' => 'Ringkasan pengguna', 'items' => $items];
+                $blocks[] = ['type' => 'options', 'title' => 'Mau cari siapa?', 'items' => [
+                    ['label' => 'Cari nama/NIM — ketik: /pengguna <nama>', 'message' => '/help'],
+                    ['label' => 'Antrian approval', 'message' => 'siapa yang menunggu persetujuan akun'],
+                ]];
+
+                return 'Ini ringkasan data pengguna saat ini. Untuk mencari seseorang: `/pengguna <nama atau NIM>`';
+            }
+
+            return (string) ($r['error'] ?? 'Data pengguna tidak tersedia.');
+        }
+        if (preg_match('/^\/impor?t\b/', $q)) {
+            $blocks[] = ['type' => 'links', 'items' => [
+                ['label' => 'Buka halaman Impor Akun', 'href' => route('admin.users.import'), 'kind' => 'open'],
+            ]];
+
+            return 'Impor akun massal tetap lewat halaman Impor Akun di bawah. Kalau hanya ingin saya membaca isi file (CSV/teks/gambar) sebagai referensi, lampirkan lewat ikon klip 📎 di kolom pesan:';
+        }
+
+        if (Str::contains($q, ['status ruangan', 'daftar ruangan', 'ruangan sekarang', 'cek ruangan'])) {
+            $r = $this->tools->run('ruangan_status', [], $admin);
+
+            return $this->formatItemsReply($r, 'ruangan', fn ($i) => sprintf(
+                '%s%s%s (%s)',
+                $i['nama'] ?? '-',
+                isset($i['kode']) && $i['kode'] ? ' '.$i['kode'] : '',
+                isset($i['kapasitas']) && $i['kapasitas'] ? ' kap.'.$i['kapasitas'] : '',
+                ($i['aktif'] ?? false) ? 'aktif' : 'nonaktif'
+            ));
+        }
+        if (Str::contains($q, ['pengajuan menunggu', 'pengajuan ruangan', 'pengajuan pending', 'antrian pengajuan'])) {
+            $r = $this->tools->run('pengajuan_pending', [], $admin);
+
+            return $this->formatItemsReply($r, 'pengajuan', fn ($i) => sprintf(
+                '%s — %s, %s %s (%s)',
+                $i['pemohon'] ?? '-', $i['ruangan'] ?? '-', $i['tanggal'] ?? '', $i['jam'] ?? '', $i['status'] ?? ''
+            ));
+        }
+        if (Str::contains($q, ['daftar petugas', 'petugas ruangan', 'petugas cs', 'petugas kebersihan'])) {
+            $r = $this->tools->run('petugas_list', [], $admin);
+
+            return $this->formatItemsReply($r, 'petugas', fn ($i) => sprintf(
+                '%s (%s)%s', $i['nama'] ?? '-', $i['status'] ?? '-',
+                ! empty($i['ruangan_akses']) ? ' — akses: '.implode(', ', (array) $i['ruangan_akses']) : ''
+            ));
+        }
+        if (Str::contains($q, ['agenda kalender', 'agenda bulan ini', 'kalender agenda', 'jadwal libur', 'kalender sekarang'])) {
+            $r = $this->tools->run('kalender_agenda', [], $admin);
+
+            return $this->formatItemsReply($r, 'agenda', fn ($i) => sprintf(
+                '%s — %s (%s)', $i['tanggal'] ?? '', $i['nama'] ?? '-', $i['jenis'] ?? ''
+            ));
+        }
+        if (Str::contains($q, ['log tap', 'log absensi', 'tap terbaru', 'log tap terbaru'])) {
+            $r = $this->tools->run('log_absensi_cari', ['limit' => 8], $admin);
+
+            return $this->formatItemsReply($r, 'log', fn ($i) => is_string($i) ? $i : json_encode($i));
+        }
+        if (Str::contains($q, ['riwayat aksi', 'aksi yang pernah', 'laporan aksi ai', 'riwayat aksiku'])) {
+            $r = $this->tools->run('riwayat_aksi_ai', ['limit' => 10], $admin);
+
+            return $this->formatItemsReply($r, 'aksi', fn ($i) => sprintf(
+                '%s — %s (%s)', $i['judul'] ?? '-', $i['status'] ?? '-', $i['waktu'] ?? ''
+            ));
+        }
+
+        if ($this->looksLikeWriteRequest($q)) {
+            $local = $this->localWriteRoute($message, $q, $admin, $proposals);
+            if ($local !== null) {
+                return $local;
+            }
+            if (! $admin->isLaboran()) {
+                return 'Copilot hanya baca-saja, jadi tidak bisa mengubah data. Lakukan perubahan dari menu SIMALAS terkait (Absensi Mahasiswa atau Tim PBL), sesuai izin akunmu.';
+            }
         }
 
         $filters = $this->parseFiltersFromMessage($message);
@@ -702,7 +934,7 @@ TXT;
         if (Str::contains($q, ['grafik loker', 'chart loker', 'tren loker', 'data grafik loker', 'grafik line loker'])) {
             return 'SIMALAS ini hanya menangani absensi. Grafik loker tidak tersedia.';
         }
-        if (Str::contains($q, ['status mesin', 'mesin offline', 'mesin online', 'mesin iot'])) {
+        if (Str::contains($q, ['status mesin', 'mesin offline', 'mesin online', 'mesin iot', 'daftar mesin', 'mesin terdaftar', 'laporkan mesin', 'semua mesin', 'berapa mesin'])) {
             $r = $this->tools->run('mesin_status', [], $admin);
 
             return $this->formatMesinReply($r['data'] ?? []);
@@ -820,11 +1052,258 @@ TXT;
                 }
                 return 'Laporan '.$rentang.', sumber menu '.CopilotAbsensiData::laporanPage($user).'.';
             })(),
-            'cari_mahasiswa' => (int) ($d['jumlah'] ?? 0) === 0
-                ? 'Tidak ada mahasiswa yang cocok. Coba nama yang lebih pendek atau NIM lengkap.'
-                : 'Hasil pencarian mahasiswa.',
+            'cari_mahasiswa' => (function () use ($d): string {
+                if ((int) ($d['jumlah'] ?? 0) > 0) {
+                    return 'Hasil pencarian mahasiswa.';
+                }
+                if (! empty($d['di_luar_scope'])) {
+                    return 'Akun dengan kata kunci itu ada, tapi bukan mahasiswa bimbingan Anda — datanya tidak saya tampilkan. Periksa kembali ejaan atau tanyakan mahasiswa di tim/kelas Anda.';
+                }
+                $saran = (array) ($d['saran_mirip'] ?? []);
+                if ($saran !== []) {
+                    return 'Tidak ada persisnya — mungkin maksud Anda: '.implode(', ', array_slice($saran, 0, 3)).'?';
+                }
+
+                return 'Tidak ada mahasiswa yang cocok. Coba nama yang lebih pendek atau NIM lengkap.';
+            })(),
             default => '',
         };
+    }
+
+    /**
+     * Format hasil tool read menjadi jawaban bullet singkat.
+     *
+     * @param  array<string, mixed>  $r
+     */
+    private function formatItemsReply(array $r, string $label, callable $fmt): string
+    {
+        if (! ($r['ok'] ?? false)) {
+            return (string) ($r['error'] ?? 'Data tidak bisa diambil.');
+        }
+        $items = collect((array) data_get($r, 'data.items', []))->map($fmt)->filter()->take(12)->values();
+        if ($items->isEmpty()) {
+            return "Tidak ada {$label} saat ini.";
+        }
+        $total = (int) data_get($r, 'data.total', $items->count());
+        $more = $total > $items->count() ? "\nMenampilkan {$items->count()} dari {$total} — persempit lewat menu terkait untuk detail." : '';
+
+        return "Ditemukan {$total} {$label}:\n".$items->map(fn ($s) => "- {$s}")->implode("\n").$more;
+    }
+
+    /**
+     * Routing fallback lokal untuk permintaan tulis: selesaikan akun/ruangan
+     * lalu buat proposal (tidak ada eksekusi langsung — HITL tetap berlaku).
+     *
+     * @param  list<array<string, mixed>>  $proposals
+     */
+    private function localWriteRoute(string $message, string $q, User $admin, array &$proposals): ?string
+    {
+        $propose = function (string $tool, array $args) use ($admin, &$proposals): ?string {
+            $r = $this->tools->run($tool, $args, $admin);
+            if (($r['kind'] ?? '') === 'proposal' && isset($r['proposal'])) {
+                $proposals[] = $r['proposal'];
+
+                return 'Proposal siap — klik konfirmasi pada kartu untuk menjalankan.';
+            }
+
+            return (string) ($r['error'] ?? 'Permintaan tidak bisa dijadikan proposal.');
+        };
+
+        $resolveUserId = function (string $ref): ?int {
+            $ref = trim($ref, " \t\n\r#.");
+            if ($ref === '') {
+                return null;
+            }
+            if (is_numeric($ref)) {
+                return (int) $ref;
+            }
+            $u = User::query()->where('nama_lengkap', 'like', "%{$ref}%")->orWhere('nitk_nidn', $ref)->first();
+
+            return $u?->id;
+        };
+
+        // nonaktifkan/aktifkan akun X | #12 | NIM
+        if (preg_match('/\b(nonaktifkan|aktifkan|matikan|blokir)\b.{0,40}?(?:akun|user|mahasiswa)?\s*#?([A-Za-z0-9 .\-]{2,40})$/u', $message, $m)) {
+            $id = $resolveUserId($m[2]);
+            if (! $id) {
+                return 'Akun tidak ditemukan — sebutkan ID akun (#12) atau NIM yang tepat.';
+            }
+            $off = in_array(Str::lower($m[1]), ['nonaktifkan', 'matikan', 'blokir'], true);
+
+            return $propose('toggle_user_active', ['user_id' => $id, 'set_active' => ! $off]);
+        }
+        // tolak/reject akun #12
+        if (preg_match('/\b(tolak|reject)\b.{0,40}?(?:akun|user|mahasiswa)?\s*#?(\d{1,6})\b/u', $message, $m)) {
+            return $propose('reject_user', ['user_id' => (int) $m[2]]);
+        }
+        // daftarkan/tambah ruangan X
+        if (preg_match('/\b(daftarkan|tambah|buat)\b.{0,20}?\bruangan\b\s+(?:baru\s+)?(?:bernama\s+|bern?ama\s+)?["\']?([A-Za-z0-9 .\-]{2,60})["\']?\s*$/u', $message, $m)) {
+            return $propose('create_ruangan', ['nama' => trim($m[2])]);
+        }
+        if (Str::contains($q, ['sync fingerprint'])) {
+            return 'Sinkronisasi burst fingerprint belum dibuka untuk asisten — gunakan menu Fingerprint.';
+        }
+
+        return null;
+    }
+
+    /**
+     * /help — ringkasan kemampuan + tombol opsi yang bisa diklik.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     */
+    private function helpReply(User $admin, array &$blocks): string
+    {
+        $opts = $admin->isLaboran()
+            ? [
+                ['label' => 'Rekap absensi', 'message' => '/menu rekap'],
+                ['label' => 'Akun & approval', 'message' => '/menu akun'],
+                ['label' => 'Ruangan & pengajuan', 'message' => '/menu ruangan'],
+                ['label' => 'Perangkat mesin', 'message' => '/menu perangkat'],
+                ['label' => 'Laporan & ekspor', 'message' => '/menu laporan'],
+                ['label' => 'Aksi yang bisa saya jalankan', 'message' => '/menu aksi'],
+            ]
+            : [
+                ['label' => 'Rekap absensi', 'message' => '/menu rekap'],
+                ['label' => 'Tim PBL saya', 'message' => 'tampilkan tim PBL yang saya bimbing'],
+                ['label' => 'Mahasiswa bimbingan', 'message' => 'daftar mahasiswa bimbingan saya'],
+                ['label' => 'Pengajuan ruangan', 'message' => 'status pengajuan ruangan tim saya'],
+                ['label' => 'Cari mahasiswa', 'message' => '/menu akun'],
+                ['label' => 'Laporan & ekspor', 'message' => '/menu laporan'],
+            ];
+        $blocks[] = ['type' => 'options', 'title' => 'Pilih untuk langsung mencoba', 'items' => $opts];
+
+        $bisa = $admin->isLaboran()
+            ? "- **Baca data**: rekap & grafik absensi, cari mahasiswa/pengguna, status mesin, ruangan, pengajuan pending, petugas, agenda kalender, log tap.\n"
+            ."- **Aksi nyata (butuh konfirmasi Anda)**: setujui/tolak akun, aktif/nonaktifkan akun, unlock login, daftarkan ruangan, buat pengumuman, nyalakan/matikan mesin, koreksi absensi, batalkan alfa.\n"
+            ."- **Laporan**: rekap periode + tautan unduh Excel/Word/cetak.\n"
+            : "- **Baca data**: rekap & grafik absensi mahasiswa bimbingan, daftar & cari mahasiswa, siapa yang alfa, log tap, tim PBL & anggotanya, status pengajuan ruangan tim, pengumuman, agenda kalender.\n"
+            ."- **Laporan**: rekap periode + tautan unduh Excel/Word.\n";
+
+        return "Ini yang bisa saya bantu:\n".$bisa
+            ."\nSetiap aksi tulis saya siapkan sebagai **kartu konfirmasi** — Anda yang memutuskan jalankan/batal.\n"
+            ."Ketik `/help` kapan saja untuk melihat daftar ini lagi.";
+    }
+
+    /**
+     * /menu <topik> — jawaban langsung + opsi polling yang bisa diklik.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     */
+    private function menuReply(string $menu, User $admin, array &$blocks): string
+    {
+        $laboran = $admin->isLaboran();
+        $sharedMap = [
+            'rekap' => [
+                'Pilih rekap yang mau dilihat:',
+                [
+                    ['label' => 'Hari ini', 'message' => 'ringkas absensi hari ini'],
+                    ['label' => 'Minggu ini', 'message' => 'rekap absensi minggu ini'],
+                    ['label' => 'Bulan ini', 'message' => 'rekap absensi bulan ini'],
+                    ['label' => 'Yang tidak lengkap hari ini', 'message' => 'siapa yang tidak lengkap hari ini'],
+                    ['label' => 'Grafik tren', 'message' => 'grafik absensi minggu ini'],
+                ],
+            ],
+            'laporan' => [
+                'Laporan bisa saya susun lalu siapkan tombol unduh:',
+                [
+                    ['label' => 'Laporan bulan ini', 'message' => 'buat laporan absensi bulan ini'],
+                    ['label' => 'Laporan minggu ini', 'message' => 'buat laporan absensi minggu ini'],
+                    ['label' => 'Mahasiswa paling rajin', 'message' => 'ranking mahasiswa terajin bulan ini'],
+                    ['label' => 'Daftar alfa', 'message' => 'daftar mahasiswa alfa minggu ini'],
+                ],
+            ],
+        ];
+        $map = $laboran ? $sharedMap + [
+            '' => [
+                'Pilih topik menu:',
+                [
+                    ['label' => 'Rekap absensi', 'message' => '/menu rekap'],
+                    ['label' => 'Akun & approval', 'message' => '/menu akun'],
+                    ['label' => 'Ruangan & pengajuan', 'message' => '/menu ruangan'],
+                    ['label' => 'Perangkat mesin', 'message' => '/menu perangkat'],
+                    ['label' => 'Laporan & ekspor', 'message' => '/menu laporan'],
+                    ['label' => 'Aksi konfirmasi', 'message' => '/menu aksi'],
+                ],
+            ],
+            'akun' => [
+                'Tentang akun & pengguna:',
+                [
+                    ['label' => 'Antrian approval', 'message' => 'siapa yang menunggu persetujuan akun'],
+                    ['label' => 'Setujui semua yang siap', 'message' => 'setujui semua akun yang siap'],
+                    ['label' => 'Cari mahasiswa', 'message' => 'cari mahasiswa'],
+                    ['label' => 'Setujui akun tertentu', 'message' => '/help'],
+                ],
+            ],
+            'ruangan' => [
+                'Tentang ruangan:',
+                [
+                    ['label' => 'Status semua ruangan', 'message' => 'status ruangan sekarang'],
+                    ['label' => 'Pengajuan menunggu', 'message' => 'pengajuan ruangan yang menunggu'],
+                    ['label' => 'Daftar petugas', 'message' => 'daftar petugas ruangan'],
+                    ['label' => 'Agenda kalender', 'message' => 'agenda kalender bulan ini'],
+                ],
+            ],
+            'perangkat' => [
+                'Tentang perangkat:',
+                [
+                    ['label' => 'Status mesin sekarang', 'message' => 'status mesin IoT sekarang'],
+                    ['label' => 'Belum enroll fingerprint', 'message' => 'siapa yang belum enroll fingerprint'],
+                    ['label' => 'Log tap terbaru', 'message' => 'log absensi terbaru'],
+                ],
+            ],
+            'aksi' => [
+                'Aksi yang bisa saya siapkan (Anda tetap yang konfirmasi):',
+                [
+                    ['label' => 'Setujui akun — tulis: setujui akun #ID', 'message' => 'siapa yang menunggu persetujuan akun'],
+                    ['label' => 'Daftarkan ruangan — tulis: daftarkan ruangan <nama>', 'message' => 'daftarkan ruangan '],
+                    ['label' => 'Buat pengumuman — tulis: buat pengumuman tentang <topik>', 'message' => 'buat pengumuman tentang '],
+                    ['label' => 'Riwayat aksi saya', 'message' => 'riwayat aksi yang pernah kamu jalankan'],
+                ],
+            ],
+        ] : $sharedMap + [
+            '' => [
+                'Pilih topik menu:',
+                [
+                    ['label' => 'Rekap absensi', 'message' => '/menu rekap'],
+                    ['label' => 'Mahasiswa bimbingan', 'message' => '/menu akun'],
+                    ['label' => 'Tim PBL', 'message' => '/menu pbl'],
+                    ['label' => 'Pengajuan ruangan', 'message' => '/menu ruangan'],
+                    ['label' => 'Laporan & ekspor', 'message' => '/menu laporan'],
+                ],
+            ],
+            'akun' => [
+                'Tentang mahasiswa bimbingan:',
+                [
+                    ['label' => 'Semua mahasiswa bimbingan', 'message' => 'daftar mahasiswa bimbingan saya'],
+                    ['label' => 'Cari mahasiswa', 'message' => 'cari mahasiswa'],
+                    ['label' => 'Paling sering alfa', 'message' => 'daftar mahasiswa alfa minggu ini'],
+                ],
+            ],
+            'pbl' => [
+                'Tentang tim PBL yang Anda bimbing:',
+                [
+                    ['label' => 'Daftar tim PBL saya', 'message' => 'tampilkan tim PBL yang saya bimbing'],
+                    ['label' => 'Anggota tim tertentu', 'message' => 'tampilkan anggota tim '],
+                    ['label' => 'Pengajuan ruangan tim', 'message' => 'status pengajuan ruangan tim saya'],
+                ],
+            ],
+            'ruangan' => [
+                'Tentang ruangan & pengajuan tim:',
+                [
+                    ['label' => 'Status pengajuan tim saya', 'message' => 'status pengajuan ruangan tim saya'],
+                    ['label' => 'Agenda kalender', 'message' => 'agenda kalender bulan ini'],
+                ],
+            ],
+        ];
+        $item = $map[$menu] ?? null;
+        if ($item === null) {
+            return $this->helpReply($admin, $blocks);
+        }
+        [$text, $opts] = $item;
+        $blocks[] = ['type' => 'options', 'title' => 'Klik salah satu', 'items' => $opts];
+
+        return $text;
     }
 
     private function looksLikeWriteRequest(string $q): bool
@@ -957,7 +1436,7 @@ TXT;
         }
 
         $lines = ["Ringkasan jumlah pengguna (per {$at}):"];
-        foreach (['mahasiswa', 'dosen', 'laboran'] as $r) {
+        foreach (['mahasiswa', 'dosen', 'laboran', 'admin'] as $r) {
             if (! isset($by[$r])) {
                 continue;
             }

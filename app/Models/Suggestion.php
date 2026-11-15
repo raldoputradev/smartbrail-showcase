@@ -46,6 +46,8 @@ class Suggestion extends Model
 
         'user_read_reply_at',
 
+        'lampiran',
+
         'ip',
 
         'user_agent',

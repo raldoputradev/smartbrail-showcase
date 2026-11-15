@@ -30,7 +30,7 @@
 
                 @if($reportsUrl)
 
-                    Untuk rekap rentang tanggal, grafik tap/loker, dan agregat periode, buka
+                    Untuk rekap rentang tanggal, grafik tap, dan agregat periode, buka
 
                     <a href="{{ $reportsUrl }}">Laporan Periodik</a>.
 
@@ -44,7 +44,7 @@
 
             <p>
 
-                Rentang tanggal: total tap absensi &amp; loker, grafik harian, top mesin, dan rekap per mahasiswa.
+                Rentang tanggal: total tap absensi, grafik harian, top mesin, dan rekap per mahasiswa.
 
                 Panel hijau <strong>“📊 Panduan Laporan Periodik”</strong> (ringkas, klik untuk buka) — beda dengan rekap harian.
 

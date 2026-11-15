@@ -200,7 +200,7 @@
 
     function initAjaxLogin() {
         var btn = document.getElementById('loginSubmitBtn');
-        var form = document.querySelector('#panelLogin form[action*="login"]');
+        var form = document.querySelector('#panelLogin form');
         if (!btn || !form) return;
 
         var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -342,7 +342,6 @@
 
         function runFlip(mode) {
             clearFlip(chars);
-            // Force reflow so re-adding the class restarts animation
             void root.offsetWidth;
 
             for (var i = 0; i < n; i++) {
@@ -353,7 +352,6 @@
                     var mid = (n - 1) / 2;
                     delay = Math.abs(i - mid) * STAGGER_MS;
                 }
-                // sync => delay 0 for all
                 chars[i].style.animationDelay = delay + 'ms';
                 chars[i].classList.add('is-flipping');
             }
@@ -368,7 +366,6 @@
         }
 
         function pickMode() {
-            // Mostly per-letter; sometimes all / reverse / center burst
             var bag = ['wave', 'wave', 'wave', 'reverse', 'sync', 'center', 'wave', 'sync'];
             return bag[cycle % bag.length];
         }

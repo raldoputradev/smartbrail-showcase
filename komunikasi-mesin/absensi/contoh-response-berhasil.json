@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "message": "Absensi tersimpan.",
+  "data": {
+    "id": 42,
+    "user_id": 7,
+    "nama_lengkap": "Nama Mahasiswa",
+    "nitk_nidn": "4222301067",
+    "id_mesin": "MESIN_ABSENSI_01",
+    "waktu_tap": "2026-05-15 08:15:00"
+  }
+}

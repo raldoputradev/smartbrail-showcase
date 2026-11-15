@@ -22,6 +22,9 @@ class LoginSecurityService
 
     public const SUSPICIOUS_LOCKOUTS_24H = 3;
 
+    /** Maksimum durasi kunci wajib-unlock admin — mencegah DoS permanen pada akun. */
+    public const SUSPICIOUS_UNLOCK_HOURS = 24;
+
     public function ipBlockedMessage(Request $request): ?string
     {
         $key = $this->ipKey($request);
@@ -48,9 +51,16 @@ class LoginSecurityService
 
     public function accountBlockedMessage(User $user): ?string
     {
+        // `login_requires_admin_unlock` adalah tanda tinjauan untuk admin, BUKAN
+        // pemblokir login — bila memblokir, penyerang anonim bisa mengunci akun
+        // korban dan membocorkan keberadaan akun lewat pesan khusus.
         if ($user->login_requires_admin_unlock) {
-            return 'Akun dikunci demi keamanan setelah banyak percobaan login gagal. '
-                . 'Hubungi admin laboran untuk membuka kunci login.';
+            $markedAt = $user->login_suspicious_at;
+            if ($markedAt && $markedAt->diffInHours(now(), true) >= self::SUSPICIOUS_UNLOCK_HOURS) {
+                $user->forceFill(['login_requires_admin_unlock' => false])->save();
+            }
+
+            return null;
         }
 
         if ($user->login_locked_until && $user->login_locked_until->isFuture()) {
@@ -136,10 +146,6 @@ class LoginSecurityService
 
         if ($attempts >= self::MAX_FAILED_ATTEMPTS) {
             $wait = $this->formatWait(RateLimiter::availableIn($failKey));
-
-            if ($user?->login_requires_admin_unlock) {
-                return 'Akun dikunci demi keamanan. Hubungi admin laboran untuk membuka kunci login.';
-            }
 
             return 'Terlalu banyak percobaan login gagal. Akun / ID ini dikunci sementara. Coba lagi dalam '
                 . $wait . '.';

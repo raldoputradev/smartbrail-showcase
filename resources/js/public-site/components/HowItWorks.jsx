@@ -14,8 +14,8 @@ const STEPS = [
   },
   {
     n: '3',
-    title: 'Absen & Gunakan Loker',
-    desc: 'Enroll sidik jari di mesin ESP32, tap absensi, dan akses loker pintar dari aplikasi.',
+    title: 'Absen & Akses Ruangan',
+    desc: 'Enroll sidik jari di mesin ESP32, tap absensi, dan akses ruangan pintar dari aplikasi.',
   },
   {
     n: '4',

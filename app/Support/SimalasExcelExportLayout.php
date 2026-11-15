@@ -63,7 +63,7 @@ class SimalasExcelExportLayout
      */
     public static function logoAsset(): array
     {
-        foreach (['logo-aiot.png', 'logo-simalas.png'] as $file) {
+        foreach (['logo-smartbrail.png', 'logo-aiot.png', 'logo-simalas.png'] as $file) {
             $path = public_path('images/' . $file);
             if (!is_readable($path)) {
                 continue;
@@ -94,10 +94,10 @@ class SimalasExcelExportLayout
 
         if ($logo === '') {
             return '<td rowspan="' . $rowSpan . '" class="logo-cell" '
-                . 'style="width:' . $colW . 'px;font-weight:700;color:#1e3a5f;">AIoT</td>';
+                . 'style="width:' . $colW . 'px;font-weight:700;color:#1e3a5f;">SmartBrail</td>';
         }
 
-        $img = '<img src="' . $logo . '" alt="AIoT" class="logo-img" '
+        $img = '<img src="' . $logo . '" alt="SmartBrail" class="logo-img" '
             . 'width="' . $imgW . '" height="' . $imgH . '" '
             . 'style="width:' . $imgW . 'px;height:' . $imgH . 'px;border:0;">';
 

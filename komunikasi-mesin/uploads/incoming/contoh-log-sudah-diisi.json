@@ -1,0 +1,35 @@
+{
+  "tanggal": "2026-05-15T14:30:00+07:00",
+  "jenis": "loker",
+  "id_mesin": "MESIN_LOKER_01",
+  "arah": "mesin_ke_server",
+  "endpoint": "POST /api/mesin/loker",
+  "http_status": 403,
+  "request": {
+    "headers": {
+      "X-API-KEY": "***",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "id_mesin": "MESIN_LOKER_01",
+      "slot": 2,
+      "finger_id": 1,
+      "aksi": "buka"
+    }
+  },
+  "response": {
+    "success": false,
+    "message": "Akses loker ditolak. Loker #2 hanya untuk tim: Robotika.",
+    "data": {
+      "slot": 2,
+      "allowed_team_slot": "Robotika",
+      "berhasil": false
+    }
+  },
+  "catatan": "Mahasiswa tim lain tap slot yang hanya untuk Robotika",
+  "gejala": "Pintu tidak buka, LCD merah",
+  "langkah_sudah_dicoba": [
+    "Cek finger_id di serial monitor",
+    "Cek pengaturan slot di admin web"
+  ]
+}

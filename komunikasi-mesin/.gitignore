@@ -1,0 +1,13 @@
+# Log nyata dari lapangan — jangan commit API key / data pribadi
+uploads/incoming/*
+!uploads/incoming/.gitkeep
+!uploads/incoming/README.md
+!uploads/incoming/contoh-*.json
+
+uploads/archive/*
+!uploads/archive/.gitkeep
+!uploads/archive/README.md
+
+# Backup lokal
+*.bak
+*.log

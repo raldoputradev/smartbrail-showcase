@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Laporan SIMALAS</title>
+    <title>Laporan SmartBrail</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -23,18 +23,23 @@
             width: min(1120px, calc(100% - 36px));
             margin: 18px auto 0;
             display: flex;
+            align-items: center;
             justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
         }
-        .print-btn {
-            border: 0;
-            border-radius: 10px;
-            padding: 10px 16px;
-            background: linear-gradient(135deg, #1e3a5f, #4a90d9);
-            color: #fff;
-            font-weight: 800;
-            cursor: pointer;
-            box-shadow: 0 12px 26px rgba(74, 144, 217, 0.22);
+        .toolbar-label { color: #64748b; font-size: 12px; font-weight: 700; margin-right: 2px; }
+        .tb-btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            border: 0; border-radius: 10px; padding: 10px 16px;
+            color: #fff; font-weight: 800; font-size: 12.5px; cursor: pointer;
+            text-decoration: none; font-family: inherit;
+            transition: filter .15s, transform .15s;
         }
+        .tb-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .tb-btn--excel { background: linear-gradient(135deg, #15803d, #22c55e); }
+        .tb-btn--word { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+        .tb-btn--pdf { background: linear-gradient(135deg, #1e3a5f, #4a90d9); }
         .report-hero {
             display: flex;
             justify-content: space-between;
@@ -114,6 +119,16 @@
         tbody tr:nth-child(even) td { background: #f8fafc; }
         .right { text-align: right; }
         .empty { color: #64748b; text-align: center; padding: 16px; }
+        .nw { white-space: nowrap; }
+        .muted { color: #64748b; font-size: 9.5px; }
+        .chip-st {
+            display: inline-block; padding: 3px 9px; border-radius: 999px;
+            font-size: 9.5px; font-weight: 800; text-transform: capitalize;
+            background: #e2e8f0; color: #475569;
+        }
+        .chip-st--hadir, .chip-st--masuk, .chip-st--pulang, .chip-st--lengkap { background: #dcfce7; color: #15803d; }
+        .chip-st--tidak_lengkap, .chip-st--terlambat { background: #fef3c7; color: #b45309; }
+        .chip-st--alfa, .chip-st--ditolak { background: #fee2e2; color: #b91c1c; }
         .footer {
             margin-top: 24px;
             padding-top: 12px;
@@ -134,22 +149,27 @@
     </style>
 </head>
 <body>
-    @php $exportRoute = $reportPanel['routes']['export_excel'] ?? 'admin.reports.export.excel'; @endphp
-    <div class="toolbar no-print" style="gap:10px;">
-        <a href="{{ route($exportRoute, request()->query()) }}" class="print-btn" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#15803d,#22c55e);">Export Excel</a>
-        <button class="print-btn" onclick="window.print()">Cetak / Simpan PDF</button>
+    @php
+        $exportRoute = $reportPanel['routes']['export_excel'] ?? 'admin.reports.export.excel';
+        $wordRoute = $reportPanel['routes']['export_word'] ?? 'admin.reports.export.word';
+    @endphp
+    <div class="toolbar no-print">
+        <span class="toolbar-label">Simpan laporan:</span>
+        <a href="{{ route($exportRoute, request()->query()) }}" class="tb-btn tb-btn--excel">⬇ Excel (.xls)</a>
+        <a href="{{ route($wordRoute, request()->query()) }}" class="tb-btn tb-btn--word">⬇ Word (.doc)</a>
+        <button class="tb-btn tb-btn--pdf" onclick="window.print()">🖨 Cetak / Simpan PDF</button>
     </div>
 
     <main class="page">
         <section class="report-hero">
             <div>
                 <div class="brand">
-                    <div class="brand-mark">
-                        <img src="{{ asset('branding/aiot-simalas-mark-s.png') }}?v=4" alt="Logo AIoT SIMALAS" onerror="this.style.display='none';this.parentElement.textContent='AIoT';">
+                    <div class="brand-mark" style="background:#fff;">
+                        <img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/smartbrail-logo.png')) }}" alt="Logo SmartBrail" onerror="this.style.display='none';this.parentElement.textContent='SB';">
                     </div>
                     <div>
-                        <h1>Laporan SIMALAS</h1>
-                        <div class="subtitle">AIoT · Sistem Manajemen Laboratorium Pintar Berbasis IoT</div>
+                        <h1>Laporan SmartBrail</h1>
+                        <div class="subtitle">SmartBrail · Sistem Manajemen Laboratorium Pintar (BRAIL)</div>
                     </div>
                 </div>
                 <div class="subtitle">Rekap sesuai filter periode · kelas · tim PBL (bukan dump semua).</div>
@@ -165,20 +185,17 @@
 
         @php
             $printRows = $studentRecapsActive ?? $studentRecaps;
-            $printLoker = false;
         @endphp
 
         <section class="content">
             <div class="summary">
                 <div class="box"><span>Mahasiswa dalam cakupan</span><strong>{{ number_format($summary['mahasiswa'] ?? 0) }}</strong><small>orang</small></div>
                 <div class="box"><span>Mahasiswa dalam laporan</span><strong>{{ number_format($printRows->count()) }}</strong><small>orang</small></div>
-                @unless($printLoker)
+                
                     <div class="box"><span>Hadir</span><strong>{{ number_format($summary['hadir'] ?? 0) }}</strong><small>sesi-mahasiswa</small></div>
                     <div class="box"><span>Tidak Lengkap</span><strong>{{ number_format($summary['tidak_lengkap'] ?? 0) }}</strong><small>sesi-mahasiswa</small></div>
                     <div class="box"><span>Alfa</span><strong>{{ number_format($summary['alfa'] ?? 0) }}</strong><small>sesi-mahasiswa</small></div>
-                @else
-                    <div class="box"><span>Loker</span><strong>{{ number_format($summary['loker'] ?? 0) }}</strong></div>
-                @endunless
+                
             </div>
             <p class="summary-note">Dalam laporan = mahasiswa dalam cakupan yang punya catatan hadir/tidak lengkap/alfa di periode. Hadir, tidak lengkap, dan alfa dihitung per sesi-mahasiswa (1 mahasiswa pada 1 sesi di 1 tanggal; dua sesi di tanggal yang sama dihitung dua).</p>
 
@@ -190,13 +207,11 @@
                         <th>NIM</th>
                         <th>Kelas</th>
                         <th>Tim</th>
-                        @unless($printLoker)
+                        
                             <th class="right">Hadir (sesi)</th>
                             <th class="right">Tidak Lengkap (sesi)</th>
                             <th class="right">Alfa (sesi)</th>
-                        @else
-                            <th class="right">Loker</th>
-                        @endunless
+                        
                         <th>Terakhir</th>
                     </tr>
                 </thead>
@@ -207,13 +222,11 @@
                             <td>{{ $row['nim'] }}</td>
                             <td>{{ $row['kelas'] }}</td>
                             <td>{{ $row['tim'] }}</td>
-                            @unless($printLoker)
+                            
                                 <td class="right">{{ $row['hadir'] ?? 0 }}</td>
                                 <td class="right">{{ $row['tidak_lengkap'] ?? 0 }}</td>
                                 <td class="right">{{ $row['alfa'] ?? 0 }}</td>
-                            @else
-                                <td class="right">{{ number_format($row['loker'] ?? 0) }}</td>
-                            @endunless
+                            
                             <td>{{ $row['terakhir'] ? $row['terakhir']->format('Y-m-d H:i:s') : '-' }}</td>
                         </tr>
                     @empty
@@ -226,36 +239,32 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Waktu</th>
+                        <th style="width:120px;">Waktu</th>
                         <th>Aktivitas</th>
-                        <th>Nama</th>
-                        <th>NIM</th>
-                        <th>Kelas</th>
-                        <th>Tim</th>
-                        <th>ID Mesin</th>
-                        <th>Status</th>
+                        <th>Mahasiswa</th>
+                        <th>Kelas · Tim</th>
+                        <th>Mesin</th>
+                        <th style="width:150px;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($detailRows as $row)
                         <tr>
-                            <td>{{ optional($row['waktu'])->format('Y-m-d H:i:s') }}</td>
+                            <td class="nw">{{ optional($row['waktu'])->format('d M Y') }}<br><small class="muted">{{ optional($row['waktu'])->format('H:i:s') }}</small></td>
                             <td>{{ $row['aktivitas'] }}</td>
-                            <td>{{ $row['nama'] }}</td>
-                            <td>{{ $row['nim'] }}</td>
-                            <td>{{ $row['kelas'] }}</td>
-                            <td>{{ $row['tim'] }}</td>
+                            <td><strong>{{ $row['nama'] }}</strong><br><small class="muted">{{ $row['nim'] }}</small></td>
+                            <td>{{ $row['kelas'] }}@if(!empty($row['tim']) && $row['tim'] !== '-')<br><small class="muted">{{ $row['tim'] }}</small>@endif</td>
                             <td>{{ $row['id_mesin'] }}</td>
-                            <td>{{ $row['status'] }}@if(!empty($row['status_meta'])) · {{ $row['status_meta'] }}@endif</td>
+                            <td><span class="chip-st chip-st--{{ $row['status'] ?? 'lain' }}">{{ $row['status'] }}</span>@if(!empty($row['status_meta']))<br><small class="muted">{{ $row['status_meta'] }}</small>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="empty">Belum ada detail aktivitas pada filter ini.</td></tr>
+                        <tr><td colspan="6" class="empty">Belum ada detail aktivitas pada filter ini.</td></tr>
                     @endforelse
                 </tbody>
             </table>
 
             <div class="footer">
-                <span>Dicetak otomatis dari SIMALAS pada {{ now()->translatedFormat('d M Y H:i') }}</span>
+                <span>Dicetak otomatis dari SmartBrail pada {{ now()->translatedFormat('d M Y H:i') }}</span>
                 <span>Politeknik Negeri Batam</span>
             </div>
         </section>

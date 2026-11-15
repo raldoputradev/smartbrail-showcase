@@ -322,7 +322,7 @@ window.SimalasCharts = (function () {
         const datasets = [];
         const primaryLine = config.percentLine || config.absensi;
 
-        if (activity !== 'loker' && primaryLine) {
+        if (primaryLine) {
             const isPercent = Boolean(config.yMaxPercent);
             const lineRgb = isPercent ? '59, 130, 246' : '34, 211, 238';
             const lineColor = isPercent ? '#3b82f6' : '#22d3ee';
@@ -346,26 +346,6 @@ window.SimalasCharts = (function () {
             });
         }
 
-        if (activity !== 'absensi' && config.loker) {
-            datasets.push({
-                label: config.lokerLabel || 'Akses Loker',
-                data: config.loker,
-                borderColor: '#a78bfa',
-                backgroundColor: (c) => {
-                    const { chart } = c;
-                    if (!chart.chartArea) return 'rgba(167, 139, 250, 0.1)';
-                    return makeGradient(chart.ctx, chart.chartArea, '167, 139, 250');
-                },
-                fill: true,
-                tension: 0.42,
-                borderWidth: 2.5,
-                pointRadius: 0,
-                pointHoverRadius: 5,
-                pointHoverBorderWidth: 2,
-                pointBackgroundColor: '#a78bfa',
-                yAxisID: activity === 'semua' ? 'y1' : 'y',
-            });
-        }
 
         const scales = {
             x: {
@@ -387,15 +367,6 @@ window.SimalasCharts = (function () {
             },
         };
 
-        if (activity === 'semua' && config.loker && config.absensi) {
-            scales.y1 = {
-                beginAtZero: true,
-                position: 'right',
-                grid: { drawOnChartArea: false },
-                ticks: { font: { family: font, size: 11 }, color: textColor(), precision: 0 },
-                border: { display: false },
-            };
-        }
 
         const pointCount = labels.length || 7;
         const progressive = lineProgressiveAnimation(pointCount);

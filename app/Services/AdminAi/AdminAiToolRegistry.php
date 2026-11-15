@@ -11,6 +11,29 @@ final class AdminAiToolRegistry
     /** Copilot baca-saja: tool write tetap terdaftar, tetapi tidak bisa dipanggil. */
     public const READ_ONLY = true;
 
+    /** Aksi tulis yang diaktifkan lewat preview+konfirmasi (HITL) walau READ_ONLY aktif. */
+    public const WRITE_TOOLS_ENABLED = [
+        'reply_suggestion',
+        'approve_user',
+        'reject_user',
+        'bulk_approve_ready',
+        'unlock_user_login',
+        'toggle_user_active',
+        'draft_pengumuman',
+        'create_announcement',
+        'toggle_announcement',
+        'create_ruangan',
+        'toggle_mesin',
+        'koreksi_absensi_harian',
+        'batalkan_alfa',
+        'selesai_tidak_lengkap',
+    ];
+
+    public static function writeEnabled(string $tool): bool
+    {
+        return in_array($tool, self::WRITE_TOOLS_ENABLED, true);
+    }
+
     /**
      * Tool yang dideklarasikan ke model. Hanya agregat yang dikirim ke provider;
      * daftar nama/NIM dikirim langsung ke UI sebagai blok.
@@ -25,15 +48,37 @@ final class AdminAiToolRegistry
         'attention_today',
         'ops_summary',
         'mesin_status',
+        'ruangan_status',
+        'pengajuan_pending',
+        'petugas_list',
+        'kalender_agenda',
+        'list_pending_approvals',
+        'enroll_pending',
+        'riwayat_aksi_ai',
+        'monitoring_snapshot',
+        'log_absensi_cari',
+        'approve_user',
+        'bulk_approve_ready',
+        'draft_pengumuman',
+        'create_announcement',
+        'create_ruangan',
+        'toggle_mesin',
     ];
 
-    /** Dosen/KPS: hanya mahasiswa, absensi, rekap, dan laporan. */
+    /** Dosen/KPS: mahasiswa bimbingan, absensi, rekap, laporan, dan tim PBL. */
     public const COPILOT_TOOLS_DOSEN = [
+        'kalender_agenda',
         'ringkasan_absensi_hari_ini',
         'daftar_absensi_hari_ini',
         'laporan_absensi_periode',
         'cari_mahasiswa',
         'chart_absensi',
+        'tim_pbl_saya',
+        'mahasiswa_bimbingan',
+        'pengajuan_ruangan_saya',
+        'list_alfa',
+        'list_announcements',
+        'log_absensi_cari',
     ];
 
     /** Izin menu dosen yang sudah dipakai halaman dosen untuk data yang sama. */
@@ -43,6 +88,13 @@ final class AdminAiToolRegistry
         'laporan_absensi_periode' => ['dosen_absensi', 'view'],
         'cari_mahasiswa' => ['dosen_mahasiswa', 'view'],
         'chart_absensi' => ['dosen_absensi', 'view'],
+        'kalender_agenda' => ['dosen_absensi', 'view'],
+        'tim_pbl_saya' => ['dosen_pbl', 'view'],
+        'mahasiswa_bimbingan' => ['dosen_mahasiswa', 'view'],
+        'pengajuan_ruangan_saya' => ['dosen_pbl', 'view'],
+        'list_alfa' => ['dosen_absensi', 'view'],
+        'list_announcements' => ['announcements', 'view'],
+        'log_absensi_cari' => ['dosen_absensi', 'view'],
     ];
 
     /**
@@ -53,7 +105,7 @@ final class AdminAiToolRegistry
     public static function copilotToolsFor(string $role): array
     {
         return match ($role) {
-            'laboran' => self::COPILOT_TOOLS,
+            'admin', 'laboran' => self::COPILOT_TOOLS,
             'dosen' => self::COPILOT_TOOLS_DOSEN,
             default => [],
         };
@@ -72,7 +124,7 @@ final class AdminAiToolRegistry
         }
 
         return match ($role) {
-            'laboran' => $meta['perm'],
+            'admin', 'laboran' => $meta['perm'],
             'dosen' => self::DOSEN_PERMS[$tool] ?? null,
             default => null,
         };
@@ -152,6 +204,46 @@ final class AdminAiToolRegistry
                         'q' => ['type' => 'string', 'description' => 'Nama atau NIM'],
                     ],
                     'required' => ['q'],
+                ],
+            ],
+            'tim_pbl_saya' => [
+                'kind' => 'read',
+                'perm' => ['users', 'view'],
+                'title' => 'Tim PBL bimbingan',
+                'description' => 'DOSEN: daftar tim PBL aktif yang dibimbing pengguna (manpro/co-manpro) beserta jumlah anggota. WAJIB dipakai untuk pertanyaan tim PBL/bimbingan/anggota tim. Isi tim untuk daftar anggota satu tim.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'tim' => ['type' => 'string', 'description' => 'Nama/kode tim untuk daftar anggota (opsional)'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            'mahasiswa_bimbingan' => [
+                'kind' => 'read',
+                'perm' => ['users', 'view'],
+                'title' => 'Mahasiswa bimbingan',
+                'description' => 'DOSEN: daftar seluruh mahasiswa dalam lingkup bimbingan (kelas yang ditugaskan + tim PBL). Pakai untuk "siapa mahasiswa bimbingan saya", "berapa mahasiswa saya", atau daftar tanpa kata kunci. Filter opsional kelas/tim.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'kelas' => ['type' => 'string'],
+                        'tim' => ['type' => 'string'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+            'pengajuan_ruangan_saya' => [
+                'kind' => 'read',
+                'perm' => ['users', 'view'],
+                'title' => 'Pengajuan ruangan tim',
+                'description' => 'DOSEN: status pengajuan pemakaian ruangan dari tim PBL yang Anda bimbing (menunggu/disetujui/ditolak/dibatalkan). Pakai untuk "status pengajuan ruangan tim saya".',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'status' => ['type' => 'string', 'enum' => ['semua', 'menunggu', 'disetujui', 'ditolak', 'dibatalkan']],
+                    ],
+                    'required' => [],
                 ],
             ],
             'ops_summary' => [
@@ -251,7 +343,7 @@ final class AdminAiToolRegistry
                     'type' => 'object',
                     'properties' => [
                         'q' => ['type' => 'string', 'description' => 'Kata kunci nama / NITK / email, atau kosong/list untuk daftar'],
-                        'role' => ['type' => 'string', 'enum' => ['semua', 'mahasiswa', 'dosen', 'laboran'], 'description' => 'Filter role (default semua)'],
+                        'role' => ['type' => 'string', 'enum' => ['semua', 'admin', 'mahasiswa', 'dosen', 'laboran'], 'description' => 'Filter role (default semua)'],
                     ],
                     'required' => [],
                 ],
@@ -264,7 +356,7 @@ final class AdminAiToolRegistry
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
-                        'role' => ['type' => 'string', 'enum' => ['semua', 'mahasiswa', 'dosen', 'laboran'], 'description' => 'Fokus role (default semua = ringkasan semua role)'],
+                        'role' => ['type' => 'string', 'enum' => ['semua', 'admin', 'mahasiswa', 'dosen', 'laboran'], 'description' => 'Fokus role (default semua = ringkasan semua role)'],
                     ],
                     'required' => [],
                 ],
@@ -273,7 +365,7 @@ final class AdminAiToolRegistry
                 'kind' => 'read',
                 'perm' => ['monitoring', 'view'],
                 'title' => 'Snapshot monitoring',
-                'description' => 'Metrik live: mesin online/offline, tap absensi & loker hari ini, 8 aktivitas terbaru.',
+                'description' => 'Metrik live: mesin online/offline, tap absensi hari ini, 8 aktivitas terbaru.',
                 'parameters' => ['type' => 'object', 'properties' => (object) [], 'required' => []],
             ],
             'log_absensi_cari' => [
@@ -311,7 +403,7 @@ final class AdminAiToolRegistry
                 'kind' => 'read',
                 'perm' => ['reports', 'view'],
                 'title' => 'Riwayat pengguna',
-                'description' => 'Ringkas tap absensi + akses loker satu user untuk N hari terakhir (default 7, max 31). Catatan: absensi dan loker independen — buka loker tanpa absen adalah normal.',
+                'description' => 'Ringkas tap absensi satu user untuk N hari terakhir (default 7, max 31).',
                 'parameters' => [
                     'type' => 'object',
                     'properties' => [
@@ -348,7 +440,78 @@ final class AdminAiToolRegistry
                 ],
             ],
 
+            'ruangan_status' => [
+                'kind' => 'read',
+                'perm' => ['ruangan', 'view'],
+                'title' => 'Status ruangan',
+                'description' => 'Daftar ruangan beserta status aktif, kapasitas, fasilitas, perangkat terikat, dan pemakaian. Filter q opsional.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => ['q' => ['type' => 'string', 'description' => 'Filter nama/kode ruangan']],
+                    'required' => [],
+                ],
+            ],
+            'pengajuan_pending' => [
+                'kind' => 'read',
+                'perm' => ['ruangan_persetujuan', 'view'],
+                'title' => 'Pengajuan ruangan menunggu',
+                'description' => 'Antrian pengajuan ruangan yang menunggu keputusan (maks 20): pemohon, ruangan, tanggal, jam, keperluan.',
+                'parameters' => ['type' => 'object', 'properties' => (object) [], 'required' => []],
+            ],
+            'petugas_list' => [
+                'kind' => 'read',
+                'perm' => ['petugas', 'view'],
+                'title' => 'Daftar petugas ruangan',
+                'description' => 'Petugas/CS non-portal yang disinkron ke mesin: nama, status, ruangan akses. Bukan akun portal.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => ['q' => ['type' => 'string', 'description' => 'Filter nama petugas']],
+                    'required' => [],
+                ],
+            ],
+            'kalender_agenda' => [
+                'kind' => 'read',
+                'perm' => ['attendance', 'view'],
+                'title' => 'Agenda kalender',
+                'description' => 'Agenda kalender pusat (libur, peringatan, ujian, perubahan jam, informasi, agenda) untuk bulan tertentu atau 60 hari ke depan.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => ['bulan' => ['type' => 'string', 'description' => 'Format YYYY-MM; kosong = 60 hari ke depan']],
+                    'required' => [],
+                ],
+            ],
+            'riwayat_aksi_ai' => [
+                'kind' => 'read',
+                'perm' => ['dashboard', 'view'],
+                'title' => 'Riwayat aksi AI',
+                'description' => 'Laporan aksi yang pernah diusulkan/dijalankan asisten untuk Anda: status pending/confirmed/failed/cancelled.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'status' => ['type' => 'string', 'enum' => ['pending', 'confirmed', 'failed', 'cancelled']],
+                        'limit' => ['type' => 'integer', 'description' => 'Maks 20'],
+                    ],
+                    'required' => [],
+                ],
+            ],
+
             // Write — proposal only
+            'create_ruangan' => [
+                'kind' => 'write',
+                'perm' => ['ruangan', 'create'],
+                'title' => 'Daftarkan ruangan baru',
+                'description' => 'Usulkan mendaftarkan ruangan baru (butuh konfirmasi). Berikan nama, opsional kode/kapasitas/fasilitas.',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'nama' => ['type' => 'string', 'description' => 'Nama ruangan'],
+                        'kode' => ['type' => 'string', 'description' => 'Kode singkat, mis. LAB-301'],
+                        'kapasitas' => ['type' => 'integer'],
+                        'fasilitas' => ['type' => 'string', 'description' => 'Daftar fasilitas dipisah koma'],
+                    ],
+                    'required' => ['nama'],
+                ],
+            ],
             'approve_user' => [
                 'kind' => 'write',
                 'perm' => ['users', 'update'],
@@ -594,7 +757,7 @@ final class AdminAiToolRegistry
         }
         $out = [];
         foreach (self::all() as $name => $meta) {
-            if (! in_array($name, self::copilotToolsFor($user->role), true) || (self::READ_ONLY && $meta['kind'] !== 'read')) {
+            if (! in_array($name, self::copilotToolsFor($user->role), true) || (self::READ_ONLY && $meta['kind'] !== 'read' && ! self::writeEnabled($name))) {
                 continue;
             }
             $perm = self::permFor($name, $user->role);

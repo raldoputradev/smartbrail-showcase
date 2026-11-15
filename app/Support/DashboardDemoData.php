@@ -53,10 +53,6 @@ final class DashboardDemoData
             'tap_prev' => $tapPrev,
             'tap_delta' => $tap - $tapPrev,
             'tap_meta' => DashboardStatLabels::tapAbsensiMeta($tap - $tapPrev, $tapPrev, $mode),
-            'akses_loker' => 0,
-            'loker_prev' => 0,
-            'loker_delta' => 0,
-            'loker_meta' => '',
         ]);
 
         $payload['ops'] = [
@@ -135,10 +131,6 @@ final class DashboardDemoData
             'tap_prev' => $tapsPrev,
             'tap_delta' => $taps - $tapsPrev,
             'tap_meta' => DashboardStatLabels::tapAbsensiMeta($taps - $tapsPrev, $tapsPrev, $mode),
-            'akses_loker' => 0,
-            'loker_prev' => 0,
-            'loker_delta' => 0,
-            'loker_meta' => '',
         ]);
 
         $payload['line'] = [
@@ -166,8 +158,8 @@ final class DashboardDemoData
             'labels' => ['Sen', 'Sel', 'Rab', 'Kam', 'Jum'],
             'values' => [18, 21, 16, 24, 19],
             'colors' => ['#38bdf8', '#38bdf8', '#38bdf8', '#0ea5e9', '#38bdf8'],
-            'title' => 'Akses loker tim Anda',
-            'subtitle' => 'Contoh aktivitas loker harian',
+            'title' => 'Kehadiran tim Anda',
+            'subtitle' => 'Contoh aktivitas kehadiran harian',
         ];
 
         return $payload;

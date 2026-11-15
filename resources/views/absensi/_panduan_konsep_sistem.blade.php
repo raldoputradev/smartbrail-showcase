@@ -12,7 +12,7 @@
         <li><strong>Rekap Harian</strong> = status per mahasiswa per hari (lengkap, alfa, koreksi).
             @if($rekapUrl)<a href="{{ $rekapUrl }}">Buka rekap harian</a>.@endif
         </li>
-        <li><strong>Laporan Periodik</strong> = agregat rentang tanggal (jumlah tap, grafik, aktivitas loker).
+        <li><strong>Laporan Periodik</strong> = agregat rentang tanggal (jumlah tap, grafik aktivitas).
             @if($reportsUrl)<a href="{{ $reportsUrl }}">Buka laporan periodik</a>.@endif
         </li>
         @if($settingsUrl)

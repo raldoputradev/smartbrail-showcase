@@ -1,0 +1,6 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^$ /Simalas/public/ [R=302,L]
+    RewriteCond %{REQUEST_URI} !^/Simalas/public/
+    RewriteRule ^(.+)$ /Simalas/public/$1 [R=302,L]
+</IfModule>

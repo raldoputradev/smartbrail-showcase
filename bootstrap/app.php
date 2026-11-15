@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
         $middleware->web(append: [
+            \App\Http\Middleware\HandleInertiaRequests::class,
             \App\Http\Middleware\DismissStaffNotifFromQuery::class,
             \App\Http\Middleware\EnforceWebSessionTimeout::class,
         ]);
@@ -34,8 +35,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'perm' => \App\Http\Middleware\PermissionMiddleware::class,
             'approved' => \App\Http\Middleware\EnsureAccountApproved::class,
+            'password.changed' => \App\Http\Middleware\EnsurePasswordChanged::class,
             'mobile.auth' => \App\Http\Middleware\EnsureMobileToken::class,
             'mesin.auth' => \App\Http\Middleware\MesinApiAuth::class,
+            'admin.only' => \App\Http\Middleware\RequireAdmin::class,
             'no.back' => \App\Http\Middleware\PreventBackHistory::class,
         ]);
     })

@@ -28,7 +28,7 @@ flowchart LR
 
 ### Batas tanggung jawab
 
-- **Web:** landing publik, autentikasi staff, dashboard, manajemen, rekap/laporan, PBL, komunikasi, dan Copilot. Entry route: `routes/web.php`.
+- **Web:** landing publik, autentikasi staff, portal mahasiswa, dashboard, manajemen, rekap/laporan, PBL, komunikasi, dan Copilot. Entry route: `routes/web.php`; portal mahasiswa memakai `StudentAuthController` dan `StudentPortalController` dengan session web.
 - **Mobile API:** registrasi/login mahasiswa, profil, absensi sendiri, PBL, pengumuman/saran, push token. Entry route: `routes/api.php` prefix `/api/mobile`.
 - **Machine API:** heartbeat, tap, resolve/enroll, dan sinkronisasi template. Entry route: `routes/api.php` prefix `/api/mesin`; autentikasi perangkat dengan hash API key dan ID mesin.
 - **Flutter:** `simalas_mobile/lib/main.dart`, `api_config.dart`, screens/widgets. `main()` menginisialisasi lokalisasi/push lalu `SimalasApp`/`AppGate`; `ApiClient` memakai base URL yang dapat dioverride `--dart-define`.
@@ -51,7 +51,7 @@ flowchart LR
 |---|---|---|---|
 | Laboran | Web admin | Session Laravel setelah login | `role:laboran`, `approved`, permission menu CRUD |
 | Dosen | Web dosen | Session Laravel | `role:dosen`, permission; scope mahasiswa/tim diterapkan oleh query/support |
-| Mahasiswa | Flutter | Bearer token acak, SHA-256 di DB, idle expiry | Login hanya mahasiswa aktif/approved; data pribadi dibatasi `mobile_user` |
+| Mahasiswa | Portal web + Flutter | Session web atau Bearer token SHA-256 | Login hanya mahasiswa aktif/approved; data pribadi dibatasi sesi/`mobile_user` |
 | Mesin | API ESP32 | `X-API-KEY` + ID mesin | API key diverifikasi dengan `Hash::check`, mesin aktif dan tipe route |
 
 Middleware didaftarkan di `bootstrap/app.php`: `RoleMiddleware`, `PermissionMiddleware`, `EnsureAccountApproved`, `EnsureMobileToken`, dan `MesinApiAuth`.

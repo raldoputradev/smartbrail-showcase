@@ -170,6 +170,13 @@
             });
     });
 
+    // Heartbeat presence — jaga last_seen_at tetap segar walau user pasif
+    // (tab dibiarkan terbuka). Browser men-throttle interval di tab tersembunyi,
+    // jadi tidak membebani server.
+    setInterval(function () {
+        pingServer().catch(function () { /* presence saja — abaikan error */ });
+    }, 150000);
+
     // Ping awal agar sesi server hidup sejak halaman dibuka
     pingServer().finally(scheduleIdle);
 })();

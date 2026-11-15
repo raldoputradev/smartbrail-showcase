@@ -88,7 +88,8 @@ class AccountApprovalNotifier
     {
         $name = trim((string) $admin->nama_lengkap);
         $role = match ($admin->role) {
-            'laboran' => 'Admin Laboran',
+            'admin' => 'Admin',
+            'laboran' => 'Laboran',
             'dosen' => 'Dosen',
             default => ucfirst((string) $admin->role),
         };

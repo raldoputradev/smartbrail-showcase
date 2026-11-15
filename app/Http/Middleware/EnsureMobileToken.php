@@ -47,9 +47,27 @@ class EnsureMobileToken
             ], 401);
         }
 
-        $user->forceFill([
+        if ($user->mustChangePassword()) {
+            $user->forceFill([
+                'mobile_api_token' => null,
+                'mobile_token_expires_at' => null,
+            ])->save();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Akun wajib mengganti password sementara melalui portal web SIMALAS.',
+                'code' => 'PASSWORD_CHANGE_REQUIRED',
+                'data' => [
+                    'login_url' => route('login', ['role' => 'mahasiswa']),
+                ],
+            ], 403);
+        }
+
+        $user->forceFill(array_merge([
             'mobile_token_expires_at' => now()->addMinutes(MobileAuthController::TOKEN_IDLE_MINUTES),
-        ])->save();
+        ], $user->last_seen_at === null || $user->last_seen_at->lt(now()->subSeconds(60))
+            ? ['last_seen_at' => now()]
+            : []))->save();
 
         if (!$user->is_active) {
             return response()->json([

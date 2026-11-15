@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\AdminShellProps;
 use App\Models\MesinIot;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class MesinIotController extends Controller
 {
+    use AdminShellProps;
+
     public function index(Request $request)
     {
-        $query = MesinIot::query()->where('tipe', '!=', 'loker');
+        $query = MesinIot::query()->where('tipe', '!=', 'loker')->with('ruangan:id,nama,kode');
 
         if ($request->filled('q')) {
             $keyword = trim((string) $request->q);
@@ -49,7 +53,6 @@ class MesinIotController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $newApiKey = session('mesin_plain_key');
         $typeOptions = $this->typeOptions();
 
         $total = MesinIot::query()->where('tipe', '!=', 'loker')->count();
@@ -69,7 +72,219 @@ class MesinIotController extends Controller
                 ->all(),
         ];
 
-        return view('admin.mesin', compact('mesin', 'newApiKey', 'typeOptions', 'stats'));
+        // Kontak tap terakhir per mesin (satu query agregat untuk halaman ini).
+        $lastTaps = \App\Models\LogAbsensi::query()
+            ->whereIn('id_mesin', $mesin->pluck('id_mesin'))
+            ->selectRaw('id_mesin, MAX(waktu_tap) as last_tap')
+            ->groupBy('id_mesin')
+            ->pluck('last_tap', 'id_mesin');
+
+        $user = $request->user();
+        $isAdmin = (bool) ($user?->isAdmin());
+        $can = [
+            'create' => $isAdmin && \App\Support\PermissionRegistry::canCurrent('mesin', 'create'),
+            'update' => $isAdmin && \App\Support\PermissionRegistry::canCurrent('mesin', 'update'),
+            'delete' => $isAdmin && \App\Support\PermissionRegistry::canCurrent('mesin', 'delete'),
+        ];
+
+        $items = $mesin->getCollection()->map(function (MesinIot $m) use ($lastTaps) {
+            $conn = !$m->is_active ? 'inactive' : ($m->isOnline() ? 'online' : 'offline');
+            $lastTap = $lastTaps[$m->id_mesin] ?? null;
+            return [
+                'id' => $m->id,
+                'id_mesin' => $m->id_mesin,
+                'nama_mesin' => $m->nama_mesin ?: $m->id_mesin,
+                'tipe' => (string) $m->tipe,
+                'tipe_label' => Str::title(str_replace(['_', '-'], ' ', (string) $m->tipe)),
+                'ruangan' => $m->ruangan?->nama,
+                'ruangan_id' => $m->ruangan_id,
+                'is_active' => (bool) $m->is_active,
+                'conn' => $conn,
+                'conn_label' => match ($conn) {
+                    'online' => 'Online',
+                    'offline' => 'Offline',
+                    default => 'Nonaktif',
+                },
+                'last_seen_label' => $m->last_seen_at?->diffForHumans() ?? 'Belum heartbeat',
+                'last_seen_exact' => $m->last_seen_at?->translatedFormat('d M Y H:i:s'),
+                'last_tap_label' => $lastTap ? \Carbon\Carbon::parse($lastTap)->diffForHumans() : 'Belum ada tap',
+                'last_tap_exact' => $lastTap ? \Carbon\Carbon::parse($lastTap)->translatedFormat('d M Y H:i:s') : null,
+                'updated_label' => $m->updated_at?->translatedFormat('d M Y · H:i'),
+            ];
+        })->values()->all();
+
+        // Setup sekali tampil setelah create/regenerate — plain key hanya lewat sini.
+        $setup = null;
+        if (session('mesin_plain_key')) {
+            $setup = [
+                'key' => session('mesin_plain_key'),
+                'id' => session('mesin_plain_id'),
+                'name' => session('mesin_plain_name', session('mesin_plain_id')),
+                'tipe' => session('mesin_plain_tipe', 'absensi'),
+                'mode' => session('mesin_setup_mode', 'create'),
+            ];
+        }
+
+        Inertia::setRootView('app-admin');
+
+        return Inertia::render('Mesin', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'stats' => $stats,
+            'type_options' => $typeOptions,
+            'filters' => [
+                'q' => (string) $request->query('q', ''),
+                'tipe' => (string) $request->query('tipe', ''),
+                'status' => (string) $request->query('status', ''),
+            ],
+            'mesin' => [
+                'data' => $items,
+                'meta' => [
+                    'current_page' => $mesin->currentPage(),
+                    'last_page' => $mesin->lastPage(),
+                    'total' => $mesin->total(),
+                    'per_page' => $mesin->perPage(),
+                    'from' => $mesin->firstItem(),
+                    'to' => $mesin->lastItem(),
+                ],
+                'links' => $mesin->linkCollection()->map(fn ($l) => [
+                    'url' => $l['url'], 'label' => $l['label'], 'active' => $l['active'],
+                ])->all(),
+            ],
+            'can' => $can,
+            'ruangan_options' => $isAdmin
+                ? \App\Models\Ruangan::query()->where('aktif', true)->orderBy('nama')->get(['id', 'nama', 'kode'])
+                : [],
+            'setup' => $setup,
+            'threshold_minutes' => MesinIot::ONLINE_THRESHOLD_MINUTES,
+            'api_base' => rtrim(url('/api/mesin'), '/'),
+            'urls' => [
+                'index' => route('admin.mesin.index'),
+                'store' => route('admin.mesin.store'),
+                'monitoring' => route('admin.monitoring'),
+                'log' => route('admin.log.absensi'),
+            ],
+        ]);
+    }
+
+    /**
+     * Halaman panduan integrasi + program mesin (Arduino IDE).
+     * Referensi endpoint per tipe mesin dan unduh sketch .ino per perangkat.
+     */
+    public function panduan(Request $request)
+    {
+        $user = $request->user();
+
+        $mesin = MesinIot::query()
+            ->where('tipe', '!=', 'loker')
+            ->with('ruangan:id,nama,kode')
+            ->orderBy('id_mesin')
+            ->get();
+
+        // Riwayat ringkas per mesin: tap absensi atau event akses ruangan.
+        $riwayatTap = \App\Models\LogAbsensi::query()
+            ->whereIn('id_mesin', $mesin->pluck('id_mesin'))
+            ->with('user:id,nama_lengkap')
+            ->latest('waktu_tap')
+            ->limit(60)
+            ->get()
+            ->groupBy('id_mesin');
+        $riwayatEvent = \App\Models\RuanganAccessEvent::query()
+            ->whereIn('mesin_iot_id', $mesin->pluck('id'))
+            ->with('user:id,nama_lengkap')
+            ->latest('terjadi_pada')
+            ->limit(60)
+            ->get()
+            ->groupBy('mesin_iot_id');
+
+        $items = $mesin->map(function (MesinIot $m) use ($riwayatTap, $riwayatEvent) {
+            $conn = !$m->is_active ? 'inactive' : ($m->isOnline() ? 'online' : 'offline');
+            $isAbsensi = $m->tipe === 'absensi';
+
+            $riwayat = $isAbsensi
+                ? ($riwayatTap[$m->id_mesin] ?? collect())->take(8)->map(fn ($l) => [
+                    'label' => $l->user?->nama_lengkap ?? 'Tanpa identitas',
+                    'hasil' => $l->jenis ?: 'tap',
+                    'waktu' => $l->waktu_tap?->diffForHumans(),
+                ])->values()->all()
+                : ($riwayatEvent[$m->id] ?? collect())->take(8)->map(fn ($e) => [
+                    'label' => $e->user?->nama_lengkap ?? ucfirst($e->jenis),
+                    'hasil' => $e->hasil ?: $e->jenis,
+                    'waktu' => $e->terjadi_pada?->diffForHumans(),
+                ])->values()->all();
+
+            $lastTap = $isAbsensi
+                ? ($riwayatTap[$m->id_mesin] ?? collect())->first()?->waktu_tap
+                : ($riwayatEvent[$m->id] ?? collect())->first()?->terjadi_pada;
+
+            return [
+                'id' => $m->id,
+                'id_mesin' => $m->id_mesin,
+                'nama_mesin' => $m->nama_mesin ?: $m->id_mesin,
+                'tipe' => (string) $m->tipe,
+                'tipe_label' => $isAbsensi ? 'Absensi' : 'Pintu',
+                'ruangan' => $m->ruangan?->nama,
+                'is_active' => (bool) $m->is_active,
+                'conn' => $conn,
+                'conn_label' => match ($conn) {
+                    'online' => 'Online',
+                    'offline' => 'Offline',
+                    default => 'Nonaktif',
+                },
+                'last_seen_label' => $m->last_seen_at?->diffForHumans() ?? 'Belum heartbeat',
+                'last_seen_exact' => $m->last_seen_at?->translatedFormat('d M Y, H:i'),
+                'last_tap_label' => $lastTap?->diffForHumans() ?? 'Belum ada aktivitas',
+                'sketch_url' => route('admin.mesin.sketch', $m),
+                'conn_url' => route('admin.mesin.conn', $m),
+                'riwayat' => $riwayat,
+            ];
+        })->values()->all();
+
+        Inertia::setRootView('app-admin');
+
+        return Inertia::render('PanduanMesin', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'api_base' => rtrim(url('/api/mesin'), '/'),
+            'threshold_minutes' => MesinIot::ONLINE_THRESHOLD_MINUTES,
+            'mesin' => $items,
+            'stats' => [
+                'total' => count($items),
+                'online' => count(array_filter($items, fn ($m) => $m['conn'] === 'online')),
+                'offline' => count(array_filter($items, fn ($m) => $m['conn'] === 'offline')),
+            ],
+            'urls' => [
+                'mesin' => route('admin.mesin.index'),
+                'monitoring' => route('admin.monitoring'),
+            ],
+        ]);
+    }
+
+    /** JSON ringan — tombol "Uji Koneksi" mengecek heartbeat terakhir mesin. */
+    public function conn(MesinIot $mesin)
+    {
+        $m = $mesin->fresh();
+        $conn = !$m->is_active ? 'inactive' : ($m->isOnline() ? 'online' : 'offline');
+
+        return response()->json([
+            'ok' => true,
+            'conn' => $conn,
+            'last_seen_label' => $m->last_seen_at?->diffForHumans() ?? 'Belum heartbeat',
+            'last_seen_exact' => $m->last_seen_at?->translatedFormat('d M Y, H:i:s'),
+        ]);
+    }
+
+    /** Unduh sketch .ino siap-flash — id_mesin & base URL terisi, API key placeholder. */
+    public function sketch(MesinIot $mesin)
+    {
+        $ino = \App\Support\MesinSketchBuilder::make($mesin, rtrim(url('/api/mesin'), '/'));
+        $kind = $mesin->tipe === 'absensi' ? 'absensi' : 'pintu';
+        $filename = 'smartbrail_' . Str::lower($mesin->id_mesin) . '_' . $kind . '.ino';
+
+        return response($ino, 200, [
+            'Content-Type' => 'text/plain; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
     }
 
     public function store(Request $request)
@@ -85,6 +300,7 @@ class MesinIotController extends Controller
             'tipe' => ['required', 'string', 'max:50'],
             'tipe_custom' => ['nullable', 'string', 'max:50'],
             'is_active' => ['nullable', 'boolean'],
+            'ruangan_id' => ['nullable', 'exists:ruangan,id'],
         ], [
             'id_mesin.regex' => 'ID mesin hanya boleh huruf besar, angka, strip (-), atau underscore (_).',
         ]);
@@ -102,6 +318,7 @@ class MesinIotController extends Controller
             'id_mesin' => $validated['id_mesin'],
             'nama_mesin' => $namaMesin,
             'tipe' => $type,
+            'ruangan_id' => $validated['ruangan_id'] ?? null,
             'api_key' => Hash::make($plainKey),
             'is_active' => $request->boolean('is_active', true),
         ]);
@@ -126,6 +343,7 @@ class MesinIotController extends Controller
             'tipe' => ['required', 'string', 'max:50'],
             'tipe_custom' => ['nullable', 'string', 'max:50'],
             'is_active' => ['nullable', 'boolean'],
+            'ruangan_id' => ['nullable', 'exists:ruangan,id'],
         ]);
 
         $type = $this->resolveRequestedType($request);
@@ -134,6 +352,10 @@ class MesinIotController extends Controller
             'tipe' => $type,
             'is_active' => $request->boolean('is_active'),
         ];
+        // Binding ruangan hanya boleh diubah admin (sama seperti bindMesin).
+        if ($request->user()?->isAdmin() && $request->has('ruangan_id')) {
+            $payload['ruangan_id'] = $request->input('ruangan_id');
+        }
         if ($type === 'loker') {
             return back()->with('error', 'Tipe loker tidak lagi bagian dari produk absensi.');
         }

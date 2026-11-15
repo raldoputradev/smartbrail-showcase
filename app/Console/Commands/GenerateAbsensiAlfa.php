@@ -2,30 +2,35 @@
 
 namespace App\Console\Commands;
 
-use App\Support\AbsensiTapEvaluator;
+use App\Support\AbsensiSessionCloser;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
+/**
+ * Alias legacy yang didelegasikan penuh ke AbsensiSessionCloser agar tidak berbenturan
+ * dengan command utama `absensi:generate-alfa` (GenerateAbsensiAlfaCommand).
+ */
 class GenerateAbsensiAlfa extends Command
 {
-    protected $signature = 'absensi:generate-alfa {--date= : Tanggal Y-m-d (default kemarin)}';
+    protected $signature = 'absensi:generate-alfa-legacy {--date= : Tanggal target YYYY-MM-DD (default: kemarin)}';
 
-    protected $description = 'Generate alfa otomatis dan finalisasi tidak lengkap per sesi';
+    protected $description = 'Alias legacy: generate alfa absensi melalui AbsensiSessionCloser';
 
-    public function handle(AbsensiTapEvaluator $evaluator): int
+    public function handle(AbsensiSessionCloser $closer): int
     {
-        $date = $this->option('date')
-            ? Carbon::parse($this->option('date'))->toDateString()
-            : now()->subDay()->toDateString();
+        $dateOpt = $this->option('date');
+        $date = $dateOpt ? Carbon::parse((string) $dateOpt, 'Asia/Jakarta') : now('Asia/Jakarta')->subDay();
 
-        $total = 0;
-        foreach (['pagi', 'malam'] as $sesi) {
-            $count = $evaluator->generateAlfaForDate($date, $sesi);
-            $this->info("{$date} [{$sesi}]: {$count} alfa");
-            $total += $count;
+        foreach (['pagi', 'malam'] as $shift) {
+            $res = $closer->closeSessionForDate($date, $shift, null, true);
+            $this->line(sprintf(
+                '[%s:%s] tidak_lengkap=%d alfa=%d',
+                $date->toDateString(),
+                $shift,
+                $res['closed_incomplete'],
+                $res['generated_alfa']
+            ));
         }
-
-        $this->info("Selesai. Total alfa: {$total}");
 
         return self::SUCCESS;
     }

@@ -12,7 +12,7 @@ class RegisterMesinCommand extends Command
     protected $signature = 'mesin:register
         {id_mesin : Kode unik mesin (mis. ABSEN-LAB-A1)}
         {--nama= : Nama tampilan mesin}
-        {--tipe=absensi : Tipe mesin (absensi|loker)}';
+        {--tipe=absensi : Tipe mesin (absensi)}';
 
     protected $description = 'Daftarkan mesin IoT baru dan generate API key (sekali tampil).';
 
@@ -22,8 +22,8 @@ class RegisterMesinCommand extends Command
         $nama = (string) ($this->option('nama') ?? $idMesin);
         $tipe = (string) $this->option('tipe');
 
-        if (!in_array($tipe, ['absensi', 'loker'], true)) {
-            $this->error('Tipe mesin harus "absensi" atau "loker".');
+        if ($tipe !== 'absensi') {
+            $this->error('Tipe mesin harus "absensi".');
             return self::FAILURE;
         }
 
