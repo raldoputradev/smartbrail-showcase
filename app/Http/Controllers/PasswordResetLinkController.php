@@ -32,11 +32,8 @@ class PasswordResetLinkController extends Controller
 
         $request->validate([
             'identifier' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255'],
         ], [
             'identifier.required' => 'Masukkan NIM atau username akun Anda.',
-            'email.required' => 'Masukkan email yang terikat pada akun.',
-            'email.email' => 'Format email tidak valid.',
         ]);
 
         if ($redirect = $this->validateRecaptcha($request, 'forgot')) {
@@ -44,22 +41,11 @@ class PasswordResetLinkController extends Controller
         }
 
         $identifier = trim((string) $request->input('identifier'));
-        $email = AccountEmailVerification::normalizeEmail((string) $request->input('email'));
         $user = $this->findByIdentifier($identifier);
 
-        // Pasangan identitas + email harus cocok. Satu pesan untuk semua
-        // kegagalan agar tidak menunjukkan bagian mana yang salah.
-        $pairMatch = $user && filled($user->email)
-            && AccountEmailVerification::normalizeEmail((string) $user->email) === $email;
-
-        if (! $pairMatch) {
-            return back()
-                ->withErrors(['email' => 'NIM/username dan email tidak cocok dengan akun mana pun. Periksa kembali keduanya.'])
-                ->withInput($request->only('identifier', 'email'));
-        }
-
-        // Cooldown 60 detik per email akun.
-        {
+        // Cooldown 60 detik per email akun (kirim hanya ke email terikat).
+        if ($user && filled($user->email)) {
+            $email = AccountEmailVerification::normalizeEmail($user->email);
             $lastToken = DB::table('email_verification_tokens')
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->where('type', PasswordResetLink::TYPE)
@@ -86,6 +72,47 @@ class PasswordResetLinkController extends Controller
             ->with('auth_panel', 'forgot')
             ->with('reset_link_sent', true)
             ->with('success', 'Tautan "Atur Ulang Password" sudah dikirim ke email yang terikat pada akun Anda. Periksa kotak masuk (dan folder spam).');
+    }
+
+    /**
+     * POST /forgot-password/cek-email — petunjuk email terikat (disamarkan)
+     * untuk konfirmasi pemilik sebelum tautan dikirim. Di-throttle per-IP.
+     */
+    public function cekEmail(Request $request)
+    {
+        $request->validate(['identifier' => 'required|string|max:255']);
+
+        $user = $this->findByIdentifier(trim((string) $request->input('identifier')));
+
+        if (! $user) {
+            return response()->json(['ok' => true, 'state' => 'no_account']);
+        }
+        if (! filled($user->email)) {
+            return response()->json(['ok' => true, 'state' => 'no_email']);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'state' => 'found',
+            'email_masked' => self::maskEmail((string) $user->email),
+        ]);
+    }
+
+    /** viona.syafitri@gmail.com → v••••••••ri@gmail.com */
+    private static function maskEmail(string $email): string
+    {
+        $parts = explode('@', $email, 2);
+        $local = $parts[0];
+        $domain = $parts[1] ?? '';
+        $len = mb_strlen($local);
+
+        if ($len <= 2) {
+            $masked = str_repeat('•', $len);
+        } else {
+            $masked = mb_substr($local, 0, 1) . str_repeat('•', max(3, $len - 3)) . mb_substr($local, -2);
+        }
+
+        return $masked . '@' . $domain;
     }
 
     /** GET /atur-ulang-password/{token} — halaman khusus password baru + konfirmasi. */

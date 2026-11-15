@@ -28,6 +28,21 @@
         .card-header-text h2{font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:-.02em}
         .card-header-text p{font-size:13px;color:var(--text-muted);line-height:1.5}
         .form-group{margin-bottom:16px}
+        .forgot-email-hint{display:flex;gap:12px;align-items:flex-start;padding:13px 15px;border-radius:var(--ri);border:1.5px solid #dbe4f0;background:#f6f9fe;animation:forgotHintIn .28s ease-out}
+        .forgot-email-hint[data-state="found"]{border-color:#bbf7d0;background:#f0fdf6}
+        .forgot-email-hint[data-state="warn"]{border-color:#fde68a;background:#fffbeb}
+        .forgot-email-hint[data-state="error"]{border-color:#fecaca;background:#fef2f2}
+        .forgot-email-hint-icon{width:20px;height:20px;margin-top:2px;color:#64748b;flex-shrink:0}
+        .forgot-email-hint[data-state="found"] .forgot-email-hint-icon{color:#16a34a}
+        .forgot-email-hint[data-state="warn"] .forgot-email-hint-icon{color:#d97706}
+        .forgot-email-hint[data-state="error"] .forgot-email-hint-icon{color:#dc2626}
+        .forgot-email-hint-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b}
+        .forgot-email-hint-value{font-size:15px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace;margin-top:2px;word-break:break-all}
+        .forgot-email-hint-sub{font-size:12px;color:var(--text-muted);margin-top:3px}
+        .forgot-email-hint[data-state="checking"] .forgot-email-hint-value{color:#64748b}
+        @keyframes forgotHintIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+        .btn-primary:disabled,.btn-primary.btn-primary--locked{opacity:.55;cursor:not-allowed;filter:saturate(.7)}
+        @media (prefers-reduced-motion: reduce){.forgot-email-hint{animation:none}}
         .form-row{display:flex;gap:12px}
         .form-row .form-group{flex:1}
         .form-label{display:block;font-size:13px;font-weight:600;color:var(--label);margin-bottom:6px}
@@ -263,7 +278,7 @@
                     <div class="card-header card-header--plain">
                         <div class="card-header-text">
                             <h2 data-id="Lupa Password" data-en="Forgot Password">Lupa Password</h2>
-                            <p data-id="Masukkan NIM/username dan email yang terikat pada akun Anda. Tautan Atur Ulang Password hanya dikirim bila keduanya cocok." data-en="Enter your student ID/username and the email bound to your account. The reset link is only sent if both match.">Masukkan NIM/username dan email yang terikat pada akun Anda. Tautan "Atur Ulang Password" hanya dikirim bila keduanya cocok.</p>
+                            <p data-id="Masukkan NIM atau username Anda — kami tampilkan email yang terikat (disamarkan) untuk Anda konfirmasi." data-en="Enter your student ID or username — we'll show the bound email (masked) for you to confirm.">Masukkan NIM atau username Anda — kami tampilkan email yang terikat (disamarkan) untuk Anda konfirmasi.</p>
                         </div>
                     </div>
                     @if(session('reset_link_sent'))
@@ -273,7 +288,7 @@
                         @csrf
                         <div class="form-group">
                             <label class="form-label" data-id="NIM / Username" data-en="ID / Username">NIM / Username</label>
-                            <input type="text" name="identifier" class="form-input"
+                            <input type="text" name="identifier" id="forgotIdentifier" class="form-input"
                                 placeholder="NIM atau username akun"
                                 data-id-placeholder="NIM atau username akun"
                                 data-en-placeholder="Student ID or account username" value="{{ old('identifier') }}" required autocomplete="username" maxlength="255">
@@ -281,22 +296,22 @@
                                 <p class="form-error">{{ $message }}</p>
                             @enderror
                         </div>
-                        <div class="form-group">
-                            <label class="form-label" data-id="Email Terdaftar" data-en="Registered Email">Email Terdaftar</label>
-                            <input type="email" name="email" class="form-input"
-                                placeholder="Email yang terikat pada akun"
-                                data-id-placeholder="Email yang terikat pada akun"
-                                data-en-placeholder="Email bound to the account" value="{{ old('email') }}" required autocomplete="email" maxlength="255">
-                            @error('email')
-                                <p class="form-error">{{ $message }}</p>
-                            @enderror
+                        <div class="form-group" id="forgotEmailHint" hidden>
+                            <div class="forgot-email-hint" data-state="checking">
+                                <i data-lucide="mail-check" class="forgot-email-hint-icon"></i>
+                                <div>
+                                    <p class="forgot-email-hint-label" data-id="Email terdaftar" data-en="Registered email">Email terdaftar</p>
+                                    <p class="forgot-email-hint-value" id="forgotEmailMasked">…</p>
+                                    <p class="forgot-email-hint-sub" id="forgotEmailSub" data-id="Benar email Anda?" data-en="Is this your email?">Benar email Anda?</p>
+                                </div>
+                            </div>
                         </div>
                         @include('partials.recaptcha', ['slot' => 'forgot'])
                         <div class="hp-field" aria-hidden="true">
                             <label>Website</label>
                             <input type="text" name="website" tabindex="-1" autocomplete="off">
                         </div>
-                        <button type="submit" class="btn-primary" data-id="Kirim Tautan Reset" data-en="Send Reset Link"><i data-lucide="mail"></i><span>Kirim Tautan Reset</span></button>
+                        <button type="submit" id="forgotSendBtn" class="btn-primary" data-id="Kirim Tautan Reset" data-en="Send Reset Link" disabled><i data-lucide="send"></i><span>Kirim Tautan Reset</span></button>
                         <p class="role-hint" style="margin-top:10px">
                             Pemulihan via WhatsApp / OTP nomor HP — <strong>Segera hadir</strong> (belum tersedia).
                         </p>
@@ -559,6 +574,10 @@
                 form.addEventListener('submit', function(e) {
                     e.preventDefault();
                     const formEl = this;
+                    if (formEl._forgotEmailReady && !formEl._forgotEmailReady()) {
+                        Swal.fire({ icon: 'info', title: 'Cek dulu ID Anda', text: 'Masukkan NIM/username sampai email terdaftar tampil, lalu centang verifikasi.', confirmButtonColor: '#1d6ff2' });
+                        return;
+                    }
                     const t = window.simalasT();
                     Swal.fire({
                         title: t.confirmForgotTitle,
@@ -580,6 +599,95 @@
                         }
                     });
                 });
+            }
+            if (action.includes('/forgot-password')) {
+                // ── Tahapan: NIM → email tersamarkan → captcha → kirim ──
+                var idInput   = form.querySelector('#forgotIdentifier');
+                var hintWrap  = form.querySelector('#forgotEmailHint');
+                var hintCard  = hintWrap ? hintWrap.querySelector('.forgot-email-hint') : null;
+                var hintValue = form.querySelector('#forgotEmailMasked');
+                var hintSub   = form.querySelector('#forgotEmailSub');
+                var sendBtn   = form.querySelector('#forgotSendBtn');
+                var emailReady = false;
+                var lookupTimer = null;
+                var lastChecked = '';
+
+                function forgotCaptchaSolved() {
+                    var slot = form.querySelector('[data-recaptcha-slot="forgot"]');
+                    if (!slot || !slot.dataset.widgetId || !window.grecaptcha) return true;
+                    try { return grecaptcha.getResponse(parseInt(slot.dataset.widgetId, 10)).length > 0; }
+                    catch (e) { return false; }
+                }
+                function updateSendBtn() {
+                    if (!sendBtn) return;
+                    var ok = emailReady && forgotCaptchaSolved();
+                    sendBtn.disabled = !ok;
+                    sendBtn.classList.toggle('btn-primary--locked', !ok);
+                }
+                function setHint(state, value, sub) {
+                    if (!hintWrap || !hintCard) return;
+                    hintWrap.hidden = false;
+                    hintCard.dataset.state = state;
+                    if (hintValue) hintValue.textContent = value;
+                    if (hintSub) hintSub.textContent = sub;
+                }
+                function checkIdentifier() {
+                    var id = (idInput.value || '').trim();
+                    if (id === lastChecked) return;
+                    lastChecked = id;
+                    emailReady = false;
+                    if (id.length < 4) { if (hintWrap) hintWrap.hidden = true; updateSendBtn(); return; }
+                    setHint('checking', 'Memeriksa akun…', '');
+                    fetch('{{ route('forgot-password.cek') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({ identifier: id }),
+                    }).then(function (r) { return r.json(); }).then(function (d) {
+                        if (id !== (idInput.value || '').trim()) return;
+                        if (d && d.state === 'found') {
+                            emailReady = true;
+                            setHint('found', d.email_masked, 'Benar email Anda? Jika ya, centang verifikasi lalu kirim.');
+                        } else if (d && d.state === 'no_email') {
+                            setHint('warn', 'Akun ditemukan', 'Akun ini belum memiliki email — minta admin/laboran menambahkan email Anda.');
+                        } else if (d && d.state === 'no_account') {
+                            setHint('error', 'Tidak ditemukan', 'NIM/username ini tidak terdaftar — periksa kembali penulisannya.');
+                        } else {
+                            setHint('warn', 'Gagal memeriksa', 'Coba lagi beberapa saat lagi.');
+                        }
+                        updateSendBtn();
+                    }).catch(function () {
+                        if (id !== (idInput.value || '').trim()) return;
+                        setHint('warn', 'Gagal memeriksa', 'Periksa koneksi lalu coba lagi.');
+                        updateSendBtn();
+                    });
+                }
+
+                if (idInput && sendBtn) {
+                    form._forgotEmailReady = function () { return emailReady; };
+                    idInput.addEventListener('input', function () {
+                        emailReady = false;
+                        updateSendBtn();
+                        clearTimeout(lookupTimer);
+                        lookupTimer = setTimeout(checkIdentifier, 500);
+                    });
+                    idInput.addEventListener('blur', checkIdentifier);
+                    if ((idInput.value || '').trim()) checkIdentifier();
+                }
+
+                // Gerbang gabungan: email terkonfirmasi DAN captcha selesai.
+                var gateTimer = setInterval(function () {
+                    if (form._simalasRecaptchaUpdate && !form._forgotGateWrapped) {
+                        form._forgotGateWrapped = true;
+                        var base = form._simalasRecaptchaUpdate;
+                        form._simalasRecaptchaUpdate = function () { base(); updateSendBtn(); };
+                        updateSendBtn();
+                        clearInterval(gateTimer);
+                    }
+                }, 300);
             }
             if (action.includes('/reset-password')) {
                 form.addEventListener('submit', function(e) {
