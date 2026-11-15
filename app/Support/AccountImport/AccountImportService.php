@@ -332,6 +332,98 @@ class AccountImportService
         return Cache::has($this->cardsKey($token));
     }
 
+    /**
+     * Laporan import sebagai .xlsx 3 sheet: RINGKASAN + BERHASIL_DIBUAT + TIDAK_DIBUAT.
+     * Kolom tegas terpisah — rapi dibagikan, tanpa masalah delimiter CSV.
+     */
+    public function reportXlsx(array $payload): string
+    {
+        $idLabel = strtoupper(AccountImportTemplate::identifierColumn($payload['type']));
+        $header = ['baris_file', $idLabel, 'nama_lengkap', 'role', 'status', 'keterangan'];
+        $ok = [];
+        $bad = [];
+
+        foreach ($payload['rows'] as $row) {
+            $rowRole = $row['role'] ?? $payload['type'];
+            $status = $row['status'] ?? '';
+            $statusLabel = match (true) {
+                $status === 'dibuat' && $rowRole === 'petugas' => 'Dibuat — petugas ruangan',
+                $status === 'dibuat' => 'Dibuat — aktif (wajib ganti password)',
+                $status === 'siap' => 'Siap dibuat',
+                default => (self::STATUS_LABELS[$status] ?? $status),
+            };
+            $line = [
+                (string) $row['line'],
+                (string) ($row['identifier'] ?? ''),
+                (string) ($row['nama'] ?? ''),
+                (string) $rowRole,
+                (string) $statusLabel,
+                (string) $row['reason'],
+            ];
+            if (in_array($status, ['dibuat', 'siap'], true)) {
+                $ok[] = $line;
+            } else {
+                $bad[] = $line;
+            }
+        }
+
+        $t = $payload['totals'] ?? ['total' => count($payload['rows']), 'dibuat' => 0, 'duplikat' => 0, 'gagal' => 0, 'dilewati' => 0];
+
+        return AccountImportTemplate::buildXlsx([
+            ['name' => 'RINGKASAN', 'widths' => [28, 95], 'rows' => [
+                ['LAPORAN IMPORT AKUN — '.mb_strtoupper(AccountImportTemplate::label($payload['type']))],
+                [],
+                ['File sumber', (string) ($payload['file_name'] ?? '-')],
+                ['Waktu proses', (string) ($payload['applied_at'] ?? $payload['created_at'] ?? '-')],
+                [],
+                ['Total baris data', (string) $t['total']],
+                ['Berhasil dibuat', (string) $t['dibuat']],
+                ['Duplikat (tidak diubah)', (string) $t['duplikat']],
+                ['Gagal validasi', (string) $t['gagal']],
+                ['Dilewati otomatis', (string) $t['dilewati']],
+                [],
+                ['Detail per baris ada di sheet BERHASIL_DIBUAT (akun jadi) dan TIDAK_DIBUAT (perlu perhatian).'],
+            ]],
+            ['name' => 'BERHASIL_DIBUAT', 'freeze' => true, 'widths' => [10, 16, 30, 12, 38, 62],
+                'rows' => array_merge([$header], $ok)],
+            ['name' => 'TIDAK_DIBUAT', 'freeze' => true, 'widths' => [10, 16, 30, 12, 38, 62],
+                'rows' => array_merge([$header], $bad)],
+        ]);
+    }
+
+    /**
+     * Kartu aktivasi sebagai .xlsx — kolom jelas: ID login, password sementara,
+     * masa berlaku, dan URL login untuk dibagikan ke pemilik akun.
+     *
+     * @param  list<array<string, string>>  $cards
+     * @param  array<string, string>  $loginUrls
+     */
+    public function cardsXlsx(array $cards, array $loginUrls): string
+    {
+        $rows = [['ID Login (NIM/NIDN/NITK)', 'Nama Lengkap', 'Role', 'Password Sementara', 'Berlaku Sampai', 'Halaman Login']];
+        foreach ($cards as $card) {
+            $rows[] = [
+                (string) $card['nitk_nidn'],
+                (string) $card['nama_lengkap'],
+                (string) $card['role'],
+                (string) $card['kode'],
+                (string) $card['berlaku_sampai'],
+                $loginUrls[$card['role'] ?? ''] ?? $loginUrls['default'] ?? '',
+            ];
+        }
+
+        return AccountImportTemplate::buildXlsx([
+            ['name' => 'PETUNJUK', 'widths' => [110], 'rows' => [
+                ['KARTU AKTIVASI SMARTBRAIL — RAHASIA, bagikan hanya ke pemilik akun masing-masing.'],
+                [],
+                ['Satu baris = satu pengguna. Kirimkan ID Login + Password Sementara + Halaman Login ke orangnya.'],
+                ['Pengguna login dengan password sementara lalu WAJIB mengganti password sendiri.'],
+                ['Kode tidak ditampilkan lagi setelah file ini; simpan baik-baik atau buat ulang per akun dari menu Data Pengguna.'],
+            ]],
+            ['name' => 'KARTU_AKTIVASI', 'freeze' => true, 'widths' => [24, 32, 12, 22, 20, 50], 'rows' => $rows],
+        ]);
+    }
+
     public function reportCsv(array $payload): string
     {
         $out = fopen('php://temp', 'r+');

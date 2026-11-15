@@ -170,7 +170,7 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
             Route::post('/preview', [AccountImportController::class, 'preview'])->middleware('throttle:20,1')->name('admin.users.import.preview');
             Route::get('/{token}', [AccountImportController::class, 'show'])->where('token', '[A-Za-z0-9]{40}')->name('admin.users.import.show');
             Route::post('/{token}/apply', [AccountImportController::class, 'apply'])->where('token', '[A-Za-z0-9]{40}')->name('admin.users.import.apply');
-            Route::get('/{token}/laporan.csv', [AccountImportController::class, 'report'])->where('token', '[A-Za-z0-9]{40}')->name('admin.users.import.report');
+            Route::get('/{token}/laporan.xlsx', [AccountImportController::class, 'report'])->where('token', '[A-Za-z0-9]{40}')->name('admin.users.import.report');
             Route::post('/{token}/kartu', [AccountImportController::class, 'cards'])->where('token', '[A-Za-z0-9]{40}')->name('admin.users.import.cards');
         });
         Route::post('/users/{user}/activation-code', [AccountImportController::class, 'regenerateCode'])

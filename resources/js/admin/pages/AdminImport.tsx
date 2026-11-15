@@ -396,7 +396,7 @@ export default function AdminImport(props: AdminImportProps) {
                         {props.cards_available && props.result_urls && (
                             <form method="POST" action={props.result_urls.cards} className="ad-imp-actions__form">
                                 <input type="hidden" name="_token" value={csrfToken} />
-                                <button type="submit" className="ad-imp-btn ad-imp-btn--ghost"><FileUp size={15} /> Kartu Aktivasi (CSV)</button>
+                                <button type="submit" className="ad-imp-btn ad-imp-btn--ghost"><FileUp size={15} /> Kartu Aktivasi (Excel)</button>
                             </form>
                         )}
                         <a className="ad-imp-btn ad-imp-btn--ghost" href={props.urls.index}><Upload size={15} /> Import File Lain</a>

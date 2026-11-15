@@ -211,9 +211,9 @@ class AccountImportController extends Controller
 
         $suffix = $payload['state'] === 'applied' ? 'hasil' : 'pratinjau';
 
-        return response($this->service->reportCsv($payload), 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="laporan-import-'.$payload['type'].'-'.$suffix.'-'.substr($token, 0, 8).'.csv"',
+        return response($this->service->reportXlsx($payload), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="laporan-import-'.$payload['type'].'-'.$suffix.'-'.substr($token, 0, 8).'.xlsx"',
             'Cache-Control' => 'no-store, private',
         ]);
     }
@@ -235,9 +235,9 @@ class AccountImportController extends Controller
             $loginUrls[$r] = route('login', ['role' => $r]);
         }
 
-        return response($this->service->cardsCsv($cards, $loginUrls), 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="kartu-aktivasi-'.$payload['type'].'-'.substr($token, 0, 8).'.csv"',
+        return response($this->service->cardsXlsx($cards, $loginUrls), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="kartu-aktivasi-'.$payload['type'].'-'.substr($token, 0, 8).'.xlsx"',
             'Cache-Control' => 'no-store, private',
         ]);
     }

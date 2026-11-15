@@ -381,6 +381,19 @@ class AccountImportTemplate
         return $out;
     }
 
+    /**
+     * Builder .xlsx generik multi-sheet — dipakai juga laporan/kartu import.
+     * Sheet: name, rows, freeze, widths, validations (opsional).
+     */
+    public static function buildXlsx(array $sheets, array $definedNames = []): string
+    {
+        foreach ($sheets as &$sheet) {
+            $sheet += ['freeze' => false, 'widths' => [], 'validations' => []];
+        }
+
+        return self::workbookXml($sheets, $definedNames);
+    }
+
     /** Bangun workbook .xlsx minimalis multi-sheet dengan inline strings. */
     private static function workbookXml(array $sheets, array $definedNames = []): string
     {
