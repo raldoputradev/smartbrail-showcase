@@ -29,10 +29,13 @@ Semua perintah di bawah dijalankan di **Git Bash** atau PowerShell — perintahn
 ## 2. Clone repo
 
 ```bash
-cd C:/xampp/htdocs          # atau folder kerja kamu
-git clone https://github.com/raldoputradev/smartbrail.git
-cd smartbrail
+cd C:/xampp/htdocs
+git clone https://github.com/raldoputradev/smartbrail.git Simalas
+cd Simalas
 ```
+
+> Clone dengan nama folder **`Simalas`** (huruf besar-kecil sama) — dengan begitu
+> `APP_URL` di `.env` dari ketua tim langsung cocok dan tidak perlu diedit.
 
 Saat diminta login, pakai akun GitHub kamu (password = **Personal Access Token**,
 bukan password akun — buat di GitHub → Settings → Developer settings → Tokens → scope `repo`).
@@ -61,17 +64,20 @@ Tiga hal ini tidak ada di repo dan wajib diminta ke ketua tim:
 > terenkripsi di database (mis. PIN akses ruangan). Key baru = data itu
 > tidak bisa dibaca lagi.
 >
-> Sesuaikan **`APP_URL`** di `.env` dengan nama folder kamu. Contoh clone ke
-> `C:\xampp\htdocs\smartbrail` → `APP_URL=http://localhost/smartbrail/public`.
+> Kalau foldermu bukan `Simalas`, sesuaikan `APP_URL` di `.env`, mis.
+> `APP_URL=http://localhost/<nama-folder>/public`.
 
 ## 5. Database
 
 ```bash
 # 1. Buka XAMPP Control Panel → Start Apache + MySQL
-# 2. Buka http://localhost/phpmyadmin → New → buat database (nama bebas)
-# 3. Tab Import → pilih file dump .sql dari ketua tim → Go
-# 4. Sesuaikan DB_DATABASE / DB_USERNAME / DB_PASSWORD di .env
+# 2. Buka http://localhost/phpmyadmin → New → nama database: simalas → Create
+# 3. Klik database "simalas" → tab Import → pilih simalas.sql dari ketua tim → Go
 ```
+
+`DB_*` di `.env` dari ketua tim sudah cocok dengan standar XAMPP
+(`DB_DATABASE=simalas`, user `root`) — tidak perlu diubah selama MySQL-mu
+memakai setting bawaan XAMPP.
 
 Alternatif cepat tanpa dump (struktur saja, data kosong):
 
@@ -89,7 +95,7 @@ php artisan storage:link     # symlink folder upload — wajib sekali
 Lalu cukup nyalakan **Apache + MySQL di XAMPP** dan buka:
 
 ```
-http://localhost/<nama-folder-kamu>/public
+http://localhost/Simalas/public
 ```
 
 (`php artisan serve` di `http://localhost:8000` juga bisa, tapi jalur XAMPP
