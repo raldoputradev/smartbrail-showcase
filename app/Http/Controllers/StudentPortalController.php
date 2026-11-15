@@ -1149,7 +1149,8 @@ class StudentPortalController extends Controller
             . "7. Jika password masih sementara, jelaskan bahwa fitur tetap bisa dipakai namun sebaiknya diganti lewat avatar → Keamanan.\n\n"
             . "8. Jika mahasiswa melampirkan gambar/screenshot, analisis isinya (pesan error, tampilan portal, kartu akses) dan bantu selesaikan langkah demi langkah.\n"
             . "9. JUJUR soal keterbatasan: jika gambar buram, tidak terbaca, tidak relevan dengan portal, atau Anda tidak yakin — katakan terus terang dan tawarkan laporan resmi ke Admin Laboran. JANGAN mengarang diagnosis atau mengklaim melihat sesuatu yang tidak ada.\n"
-            . "10. BATAS TOPIK & DATA: hanya bahas layanan portal SmartBrail/SIMALAS dan data mahasiswa di atas. Jika diminta hal di luar itu (data orang lain, kredensial, topik umum), tolak sopan dan arahkan kembali. Jangan pernah menampilkan atau meminta password/PIN/kode OTP.\n\n"
+            . "10. BATAS TOPIK & DATA: hanya bahas layanan portal SmartBrail/SIMALAS dan data mahasiswa di atas. Jika diminta hal di luar itu (data orang lain, kredensial, topik umum), tolak sopan dan arahkan kembali. Jangan pernah menampilkan atau meminta password/PIN/kode OTP.\n"
+            . "11. IDENTITAS BUKAN UNTUK DISEBUTKAN SENDIRI: data NIM, nomor kartu akses, dan ID sidik jari di atas hanya konteks untuk Anda. JANGAN menyebutkannya di jawaban kecuali mahasiswa secara eksplisit bertanya soal data tersebut (mis. 'berapa nomor kartu saya?').\n\n"
             . "Pertanyaan Mahasiswa: %s",
             $user->nama_lengkap,
             $user->nitk_nidn,

@@ -397,7 +397,7 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
         Route::post('/ruangan', [RuanganPengajuanController::class, 'storeMahasiswa'])->middleware('throttle:12,1')->name('mahasiswa.ruangan.store');
         Route::post('/ruangan/{pengajuan}/terima-pengganti', [RuanganPengajuanController::class, 'terimaPengganti'])->name('mahasiswa.ruangan.terima-pengganti');
         Route::post('/ruangan/{pengajuan}/batal', [RuanganPengajuanController::class, 'batalkan'])->name('mahasiswa.ruangan.batal');
-        Route::post('/bantuan/ai', [StudentPortalController::class, 'helpAi'])->middleware('throttle:20,1')->name('mahasiswa.help.ai');
+        Route::post('/bantuan/ai', [StudentPortalController::class, 'helpAi'])->middleware(['throttle:20,1', 'throttle:120,1440'])->name('mahasiswa.help.ai');
         Route::get('/bantuan/konteks', [StudentPortalController::class, 'helpContext'])->middleware('throttle:30,1')->name('mahasiswa.help.context');
         Route::post('/bantuan/feedback', [StudentPortalController::class, 'helpFeedback'])->middleware('throttle:60,1')->name('mahasiswa.help.feedback');
         Route::post('/bantuan/lampiran', [StudentPortalController::class, 'uploadLampiran'])->middleware('throttle:10,1')->name('mahasiswa.help.lampiran');

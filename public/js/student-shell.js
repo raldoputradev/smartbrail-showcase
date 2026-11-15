@@ -528,13 +528,31 @@
             }),
             credentials: 'same-origin'
         })
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                // Bedakan penyebab kegagalan agar pengguna tahu harus apa.
+                if (r.status === 429) return { _limited: true };
+                if (r.status === 401 || r.status === 419) return { _expired: true };
+                if (!r.ok) return { _error: true };
+                return r.json();
+            })
             .then(function (res) {
                 var elapsed = Date.now() - startTime;
                 var remainingWait = Math.max(0, 650 - elapsed);
 
                 setTimeout(function () {
                     if (typingRow) typingRow.remove();
+                    if (res._limited) {
+                        appendMessage('bot', '<p><strong>Asisten sedang dibatasi.</strong> Terlalu banyak pesan terkirim — coba lagi sekitar 1 menit (atau besok jika kuota harian habis). Kendala mendesak bisa langsung lewat tombol <strong>Kirim Laporan Resmi</strong>.</p>');
+                        return;
+                    }
+                    if (res._expired) {
+                        appendMessage('bot', '<p><strong>Sesi Anda sudah berakhir.</strong> Muat ulang halaman ini lalu login kembali, kemudian kirim ulang pertanyaan Anda.</p>');
+                        return;
+                    }
+                    if (res._error || res.ok === false) {
+                        appendMessage('bot', '<p><strong>Asisten sedang tidak bisa menjawab.</strong> Coba lagi sebentar — kalau tetap gagal, gunakan tombol <strong>Kirim Laporan Resmi</strong> agar kendala tetap tercatat.</p>');
+                        return;
+                    }
                     var reply = res.reply || 'Terima kasih atas pertanyaan Anda.';
                     chatHistory.push({ role: 'assistant', text: reply, content: reply });
 

@@ -443,7 +443,7 @@
         </div>
     @endif
 
-    <script src="{{ asset('js/student-shell.js') }}?v=20261114c" defer></script>
+    <script src="{{ asset('js/student-shell.js') }}?v=20261115a" defer></script>
     @stack('scripts')
     @include('partials.session-idle-guard')
 </body>
