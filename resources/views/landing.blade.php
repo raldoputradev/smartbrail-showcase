@@ -36,7 +36,7 @@
     {{-- Structured data — bantu Google mengenali entitas "SmartBrail" --}}
     <script type="application/ld+json">
     {
-        "@context": "https://schema.org",
+        "@@context": "https://schema.org",
         "@type": "WebSite",
         "name": "SmartBrail",
         "alternateName": "SmartBrail Polibatam",
@@ -53,7 +53,7 @@
     </script>
     <script type="application/ld+json">
     {
-        "@context": "https://schema.org",
+        "@@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "SmartBrail",
         "applicationCategory": "EducationalApplication",
