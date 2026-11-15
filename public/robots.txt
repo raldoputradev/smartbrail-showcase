@@ -1,2 +1,11 @@
 User-agent: *
-Disallow:
+Disallow: /admin
+Disallow: /mahasiswa
+Disallow: /dosen
+Disallow: /laboran
+Disallow: /push
+Disallow: /api
+Disallow: /notifications
+Allow: /
+
+Sitemap: https://smartbrail.com/sitemap.xml

@@ -84,6 +84,10 @@ return [
     ],
 
 
+    'google' => [
+        'site_verification' => env('GOOGLE_SITE_VERIFICATION'),
+    ],
+
     'webpush' => [
         'subject' => env('VAPID_SUBJECT'),
         'public_key' => env('VAPID_PUBLIC_KEY'),
