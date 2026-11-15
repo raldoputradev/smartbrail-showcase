@@ -806,7 +806,7 @@ class AccountImportService
                 $sameName = [];
                 foreach (array_chunk(array_unique($names), 500) as $chunk) {
                     $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-                    foreach (User::query()->whereRaw("LOWER(nama_lengkap) IN ({$placeholders})", $chunk)->get(['nitk_nidn', 'nama_lengkap', 'role']) as $u) {
+                    foreach (User::query()->whereRaw("LOWER(nama_lengkap) IN ({$placeholders})", $chunk)->get(['nitk_nidn', 'nama_lengkap', 'role', 'kelas', 'angkatan']) as $u) {
                         $sameName[mb_strtolower($u->nama_lengkap)][] = $u;
                     }
                 }
@@ -822,6 +822,23 @@ class AccountImportService
                     if ($others === []) {
                         continue;
                     }
+
+                    // Nama + kelas + angkatan sama persis → hampir pasti orang yang sama
+                    // dengan identitas salah ketik: tolak sebagai duplikat.
+                    $kelasIn = mb_strtolower(trim((string) ($row['values']['kelas'] ?? '')));
+                    $angkatanIn = (string) ($row['values']['angkatan'] ?? '');
+                    $twin = $kelasIn !== '' ? array_filter($others, fn ($u) =>
+                        mb_strtolower(trim((string) $u->kelas)) === $kelasIn
+                        && (string) $u->angkatan === $angkatanIn
+                    ) : [];
+                    if ($twin !== []) {
+                        $t = reset($twin);
+                        $rows[$i]['status'] = 'duplikat';
+                        $rows[$i]['reason'] = "{$row['identifier']} ditolak: nama + kelas + angkatan sama persis dengan akun {$t->nitk_nidn} ({$t->role}) — kemungkinan orang yang sama dengan identitas salah ketik; data tidak diubah. Jika memang beda orang, buat akun lewat menu pengguna secara manual.";
+                        $rows[$i]['values'] = [];
+                        continue;
+                    }
+
                     $list = implode(', ', array_map(fn ($u) => "{$u->nitk_nidn} ({$u->role})", $others));
                     $rows[$i]['reason'] .= " PERINGATAN: nama yang sama sudah terdaftar dengan identitas berbeda ({$list}) — pastikan bukan orang yang sama sebelum lanjut.";
                 }
