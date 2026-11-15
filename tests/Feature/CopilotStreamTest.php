@@ -202,9 +202,10 @@ class CopilotStreamTest extends TestCase
         $stats = $this->firstBlock($events, 'stats');
         $values = array_column($stats['items'], 'value', 'label');
         $page = $this->actingAs($laboran)->get('/admin/reports?periode=bulan_ini&kelas=TI-1A')->assertOk();
-        $summary = $page->viewData('summary');
+        $rprops = $this->inertiaProps($page->getContent(), 'LaporanPeriodik')['report'];
+        $summary = $rprops['summary'];
         $this->assertSame(number_format((int) $summary['mahasiswa']), $values['Mahasiswa dalam cakupan']);
-        $this->assertSame(number_format(count($page->viewData('studentRecapsActive'))), $values['Mahasiswa dalam laporan']);
+        $this->assertSame(number_format(count($rprops['students'])), $values['Mahasiswa dalam laporan']);
         $this->assertSame(number_format((int) $summary['hadir']), $values['Hadir']);
         $this->assertSame(number_format((int) $summary['tidak_lengkap']), $values['Tidak lengkap']);
         $this->assertSame(number_format((int) $summary['alfa']), $values['Alfa']);
@@ -447,8 +448,9 @@ class CopilotStreamTest extends TestCase
         $this->assertStringContainsString('1 terdaftar setelah periode berakhir, 1 akun nonaktif, 1 aktif tetapi hanya berstatus belum/libur/sakit/izin', $tool['blocks'][0]['note']);
 
         $page = $this->actingAs($laboran)->get('/admin/reports?'.$query)->assertOk();
-        $summary = $page->viewData('summary');
-        $active = $page->viewData('studentRecapsActive');
+        $rprops = $this->inertiaProps($page->getContent(), 'LaporanPeriodik')['report'];
+        $summary = $rprops['summary'];
+        $active = $rprops['students'];
         $this->assertSame(15, (int) $summary['mahasiswa']);
         $this->assertCount(12, $active);
         // Agregat sesi-mahasiswa = jumlah sesi per orang di baris laporan (tidak ada yang hilang di ekspor).
@@ -456,22 +458,25 @@ class CopilotStreamTest extends TestCase
             $this->assertSame((int) $summary[$k], (int) collect($active)->sum($k), $k);
             $this->assertSame(number_format((int) $summary[$k]), $items[match ($k) { 'hadir' => 'Hadir', 'tidak_lengkap' => 'Tidak lengkap', default => 'Alfa' }]['value']);
         }
-        $page->assertSee('Mahasiswa dalam cakupan')->assertSee('12 dalam laporan')->assertSee('sesi-mahasiswa');
 
         $excel = $this->actingAs($laboran)->get('/admin/reports/export/excel?'.$query);
         $excel->assertOk();
         $xls = $excel->streamedContent();
-        $this->assertMatchesRegularExpression('/Mahasiswa dalam cakupan \(orang\)<\/td><td class="right">15</', $xls);
-        $this->assertMatchesRegularExpression('/Mahasiswa dalam laporan \(orang\)<\/td><td class="right">12</', $xls);
-        $this->assertStringContainsString('Alfa (sesi-mahasiswa)', $xls);
-        $this->assertSame(12, substr_count($xls, '<td class="nim">'));
+        // Format export kini SpreadsheetML (multi-sheet): RINGKASAN + REKAP_MAHASISWA.
+        $this->assertMatchesRegularExpression('/Mahasiswa dalam cakupan \(orang\)<\/Data><\/Cell><Cell ss:StyleID="num"><Data ss:Type="Number">15</', $xls);
+        $this->assertMatchesRegularExpression('/Mahasiswa dalam laporan \(orang\)<\/Data><\/Cell><Cell ss:StyleID="num"><Data ss:Type="Number">12</', $xls);
+        $this->assertStringContainsString('Worksheet ss:Name="REKAP_MAHASISWA"', $xls);
+        $this->assertStringContainsString('sesi-mahasiswa', $xls);
+        preg_match('/<Worksheet ss:Name="REKAP_MAHASISWA">(.*?)<\/Worksheet>/s', $xls, $sheet);
+        $this->assertSame(12, substr_count($sheet[1] ?? '', 'Mahasiswa Contoh'));
 
         $word = $this->actingAs($laboran)->get('/admin/reports/export/word?'.$query);
         $word->assertOk();
         $doc = $word->streamedContent();
-        $this->assertStringContainsString('Mahasiswa dalam cakupan</td><td>15 orang', $doc);
-        $this->assertStringContainsString('Mahasiswa dalam laporan</td><td>12 orang', $doc);
-        $this->assertStringContainsString(number_format((int) $summary['alfa']).' sesi-mahasiswa', $doc);
+        $this->assertStringContainsString('Mhs dalam Cakupan', $doc);
+        $this->assertStringContainsString('Mhs dalam Laporan', $doc);
+        $this->assertStringContainsString('<td class="right">15</td><td class="right">12</td>', $doc);
+        $this->assertStringContainsString('sesi-mahasiswa', $doc);
 
         $print = $this->actingAs($laboran)->get('/admin/reports/print?'.$query)->assertOk();
         $print->assertSee('Mahasiswa dalam cakupan')->assertSee('Mahasiswa dalam laporan')->assertSee('sesi-mahasiswa')->assertDontSee('Diekspor');
@@ -598,27 +603,37 @@ class CopilotStreamTest extends TestCase
         $dosen = $this->user('dosen');
 
         $page = $this->actingAs($dosen)->get('/dosen/ai')->assertOk();
-        $page->assertSee(route('dosen.dashboard'), false)->assertDontSee('class="sidebar"', false);
+        // URL dalam payload Inertia di-escape (\/), cek bentuk JSON-nya.
+        $esc = fn (string $url) => str_replace('/', '\\/', $url);
+        $page->assertSee($esc(route('dosen.dashboard')), false)->assertDontSee('class="sidebar"', false);
         $cfg = $this->pageConfig($page->getContent());
         $this->assertSame(route('dosen.ai.chat.stream'), $cfg['streamUrl']);
         $this->assertSame(route('dosen.ai.conversations'), $cfg['conversationsUrl']);
         $this->assertSame(route('dosen.ai'), $cfg['pageUrl']);
         $this->assertNull($cfg['initialConversation']);
-        $this->assertSame(['Ringkas absensi', 'Cari mahasiswa', 'Cek tidak lengkap', 'Buat laporan'], array_column($cfg['suggestions'], 'label'));
-        $this->assertDoesNotMatchRegularExpression('/approval|setujui|mesin|fingerprint|pengumuman/i', $page->getContent());
+        $this->assertSame(
+            ['Rekap absensi minggu ini untuk kelas saya', 'Siapa yang tidak lengkap hari ini?', 'Berapa mahasiswa yang saya bimbing?', 'Tampilkan tim PBL yang saya bimbing'],
+            array_column($cfg['suggestions'], 'label')
+        );
+        // Saran dosen tidak boleh menjanjikan aksi admin/operasional.
+        $props = $this->inertiaProps($page->getContent(), 'AsistenAi');
+        $this->assertDoesNotMatchRegularExpression(
+            '/approval|setujui|mesin|fingerprint/i',
+            json_encode(['examples' => $props['examples'], 'actions' => $props['actions']])
+        );
 
-        $this->actingAs($dosen)->get('/dosen/dashboard')->assertOk()->assertSee(route('dosen.ai'), false);
+        $this->actingAs($dosen)->get('/dosen/dashboard')->assertOk()->assertSee($esc(route('dosen.ai')), false);
 
-        // Tanpa izin data mahasiswa, saran cari tidak dijanjikan.
+        // Tanpa izin data mahasiswa, saran data mahasiswa tidak dijanjikan.
         $this->setPerm('dosen', 'dosen_mahasiswa', false);
         $cfg = $this->pageConfig($this->actingAs($dosen)->get('/dosen/ai')->assertOk()->getContent());
-        $this->assertNotContains('Cari mahasiswa', array_column($cfg['suggestions'], 'label'));
+        $this->assertNotContains('Berapa mahasiswa yang saya bimbing?', array_column($cfg['suggestions'], 'label'));
 
         // Admin bisa mematikan Copilot untuk dosen dari Kelola Akses Role.
         $this->setPerm('dosen', 'ai_assistant', false);
         $this->assertNotSame(200, $this->actingAs($dosen)->get('/dosen/ai')->getStatusCode());
         $this->assertNotSame(200, $this->actingAs($dosen)->post('/dosen/ai/chat/stream', ['message' => 'Halo', 'client_id' => $this->cid()])->getStatusCode());
-        $this->actingAs($dosen)->get('/dosen/dashboard')->assertOk()->assertDontSee(route('dosen.ai'), false);
+        $this->actingAs($dosen)->get('/dosen/dashboard')->assertOk()->assertDontSee($esc(route('dosen.ai')), false);
         $this->assertSame(0, AiMessage::query()->count());
     }
 
@@ -651,7 +666,8 @@ class CopilotStreamTest extends TestCase
         $this->assertSame([], AdminAiToolRegistry::geminiDeclarationsForUser($this->user('mahasiswa')));
 
         $runner = app(AdminAiToolRunner::class);
-        foreach (['hitung_pengguna', 'attention_today', 'mesin_status', 'ops_summary', 'list_pending_approvals', 'list_announcements',
+        // list_announcements kini memang dibuka untuk dosen (lihat COPILOT_TOOLS_DOSEN).
+        foreach (['hitung_pengguna', 'attention_today', 'mesin_status', 'ops_summary', 'list_pending_approvals',
             'cari_pengguna', 'fingerprint_sync_report', 'enroll_pending', 'approve_user', 'toggle_mesin', 'koreksi_absensi_harian'] as $tool) {
             $r = $runner->run($tool, ['user_id' => $this->ids['students'][0], 'role' => 'semua'], $dosen);
             $this->assertFalse($r['ok'] ?? true, $tool);
@@ -674,6 +690,11 @@ class CopilotStreamTest extends TestCase
         $this->setPerm('dosen', 'dosen_absensi', false);
         $this->assertFalse($runner->run('laporan_absensi_periode', ['periode' => 'bulan_ini'], $dosen)['ok']);
         $this->assertFalse($runner->run('ringkasan_absensi_hari_ini', [], $dosen)['ok']);
+        // Tool PBL/pengumuman digerbang izin masing-masing — matikan semuanya.
+        $this->setPerm('dosen', 'dosen_pbl', false);
+        $this->setPerm('dosen', 'announcements', false);
+        $this->setPerm('dosen', 'kalender', false);
+        $this->setPerm('dosen', 'ruangan_pengajuan', false);
         $this->assertSame([], AdminAiToolRegistry::geminiDeclarationsForUser($dosen));
     }
 
@@ -767,9 +788,14 @@ class CopilotStreamTest extends TestCase
         $tool = app(AdminAiToolRunner::class)->run('laporan_absensi_periode', ['periode' => 'bulan_lalu', 'kelas' => 'TI-1A'], $dosen);
         $items = array_column($tool['blocks'][0]['items'], 'value', 'label');
         $page = $this->actingAs($dosen)->get('/dosen/reports?periode=bulan_lalu&kelas=TI-1A')->assertOk();
-        $summary = $page->viewData('summary');
+        $rprops = $this->inertiaProps($page->getContent(), 'DosenReports')['report'];
+        $summary = $rprops['summary'];
+        // report.students memuat semua rekap; "dalam laporan" = yang punya jejak.
+        $activeCount = collect($rprops['students'])
+            ->filter(fn ($r) => ((int) $r['hadir'] + (int) $r['tidak_lengkap'] + (int) $r['alfa']) > 0)
+            ->count();
         $this->assertSame(number_format((int) $summary['mahasiswa']), $items['Mahasiswa dalam cakupan']);
-        $this->assertSame(number_format(count($page->viewData('studentRecapsActive'))), $items['Mahasiswa dalam laporan']);
+        $this->assertSame(number_format($activeCount), $items['Mahasiswa dalam laporan']);
         foreach (['hadir' => 'Hadir', 'tidak_lengkap' => 'Tidak lengkap', 'alfa' => 'Alfa'] as $k => $label) {
             $this->assertSame(number_format((int) $summary[$k]), $items[$label], $label);
         }
@@ -781,7 +807,7 @@ class CopilotStreamTest extends TestCase
         }
         $this->actingAs($dosen)->get($links['Unduh Excel'])->assertOk();
         $this->actingAs($dosen)->get($links['Unduh Word'])->assertOk();
-        $this->actingAs($dosen)->get($links['Cetak'])->assertOk();
+        $this->actingAs($dosen)->get($links['Preview laporan'])->assertOk();
         foreach (['mahasiswa', 'laboran'] as $role) {
             $this->assertNotSame(200, $this->actingAs($this->user($role))->get($links['Unduh Excel'])->getStatusCode(), $role);
         }
@@ -868,18 +894,19 @@ class CopilotStreamTest extends TestCase
         $this->assertStringEndsWith(' sesi', $rank['rows'][0]['nilai']);
 
         $page = $this->actingAs($laboran)->get('/admin/reports?'.$query)->assertOk();
-        $summary = $page->viewData('summary');
+        $rprops = $this->inertiaProps($page->getContent(), 'LaporanPeriodik')['report'];
+        $summary = $rprops['summary'];
         $this->assertSame($after['hadir_lengkap'], (int) $summary['hadir']);
-        $row = collect($page->viewData('studentRecapsActive'))->firstWhere('nama', 'Mahasiswa Contoh 01');
+        $row = collect($rprops['students'])->firstWhere('nama', 'Mahasiswa Contoh 01');
         $this->assertNotNull($row);
-        $page->assertSee('sesi-mahasiswa')->assertDontSee('hari-mahasiswa');
 
         $xls = $this->actingAs($laboran)->get('/admin/reports/export/excel?'.$query)->streamedContent();
-        $this->assertStringContainsString('Hadir (sesi-mahasiswa)</td><td class="right">'.number_format((int) $summary['hadir']).'<', $xls);
-        $this->assertStringContainsString('Hadir (sesi)', $xls);
+        $this->assertMatchesRegularExpression('/HADIR<\/Data><\/Cell><Cell ss:StyleID="num"><Data ss:Type="Number">'.(int) $summary['hadir'].'</', $xls);
+        $this->assertStringContainsString('sesi-mahasiswa', $xls);
         $this->assertStringNotContainsString('hari-mahasiswa', $xls);
         $doc = $this->actingAs($laboran)->get('/admin/reports/export/word?'.$query)->streamedContent();
-        $this->assertStringContainsString(number_format((int) $summary['hadir']).' sesi-mahasiswa', $doc);
+        $this->assertStringContainsString('<td class="right">'.number_format((int) $summary['hadir']).'</td>', $doc);
+        $this->assertStringContainsString('sesi-mahasiswa', $doc);
         $this->assertStringNotContainsString('hari-mahasiswa', $doc);
         $this->actingAs($laboran)->get('/admin/reports/print?'.$query)->assertOk()
             ->assertSee('sesi-mahasiswa')->assertSee('Hadir (sesi)')->assertDontSee('hari-mahasiswa');
@@ -887,11 +914,22 @@ class CopilotStreamTest extends TestCase
 
     public function test_pemberitahuan_gemini_jujur_dan_pemetaan_placeholder_per_giliran(): void
     {
-        $this->actingAs($this->user('laboran'))->get('/admin/ai')->assertOk()->assertDontSee('diproses Gemini');
+        // Disclaimer kini di komponen React; server mengirim flag ai_enabled.
+        $props = $this->inertiaProps(
+            $this->actingAs($this->user('laboran'))->get('/admin/ai')->assertOk()->getContent(),
+            'AsistenAi'
+        );
+        $this->assertFalse($props['ai_enabled']);
         $this->enableGemini();
-        $this->actingAs($this->user('dosen'))->get('/dosen/ai')->assertOk()
-            ->assertSee('diproses Gemini')
-            ->assertSee('tidak semua data pribadi pasti tersaring');
+        $props = $this->inertiaProps(
+            $this->actingAs($this->user('dosen'))->get('/dosen/ai')->assertOk()->getContent(),
+            'AsistenAi'
+        );
+        $this->assertTrue($props['ai_enabled']);
+        // Kedua versi teks disclaimer (aktif/nonaktif) tetap ada di sumber UI.
+        $tsx = (string) file_get_contents(resource_path('js/admin/pages/AsistenAi.tsx'));
+        $this->assertStringContainsString('diproses Gemini', $tsx);
+        $this->assertStringContainsString('Provider AI belum aktif', $tsx);
 
         $this->assertNotSame(app(CopilotPrivacyFilter::class), app(CopilotPrivacyFilter::class));
 
@@ -992,7 +1030,7 @@ class CopilotStreamTest extends TestCase
 
         $snap = $this->actingAs($dosen)->getJson('/dosen/absensi/snapshot?tab=all')->assertOk()->json();
         $this->assertTrue($snap['kelas_scope_empty'] ?? false);
-        $this->assertStringContainsString('Belum ada kelas yang ditugaskan', (string) ($snap['kelas_scope_message'] ?? ''));
+        $this->assertStringContainsString('Belum ada mahasiswa dalam bimbingan', (string) ($snap['kelas_scope_message'] ?? ''));
 
         $tool = app(AdminAiToolRunner::class)->run('ringkasan_absensi_hari_ini', [], $dosen);
         $this->assertTrue($tool['data']['kelas_belum_ditugaskan'] ?? false);
@@ -1166,11 +1204,23 @@ class CopilotStreamTest extends TestCase
         return AiMessage::query()->where('role', 'assistant')->where('meta->reply_to', $user->id)->firstOrFail();
     }
 
+    /**
+     * Konfig copilot kini dibawa props Inertia (bukan script cpConfig).
+     * @return array<string, mixed>
+     */
     private function pageConfig(string $html): array
     {
-        $this->assertSame(1, preg_match('#<script type="application/json" id="cpConfig">(.*?)</script>#s', $html, $m));
+        $props = $this->inertiaProps($html, 'AsistenAi');
+        $cp = $props['cp'] ?? [];
 
-        return json_decode($m[1], true, 512, JSON_THROW_ON_ERROR);
+        return [
+            'streamUrl' => $cp['stream'] ?? null,
+            'conversationsUrl' => $cp['conversations'] ?? null,
+            'pageUrl' => ($cp['role'] ?? '') === 'dosen' ? route('dosen.ai') : route('admin.ai'),
+            'initialConversation' => $props['initial_conversation'] ?? null,
+            'suggestions' => collect($props['examples'] ?? [])
+                ->map(fn ($e) => ['label' => $e['text'] ?? ''])->all(),
+        ];
     }
 
     private function inertiaProps(string $html, string $component): array

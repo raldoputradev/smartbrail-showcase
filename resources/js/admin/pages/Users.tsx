@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
-    Activity, Ban, CheckCircle2, Clock, Copy, Download, Eye, FileClock,
+    Activity, Ban, Check, CheckCircle2, Clock, Copy, Download, Eye, FileClock,
     FlaskConical, GraduationCap, KeyRound, Lock, Mail, Pencil, RotateCcw,
     Search, ShieldAlert, ShieldCheck, Trash2, Unlock, Upload, UserPlus,
     Users as UsersIcon, X, XCircle,
@@ -83,7 +83,7 @@ type FormState = {
     nama_lengkap: string; nitk_nidn: string; email: string; password: string;
     role: string; is_active: boolean;
     kelas: string; tim: string; angkatan: string; semester: string;
-    semester_type: string; program_studi_id: string; shift: string;
+    semester_type: string; academic_status: string; program_studi_id: string; shift: string;
     kelas_cakupan: string[];
     no_hp: string; rfid_uid: string; akses_pin: string;
 };
@@ -92,7 +92,7 @@ const EMPTY_FORM: FormState = {
     mode: 'create', id: null,
     nama_lengkap: '', nitk_nidn: '', email: '', password: '',
     role: 'mahasiswa', is_active: true,
-    kelas: '', tim: '', angkatan: '', semester: '', semester_type: '', program_studi_id: '', shift: 'pagi',
+    kelas: '', tim: '', angkatan: '', semester: '', semester_type: '', academic_status: 'aktif', program_studi_id: '', shift: 'pagi',
     kelas_cakupan: [],
     no_hp: '', rfid_uid: '', akses_pin: '',
 };
@@ -100,6 +100,7 @@ const EMPTY_FORM: FormState = {
 export default function Users(props: UsersProps) {
     const { flash, errors } = usePage<SharedProps & { errors: Record<string, string> }>().props;
     const [busy, setBusy] = useState(false);
+    const [copied, setCopied] = useState(false);
     const [confirm, setConfirm] = useState<null | { title: string; body: string; label: string; danger?: boolean; action: () => void }>(null);
     const [form, setForm] = useState<FormState | null>(null);
     const [kcSearch, setKcSearch] = useState('');
@@ -193,6 +194,7 @@ export default function Users(props: UsersProps) {
             angkatan: u.angkatan ? String(u.angkatan) : '',
             semester: u.semester ? String(u.semester) : '',
             semester_type: u.semester_type ?? '',
+            academic_status: u.academic_status ?? 'aktif',
             program_studi_id: u.program_studi_id ? String(u.program_studi_id) : '',
             shift: u.shift ?? 'pagi',
             kelas_cakupan: u.kelas_cakupan ?? [],
@@ -218,6 +220,7 @@ export default function Users(props: UsersProps) {
                 kelas: form.kelas, tim: form.tim,
                 angkatan: form.angkatan, semester: form.semester,
                 semester_type: form.semester_type,
+                academic_status: form.academic_status,
                 program_studi_id: form.program_studi_id, shift: form.shift,
             });
         }
@@ -792,6 +795,15 @@ export default function Users(props: UsersProps) {
                                         </select>
                                         {errors.semester_type && <em className="ad-mesin-err">{errors.semester_type}</em>}
                                     </label>
+                                    <label>Status Akademik
+                                        <select value={form.academic_status} onChange={(e) => setForm({ ...form, academic_status: e.target.value })}>
+                                            <option value="aktif">Aktif</option>
+                                            <option value="cuti">Cuti</option>
+                                            <option value="mengulang">Mengulang</option>
+                                            <option value="lulus">Lulus</option>
+                                            <option value="keluar">Keluar</option>
+                                        </select>
+                                    </label>
                                     <div className="ad-usr-full">
                                         <span className="ad-usr-hint">Finger ID diisi otomatis saat mahasiswa disimpan. Ubah manual lewat menu <b>Fingerprint</b> jika diperlukan.</span>
                                     </div>
@@ -818,7 +830,18 @@ export default function Users(props: UsersProps) {
                         </p>
                         <div className="ad-usr-code">
                             <code>{once.code}</code>
-                            <button type="button" title="Salin" onClick={() => navigator.clipboard?.writeText(once.code)}><Copy size={15} /></button>
+                            <button
+                                type="button"
+                                title={copied ? 'Tersalin' : 'Salin'}
+                                className={copied ? 'ad-usr-copy--ok' : undefined}
+                                onClick={() => {
+                                    navigator.clipboard?.writeText(once.code);
+                                    setCopied(true);
+                                    window.setTimeout(() => setCopied(false), 2000);
+                                }}
+                            >
+                                {copied ? <Check size={15} /> : <Copy size={15} />}
+                            </button>
                         </div>
                         <small className="ad-usr-hint">Berlaku sampai {once.expires_at} · Entri: {once.entry_url}</small>
                         <div className="ad-mesin-confirm__actions">

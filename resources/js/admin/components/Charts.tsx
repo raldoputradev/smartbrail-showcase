@@ -144,3 +144,89 @@ export function DonutChart({ data, size = 170 }: { data: DonutData; size?: numbe
 export function ChartSkeleton({ height = 230 }: { height?: number }) {
     return <div className="ad-skel" style={{ height, width: '100%' }} />;
 }
+
+/* Grouped bar chart ringan — labels + multi-seri; mode pct untuk rate 0–100. */
+export function GroupedBarChart({ data, height = 220, pct = false }: {
+    data: LineChartData; height?: number; pct?: boolean;
+}) {
+    const W = 640, H = 200, PAD_L = 34, PAD_R = 10, PAD_T = 12, PAD_B = 26;
+    const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+    const [hover, setHover] = useState<number | null>(null);
+
+    const max = useMemo(() => {
+        if (pct) return 100;
+        const all = data.series.flatMap((s) => s.data);
+        return Math.max(1, Math.ceil(Math.max(...all, 1)));
+    }, [data, pct]);
+
+    if (!data.labels.length) {
+        return <div className="ad-empty">Belum ada data.</div>;
+    }
+
+    const n = data.labels.length;
+    const nSeries = Math.max(1, data.series.length);
+    const band = innerW / n;
+    const barW = Math.min(22, (band * 0.7) / nSeries);
+
+    return (
+        <div style={{ position: 'relative' }}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height }}
+                onMouseLeave={() => setHover(null)} role="img" aria-label="Grafik batang">
+                {[0, Math.round(max / 2), max].map((t) => {
+                    const y = PAD_T + innerH - (t / max) * innerH;
+                    return (
+                        <g key={t}>
+                            <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="var(--ad-border)" strokeWidth="1" />
+                            <text x={PAD_L - 6} y={y + 4} textAnchor="end" fontSize="10" fill="var(--ad-muted)">{t}{pct ? '%' : ''}</text>
+                        </g>
+                    );
+                })}
+                {data.labels.map((l, i) => {
+                    const x0 = PAD_L + i * band;
+                    const groupW = nSeries * barW;
+                    return (
+                        <g key={i}>
+                            {data.series.map((s, si) => {
+                                const v = s.data[i] ?? 0;
+                                const h = (v / max) * innerH;
+                                const x = x0 + (band - groupW) / 2 + si * barW;
+                                return (
+                                    <rect key={si} x={x} y={PAD_T + innerH - h}
+                                        width={barW - 2} height={Math.max(0, h)}
+                                        rx={2} fill={s.color} opacity={hover === i ? 1 : 0.85} />
+                                );
+                            })}
+                            <text x={x0 + band / 2} y={H - 8} textAnchor="middle" fontSize="10" fill="var(--ad-muted)">
+                                {l.length > 12 ? `${l.slice(0, 11)}…` : l}
+                            </text>
+                            <rect x={x0} y={PAD_T} width={band} height={innerH}
+                                fill="transparent" onMouseEnter={() => setHover(i)} />
+                        </g>
+                    );
+                })}
+            </svg>
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                {data.series.map((s) => (
+                    <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ad-muted)', fontWeight: 600 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color }} />
+                        {s.label}
+                    </span>
+                ))}
+            </div>
+            {hover !== null && (
+                <div style={{
+                    position: 'absolute', top: 8, right: 16,
+                    background: 'var(--ad-card)', border: '1px solid var(--ad-border)',
+                    borderRadius: 8, padding: '6px 10px', fontSize: 11, boxShadow: '0 4px 14px rgba(0,0,0,.12)',
+                }}>
+                    <strong>{data.labels[hover]}</strong>
+                    {data.series.map((s) => (
+                        <div key={s.key} style={{ color: s.color, fontVariantNumeric: 'tabular-nums' }}>
+                            {s.label}: {s.data[hover] ?? 0}{pct ? '%' : ''}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}

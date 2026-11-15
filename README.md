@@ -17,6 +17,10 @@
   <img src="https://img.shields.io/badge/Reverb-realtime-0ea5e9" alt="Reverb">
 </p>
 
+<p align="center">
+  🌐 <b>Situs live:</b> <a href="https://smartbrail.com">smartbrail.com</a>
+</p>
+
 ---
 
 ## Tentang
@@ -149,4 +153,8 @@ Repo kerja bersifat **private** — anggota tim ditambahkan sebagai collaborator
 
 ---
 
-<p align="center"><sub>BRAIL — Barelang Robotics and Artificial Intelligence Lab, Politeknik Negeri Batam</sub></p>
+## Pengembang
+
+Dikembangkan oleh **[Rayendra Aldo Putra](https://github.com/raldoputradev)** untuk **BRAIL — Barelang Robotics & AI Lab**, Politeknik Negeri Batam.
+
+<p align="center"><sub>BRAIL — Barelang Robotics and Artificial Intelligence Lab, Politeknik Negeri Batam · <a href="https://smartbrail.com">smartbrail.com</a></sub></p>

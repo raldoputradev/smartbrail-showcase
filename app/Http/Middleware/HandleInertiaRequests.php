@@ -30,6 +30,7 @@ class HandleInertiaRequests extends Middleware
             'no_hp' => $user->no_hp,
             'finger_id' => $user->finger_id,
             'must_change_password' => (bool) $user->must_change_password,
+            'preferences' => $user->preferences ?? [],
             'has_fingerprint' => $user->isMahasiswa() ? $user->hasFingerprintEnrolled() : null,
             'profile_photo_url' => $user->profile_photo_url,
         ] : null;

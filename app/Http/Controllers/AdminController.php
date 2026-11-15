@@ -14,6 +14,7 @@ use App\Support\DashboardDemoData;
 use App\Support\DashboardStatLabels;
 use App\Support\LoginSecurityService;
 use App\Support\FingerIdAllocator;
+use App\Support\AdminAudit;
 use App\Support\FingerprintSyncLogService;
 use App\Support\FingerprintSyncPolicy;
 use App\Support\FingerprintSyncService;
@@ -621,6 +622,7 @@ class AdminController extends Controller
                 'angkatan' => $u->angkatan,
                 'semester' => $u->semester,
                 'semester_type' => $u->semester_type,
+                'academic_status' => $u->academic_status ?? 'aktif',
                 'program_studi_id' => $u->program_studi_id,
                 'shift' => $u->shift,
                 'finger_id' => $u->finger_id,
@@ -751,6 +753,7 @@ class AdminController extends Controller
             'angkatan' => ['nullable', 'integer', 'min:2020', 'max:' . (now()->year + 1)],
             'semester' => ['nullable', 'integer', 'min:1', 'max:8'],
             'semester_type' => ['nullable', Rule::in(['ganjil', 'genap'])],
+            'academic_status' => ['nullable', Rule::in(['aktif', 'cuti', 'mengulang', 'lulus', 'keluar'])],
             'program_studi_id' => ['nullable', 'exists:program_studi,id'],
             'shift' => ['nullable', Rule::in(['pagi', 'malam'])],
             'kelas_paralel' => ['nullable', Rule::in(['A', 'B', 'C'])],
@@ -786,6 +789,7 @@ class AdminController extends Controller
             'angkatan' => $validated['role'] === 'mahasiswa' ? ($validated['angkatan'] ?? null) : null,
             'semester' => $validated['role'] === 'mahasiswa' ? ($validated['semester'] ?? null) : null,
             'semester_type' => $validated['role'] === 'mahasiswa' ? ($validated['semester_type'] ?? null) : null,
+            'academic_status' => $validated['role'] === 'mahasiswa' ? ($validated['academic_status'] ?? 'aktif') : null,
             'program_studi_id' => $validated['role'] === 'mahasiswa' ? ($validated['program_studi_id'] ?? null) : null,
             'shift' => $validated['role'] === 'mahasiswa' ? ($validated['shift'] ?? null) : null,
             'kelas_paralel' => $validated['role'] === 'mahasiswa' ? ($validated['kelas_paralel'] ?? $this->inferKelasParalel($validated['kelas'] ?? null)) : null,
@@ -834,6 +838,8 @@ class AdminController extends Controller
         $success = $validated['role'] === 'mahasiswa' && $user->finger_id
             ? "Pengguna berhasil ditambahkan. Finger ID #{$user->finger_id} otomatis."
             : 'Pengguna berhasil ditambahkan.';
+
+        AdminAudit::catat('pengguna.buat', ($validated['nama_lengkap'] ?? 'akun baru').' ('.($validated['role'] ?? '?').')');
 
         return back()->with('success', $success);
     }
@@ -899,6 +905,7 @@ class AdminController extends Controller
             'angkatan' => ['nullable', 'integer', 'min:2020', 'max:' . (now()->year + 1)],
             'semester' => ['nullable', 'integer', 'min:1', 'max:8'],
             'semester_type' => ['nullable', Rule::in(['ganjil', 'genap'])],
+            'academic_status' => ['nullable', Rule::in(['aktif', 'cuti', 'mengulang', 'lulus', 'keluar'])],
             'program_studi_id' => ['nullable', 'exists:program_studi,id'],
             'shift' => ['nullable', Rule::in(['pagi', 'malam'])],
             'kelas_paralel' => ['nullable', Rule::in(['A', 'B', 'C'])],
@@ -955,6 +962,7 @@ class AdminController extends Controller
             $payload['angkatan'] = $validated['angkatan'] ?? null;
             $payload['semester'] = $validated['semester'] ?? null;
             $payload['semester_type'] = $validated['semester_type'] ?? null;
+            $payload['academic_status'] = $validated['academic_status'] ?? 'aktif';
             $payload['program_studi_id'] = $validated['program_studi_id'] ?? null;
             $payload['shift'] = $validated['shift'] ?? null;
             $payload['kelas_paralel'] = $validated['kelas_paralel'] ?? $this->inferKelasParalel($validated['kelas'] ?? null);
@@ -965,6 +973,7 @@ class AdminController extends Controller
             $payload['angkatan'] = null;
             $payload['semester'] = null;
             $payload['semester_type'] = null;
+            $payload['academic_status'] = null;
             $payload['program_studi_id'] = null;
             $payload['shift'] = null;
             $payload['kelas_paralel'] = null;
@@ -1003,6 +1012,8 @@ class AdminController extends Controller
             $request->boolean('is_active') ? 'approved' : 'updated_pending',
             'Data user diperbarui dari Manajemen User.'
         );
+
+        AdminAudit::catat('pengguna.ubah', $user->nama_lengkap ?? $user->username);
 
         return back()->with('success', 'Data pengguna berhasil diperbarui.');
     }
@@ -2018,6 +2029,9 @@ class AdminController extends Controller
         foreach ($typeCards as $c) {
             $tabs[] = ['key' => $c['key'], 'label' => $c['label'], 'count' => $c['total']];
         }
+        // Tab telemetri kondisi ruangan (APD, listrik, printer 3D, solder) —
+        // key sengaja bukan tipe mesin agar tidak bentrok dengan filter armada.
+        $tabs[] = ['key' => 'kondisi-ruangan', 'label' => 'Kondisi Ruangan', 'count' => \App\Models\Ruangan::count()];
         if (! collect($tabs)->contains(fn ($t) => $t['key'] === $tab)) {
             $tab = 'overview';
         }
@@ -2159,17 +2173,48 @@ class AdminController extends Controller
         $hourExpr = LogAbsensi::query()->getConnection()->getDriverName() === 'sqlite'
             ? "CAST(strftime('%H', waktu_tap) AS INTEGER)"
             : 'HOUR(waktu_tap)';
+        // select() menggantikan `log_absensi.*` dari join $logBase — wajib untuk
+        // MySQL ONLY_FULL_GROUP_BY (kolom non-agregat tak boleh diseleksi).
         $absensiHourRows = $logBase()
             ->whereDate('waktu_tap', $day)
             ->whereTime('waktu_tap', '>=', '06:00:00')
             ->whereTime('waktu_tap', '<=', '22:59:59')
-            ->selectRaw("{$hourExpr} as jam, COUNT(*) as total")
+            ->select(\Illuminate\Support\Facades\DB::raw("{$hourExpr} as jam"))
+            ->selectRaw('COUNT(*) as total')
             ->groupBy('jam')
             ->pluck('total', 'jam');
 
         for ($h = 6; $h <= 22; $h++) {
             $hourlyAbsensi[$h - 6] = (int) ($absensiHourRows[$h] ?? 0);
         }
+
+        // Panel kondisi ruangan — snapshot telemetri terakhir per ruangan.
+        $telemetriMap = \App\Models\RuanganTelemetri::query()->get()->keyBy('ruangan_id');
+        $roomPanels = \App\Models\Ruangan::query()->orderBy('nama')->get()
+            ->map(function ($r) use ($telemetriMap) {
+                $t = $telemetriMap->get($r->id);
+                $alerts = $t?->alerts ?? [];
+                $status = ! $r->aktif ? 'inactive'
+                    : (! $t ? 'nosensor'
+                    : ($t->isStale() ? 'stale' : (count($alerts) > 0 ? 'warn' : 'ok')));
+
+                return [
+                    'id' => $r->id,
+                    'nama' => $r->nama,
+                    'kode' => $r->kode,
+                    'lokasi' => $r->lokasi,
+                    'foto_url' => $r->foto ? asset($r->foto) : null,
+                    'status' => $status,
+                    // 'pintu' implisit — setiap ruangan terpantau minimal menampilkan akses pintu.
+                    'monitor' => array_values(array_unique(array_merge(['pintu'], (array) ($r->monitor_metrics ?? [])))),
+                    'metrics' => $t?->metrics ?? [],
+                    'alerts' => $alerts,
+                    'id_mesin' => $t?->id_mesin,
+                    'update_label' => $t?->recorded_at?->diffForHumans() ?? 'Belum ada data',
+                    'update_exact' => $t?->recorded_at?->translatedFormat('d M Y, H:i:s'),
+                    'aktivitas_url' => route('admin.ruangan.aktivitas', $r),
+                ];
+            })->values()->all();
 
         return [
             'tab' => $tab,
@@ -2190,6 +2235,7 @@ class AdminController extends Controller
                 'values' => [$machineOnline, $machineOffline, $machineInactive],
                 'colors' => ['#059669', '#d97706', '#94a3b8'],
             ],
+            'room_panels' => $roomPanels,
         ];
     }
 

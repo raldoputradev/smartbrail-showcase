@@ -67,7 +67,7 @@ class LandingController extends Controller
                     'suggestions' => route('suggestions.store'),
                     'online' => route('beranda.online'),
                     'helpdeskChat' => route('helpdesk.chat'),
-                    'logoMark' => asset('branding/brail-mark.png').'?v='.@filemtime(public_path('branding/brail-mark.png')),
+                    'logoMark' => asset('branding/brail-mark.webp').'?v='.@filemtime(public_path('branding/brail-mark.webp')),
                     'logoLockup' => \App\Support\Branding::logoUrl(),
                 ],
                 'flash' => [

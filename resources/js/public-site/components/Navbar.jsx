@@ -62,7 +62,7 @@ export default function Navbar({ urls, variant = 'landing', apkAvailable = true 
         {/* Kiri: logo */}
         <a href={home} className="group flex min-w-0 items-center justify-self-start gap-3">
           <img
-            src={urls?.logoLockup || urls?.logoMark || `${import.meta.env.BASE_URL}branding/app-logo.png`}
+            src={urls?.logoLockup || urls?.logoMark || `${import.meta.env.BASE_URL}branding/app-logo.webp`}
             alt="SmartBrail"
             className="h-10 w-auto max-w-[min(34vw,150px)] object-contain sm:h-14 sm:max-w-[180px]"
           />

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdminActivityLog;
 use App\Models\LogAbsensi;
 use App\Models\MesinIot;
+use App\Support\AdminAudit;
 use App\Support\AbsensiSnapshot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -234,5 +236,153 @@ class AdminLogController extends Controller
         ];
 
         return compact('logs', 'stats', 'filter', 'options', 'rincian', 'tren');
+    }
+
+    /**
+     * Jejak aktivitas admin/laboran — siapa melakukan apa, kapan.
+     * Transparansi aksi panel: buat/ubah ruangan, keputusan pengajuan,
+     * binding perangkat, kelola petugas.
+     */
+    public function jejakAktivitas(Request $request)
+    {
+        \Inertia\Inertia::setRootView('app-admin');
+        $user = $request->user();
+
+        [$filter, $query] = $this->jejakAktivitasQuery($request);
+
+        $logs = $query->paginate(20)->withQueryString();
+
+        return \Inertia\Inertia::render('JejakAktivitas', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'filters' => $filter,
+            'aksi_options' => collect(AdminAudit::AKSI)->map(fn ($l, $k) => ['key' => $k, 'label' => $l])->values()->all(),
+            'aktor_options' => ['admin', 'laboran'],
+            'logs' => [
+                'data' => collect($logs->items())->map(fn (AdminActivityLog $l) => [
+                    'id' => $l->id,
+                    'waktu' => $l->created_at?->translatedFormat('d M Y · H:i:s'),
+                    'aktor' => $l->actor_nama,
+                    'role' => $l->actor_role,
+                    'aksi' => $l->aksi,
+                    'aksi_label' => AdminAudit::label($l->aksi),
+                    'target' => $l->target,
+                    'detail' => $l->detail,
+                    'ip' => $l->ip,
+                ])->all(),
+                'meta' => [
+                    'total' => $logs->total(),
+                    'from' => $logs->firstItem(),
+                    'to' => $logs->lastItem(),
+                    'page' => $logs->currentPage(),
+                    'last_page' => $logs->lastPage(),
+                ],
+            ],
+            'urls' => [
+                'index' => route('admin.jejak-aktivitas'),
+                'export' => route('admin.jejak-aktivitas.export'),
+            ],
+        ]);
+    }
+
+    public function jejakAktivitasExport(Request $request)
+    {
+        [$filter, $query] = $this->jejakAktivitasQuery($request);
+        $format = $request->query('format') === 'xls' ? 'xls' : 'csv';
+        $stamp = now()->format('Ymd-His');
+        $filename = "jejak-aktivitas-{$stamp}.{$format}";
+
+        if ($format === 'csv') {
+            return response()->streamDownload(function () use ($query) {
+                $out = fopen('php://output', 'w');
+                fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM — Excel membaca UTF-8 dgn benar
+                fputcsv($out, ['Waktu', 'Aktor', 'Role', 'Aksi', 'Target', 'Detail', 'IP'], ';');
+                $query->chunkById(500, function ($rows) use ($out) {
+                    foreach ($rows as $l) {
+                        fputcsv($out, [
+                            $l->created_at?->format('Y-m-d H:i:s'),
+                            $l->actor_nama, $l->actor_role,
+                            AdminAudit::label($l->aksi),
+                            $l->target, $l->detail, $l->ip,
+                        ], ';');
+                    }
+                });
+                fclose($out);
+            }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }
+
+        return response()->streamDownload(function () use ($query, $filter) {
+            $esc = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+            $cellS = static fn ($v, string $style = '') => '<Cell'.($style ? ' ss:StyleID="'.$style.'"' : '').'><Data ss:Type="String">'.$esc($v).'</Data></Cell>';
+            $row = static fn (array $cells) => '<Row>'.implode('', $cells).'</Row>';
+
+            echo '<?xml version="1.0" encoding="UTF-8"?>'."\n";
+            echo '<?mso-application progid="Excel.Sheet"?>'."\n";
+            echo '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+            echo '<Styles>'
+                .'<Style ss:ID="title"><Font ss:Bold="1" ss:Size="14" ss:Color="#1E3A5F"/></Style>'
+                .'<Style ss:ID="head"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1E3A5F" ss:Pattern="Solid"/></Style>'
+                .'<Style ss:ID="lbl"><Font ss:Bold="1"/></Style>'
+                .'</Styles>';
+
+            echo '<Worksheet ss:Name="JEJAK_AKTIVITAS"><Table>';
+            echo $row([$cellS('SMARTBRAIL | JEJAK AKTIVITAS ADMIN & LABORAN', 'title')]);
+            echo $row([$cellS('')]);
+            echo $row([$cellS('Tanggal cetak', 'lbl'), $cellS(now()->translatedFormat('d F Y H:i'))]);
+            echo $row([$cellS('Filter', 'lbl'), $cellS(
+                'aksi='.($filter['aksi'] ?: 'semua')
+                .' · aktor='.($filter['aktor'] ?: 'semua')
+                .' · rentang='.($filter['dari'] ?: '—').' s/d '.($filter['sampai'] ?: '—')
+                .($filter['q'] !== '' ? ' · teks="'.$filter['q'].'"' : '')
+            )]);
+            echo $row([$cellS('')]);
+            echo $row([
+                $cellS('Waktu', 'head'), $cellS('Aktor', 'head'), $cellS('Role', 'head'),
+                $cellS('Aksi', 'head'), $cellS('Target', 'head'), $cellS('Detail', 'head'), $cellS('IP', 'head'),
+            ]);
+            $query->chunkById(500, function ($rows2) use ($row, $cellS) {
+                foreach ($rows2 as $l) {
+                    echo $row([
+                        $cellS($l->created_at?->format('Y-m-d H:i:s')),
+                        $cellS($l->actor_nama), $cellS($l->actor_role),
+                        $cellS(AdminAudit::label($l->aksi)),
+                        $cellS($l->target), $cellS($l->detail), $cellS($l->ip),
+                    ]);
+                }
+            });
+            echo '</Table></Worksheet></Workbook>';
+        }, $filename, ['Content-Type' => 'application/vnd.ms-excel; charset=UTF-8']);
+    }
+
+    private function jejakAktivitasQuery(Request $request): array
+    {
+        $filter = [
+            'q'     => trim((string) $request->query('q', '')),
+            'aksi'  => (string) $request->query('aksi', ''),
+            'aktor' => (string) $request->query('aktor', ''),
+            'dari'  => (string) $request->query('dari', ''),
+            'sampai'=> (string) $request->query('sampai', ''),
+        ];
+
+        $query = AdminActivityLog::query()->latest('id');
+        if ($filter['q'] !== '') {
+            $q = '%'.$filter['q'].'%';
+            $query->where(fn ($w) => $w->where('actor_nama', 'like', $q)
+                ->orWhere('target', 'like', $q)->orWhere('detail', 'like', $q));
+        }
+        if ($filter['aksi'] !== '') {
+            $query->where('aksi', $filter['aksi']);
+        }
+        if ($filter['aktor'] !== '') {
+            $query->where('actor_role', $filter['aktor']);
+        }
+        if ($filter['dari'] !== '') {
+            $query->where('created_at', '>=', $filter['dari'].' 00:00:00');
+        }
+        if ($filter['sampai'] !== '') {
+            $query->where('created_at', '<=', $filter['sampai'].' 23:59:59');
+        }
+
+        return [$filter, $query];
     }
 }

@@ -99,6 +99,18 @@ trait HandlesPeriodicReports
                     'tim_options' => collect($p['timOptions'])->values()->all(),
                     'summary' => $p['summary'],
                     'chart' => $p['chart'],
+                    'chart_weekly' => $p['chartWeekly'],
+                    'kelas_chart' => $p['kelasChart'],
+                    'weekday_chart' => $p['weekdayChart'],
+                    'at_risk' => $p['atRisk'],
+                    'periode_options' => $p['periodeOptions'],
+                    'semester_aktif' => ($p['activePeriod'] ?? null) ? [
+                        'id' => $p['activePeriod']->id,
+                        'label' => $p['activePeriod']->label,
+                        'jenis' => $p['activePeriod']->jenis,
+                        'tanggal_mulai' => $p['activePeriod']->tanggal_mulai->toDateString(),
+                        'tanggal_selesai' => $p['activePeriod']->tanggal_selesai->toDateString(),
+                    ] : null,
                     'machines' => collect($p['topMachines'])->values()->all(),
                     'students' => collect($p['studentRecapsActive'])->map(fn ($r) => array_merge($r, [
                         'terakhir' => !empty($r['terakhir'])

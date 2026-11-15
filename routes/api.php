@@ -40,6 +40,8 @@ Route::prefix('mesin')->group(function () {
     Route::middleware('mesin.auth')->prefix('ruangan')->group(function () {
         Route::post('/access/check', [RuanganAccessController::class, 'check']);
         Route::post('/access/event', [RuanganAccessController::class, 'event']);
+        Route::get('/access/acl', [RuanganAccessController::class, 'acl']);
+        Route::post('/telemetry', [RuanganAccessController::class, 'telemetry']);
     });
 
 });

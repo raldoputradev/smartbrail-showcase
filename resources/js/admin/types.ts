@@ -507,6 +507,7 @@ export interface LaporanPeriodikProps extends SharedProps {
         filter: {
             periode: string; bulan: string; tanggal_mulai: string; tanggal_akhir: string;
             kelas: string; tim: string; aktivitas: string; rekor: string; rekor_group: string;
+            periode_id: number | null; semester: string; semester_type: string;
         };
         periode_label: string;
         activity_label: string;
@@ -514,10 +515,43 @@ export interface LaporanPeriodikProps extends SharedProps {
         tim_options: string[];
         summary: { mahasiswa: number; hadir: number; tidak_lengkap: number; alfa: number; mesin_online: number };
         chart: { labels: string[]; hadir: number[]; tidak_lengkap: number[]; alfa: number[] };
+        chart_weekly: { labels: string[]; hadir: number[]; tidak_lengkap: number[]; alfa: number[] } | null;
+        kelas_chart: { kelas: string; hadir: number; tidak_lengkap: number; alfa: number; rate: number }[];
+        weekday_chart: { labels: string[]; hadir: number[]; tidak_lengkap: number[]; alfa: number[] };
+        at_risk: { nama: string; nim: string | null; kelas: string; alfa: number; rate: number; total: number }[];
+        periode_options: { id: number; label: string; jenis: string; is_active: boolean }[];
+        semester_aktif: { id: number; label: string; jenis: string; tanggal_mulai: string; tanggal_selesai: string } | null;
         machines: { aktivitas: string; id_mesin: string; total: number }[];
         students: PeriodicStudent[];
     };
     urls: { index: string; excel: string; word: string; print: string; rekap_harian: string };
+}
+
+/* ── Akademik: periode + kenaikan semester ── */
+export interface AcademicPeriodRow {
+    id: number; kode: string; label: string; jenis: 'ganjil' | 'genap';
+    tanggal_mulai: string; tanggal_selesai: string; is_active: boolean;
+}
+export interface KenaikanPreviewRow {
+    id: number; nama: string; nim: string | null; kelas: string | null;
+    tim: string | null; angkatan: number | null;
+    semester: number | null; semester_type: string | null;
+    usulan: 'naik' | 'lulus';
+}
+export interface KenaikanTahanRow {
+    id: number; nama: string; nim: string | null; kelas: string | null;
+    angkatan: number | null; semester: number | null; status: string;
+}
+export interface AkademikProps {
+    menu: SidebarSection[]; notif: AdminNotif;
+    periods: AcademicPeriodRow[];
+    preview: {
+        naik: KenaikanPreviewRow[];
+        tahan: KenaikanTahanRow[];
+        selesai_count: number;
+        status_options: string[];
+    };
+    urls: { index: string; periode: string; periode_update: string; periode_delete: string; aktivasi: string; kenaikan: string };
 }
 
 export interface RekapHarianRow {
@@ -814,12 +848,23 @@ export interface MonMetrics {
     machine_total: number; machine_online: number; machine_offline: number; machine_inactive: number;
     latest_sync: string; latest_sync_human: string; absensi_today: number; events_today: number;
 }
+export interface MonRoomPanel {
+    id: number; nama: string; kode: string | null; lokasi: string | null;
+    foto_url: string | null;
+    status: 'ok' | 'warn' | 'stale' | 'nosensor' | 'inactive';
+    monitor: string[];
+    metrics: Record<string, number | string | boolean | null>;
+    alerts: string[]; id_mesin: string | null;
+    update_label: string; update_exact: string | null;
+    aktivitas_url: string;
+}
 export interface MonitoringPayload {
     tab: string; tabs: MonTab[]; type_cards: MonTypeCard[]; has_vision: boolean;
     metrics: MonMetrics; units: MonUnit[]; alerts: MonAlert[]; live_tiles: MonLiveTile[];
     activities: MonitorActivity[];
     hourly: { labels: string[]; absensi: number[] };
     health: { labels: string[]; values: number[]; colors: string[] };
+    room_panels: MonRoomPanel[];
 }
 export interface MonitoringOperasionalProps extends MonitoringPayload {
     menu: SidebarSection[]; notif: AdminNotif; threshold_minutes: number;
@@ -1047,6 +1092,7 @@ export interface UserRow {
     angkatan: number | string | null;
     semester: number | null;
     semester_type: 'ganjil' | 'genap' | null;
+    academic_status: 'aktif' | 'cuti' | 'mengulang' | 'lulus' | 'keluar' | null;
     program_studi_id: number | null;
     shift: 'pagi' | 'malam' | null;
     finger_id: number | null;
@@ -1153,8 +1199,10 @@ export interface RgRow {
     aktif: boolean;
     aturan: RgAturan;
     perangkat_total: number;
+    monitor_metrics: string[];
     jadwal_label: string;
     last_event: { jenis: string; label: string | null } | null;
+    aktivitas_url: string;
 }
 
 export interface RgMesin {
@@ -1200,8 +1248,9 @@ export interface PgjRow {
     jam: string;
     peserta_n: number;
     peserta: string[];
-    pengganti: { mulai: string; selesai: string | null; catatan: string | null } | null;
+    pengganti: { mulai: string | null; selesai: string | null; catatan: string | null } | null;
     alasan: string | null;
+    alasan_status: string | null;
     diputus_oleh: string | null;
     diputus_pada: string | null;
     dibuat: string | null;
@@ -1560,4 +1609,46 @@ export interface AiTrainingProps {
     knowledge: string;
     can_edit: boolean;
     urls: { index: string; save_knowledge: string; delete_respons: string };
+}
+
+/* ── Jejak Aktivitas (audit admin/laboran) ── */
+export interface JejakLogRow {
+    id: number;
+    waktu: string | null;
+    aktor: string;
+    role: string;
+    aksi: string;
+    aksi_label: string;
+    target: string | null;
+    detail: string | null;
+    ip: string | null;
+}
+
+export interface JejakAktivitasProps {
+    menu: SidebarSection[]; notif: AdminNotif;
+    filters: { q: string; aksi: string; aktor: string; dari: string; sampai: string };
+    aksi_options: { key: string; label: string }[];
+    aktor_options: string[];
+    logs: {
+        data: JejakLogRow[];
+        meta: { total: number; from: number | null; to: number | null; page: number; last_page: number };
+    };
+    urls: { index: string; export: string };
+}
+
+/* ── Riwayat aktivitas per ruangan ── */
+export interface RuanganAktivitasProps {
+    menu: SidebarSection[]; notif: AdminNotif;
+    ruangan: { id: number; nama: string; kode: string; lokasi: string | null; foto_url: string | null };
+    filters: { jenis: string; dari: string; sampai: string };
+    stats: { total: number; bulan_ini: number; izinkan: number; tolak: number; paksa: number };
+    jenis_options: string[];
+    events: {
+        data: {
+            id: number; waktu: string | null; nama: string; jenis: string;
+            jenis_label: string; hasil: string | null; mesin: string | null; keterangan: string | null;
+        }[];
+        meta: { total: number; from: number | null; to: number | null; page: number; last_page: number };
+    };
+    urls: { index: string; back: string };
 }

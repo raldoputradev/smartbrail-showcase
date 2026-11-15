@@ -352,7 +352,7 @@ class SuggestionController extends Controller
             'body' => Str::limit('Re: ' . ($suggestion->subjek ?: 'Laporan Anda') . ' — "' . trim(strip_tags($reply)) . '"', 120),
             'url' => '/mahasiswa/notifikasi',
             'tag' => 'saran-' . $suggestion->id,
-        ]);
+        ], 'laporan');
 
         $push = app(MobilePushService::class);
         if (! $push->isConfigured()) {

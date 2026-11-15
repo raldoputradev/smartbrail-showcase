@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="app-url" content="{{ rtrim(url('/'), '/') }}">
-    <title>SmartBrail — Sistem Manajemen Laboratorium Pintar | Polibatam</title>
+    <title>SmartBrail — Sistem Manajemen Laboratorium Pintar | BRAIL Polibatam</title>
     <meta name="description" content="SmartBrail adalah sistem manajemen laboratorium pintar Politeknik Negeri Batam: absensi sidik jari, akses ruangan via RFID & fingerprint, persetujuan ruangan, manajemen PBL, dan notifikasi realtime.">
     <meta name="robots" content="index, follow">
     <meta name="keywords" content="SmartBrail, smartbrail, smart laboratory, sistem laboratorium, absensi sidik jari, fingerprint attendance, akses ruangan IoT, Politeknik Negeri Batam, Polibatam, BRAIL, PBL, manajemen ruangan">
-    <meta name="author" content="SmartBrail — Politeknik Negeri Batam">
+    <meta name="author" content="Rayendra Aldo Putra — SmartBrail, BRAIL Politeknik Negeri Batam">
     <meta name="theme-color" content="#0284c7">
     <link rel="canonical" href="{{ rtrim(url('/'), '/') }}/">
 
@@ -42,6 +42,7 @@
         "alternateName": "SmartBrail Polibatam",
         "url": "{{ rtrim(url('/'), '/') }}/",
         "description": "Sistem manajemen laboratorium pintar: absensi sidik jari, akses ruangan IoT, persetujuan ruangan, dan manajemen PBL.",
+        "disambiguatingDescription": "SmartBrail (satu kata) — portal resmi BRAIL, Barelang Robotics & AI Lab, Politeknik Negeri Batam. Bukan 'smart brain'.",
         "inLanguage": "id-ID",
         "publisher": {
             "@type": "Organization",
@@ -59,7 +60,36 @@
         "applicationCategory": "EducationalApplication",
         "operatingSystem": "Web",
         "url": "{{ rtrim(url('/'), '/') }}/",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "IDR" }
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "IDR" },
+        "author": {
+            "@type": "Person",
+            "name": "Rayendra Aldo Putra",
+            "url": "https://github.com/raldoputradev",
+            "affiliation": { "@type": "Organization", "name": "Politeknik Negeri Batam" }
+        },
+        "maintainer": {
+            "@type": "Organization",
+            "name": "BRAIL — Barelang Robotics & AI Lab",
+            "url": "https://www.instagram.com/brailpolibatam/"
+        }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "BRAIL — Barelang Robotics & AI Lab",
+        "alternateName": "BRAIL Polibatam",
+        "url": "{{ rtrim(url('/'), '/') }}/",
+        "sameAs": [
+            "https://www.instagram.com/brailpolibatam/",
+            "https://www.polibatam.ac.id/"
+        ],
+        "parentOrganization": {
+            "@type": "CollegeOrUniversity",
+            "name": "Politeknik Negeri Batam",
+            "url": "https://www.polibatam.ac.id/"
+        }
     }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">

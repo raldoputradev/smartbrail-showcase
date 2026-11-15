@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\AbsensiHarian;
+use App\Models\AcademicPeriod;
 use App\Models\LogAbsensi;
 use App\Models\MesinIot;
 use App\Models\User;
@@ -44,13 +45,22 @@ class PeriodicReportBuilder
             ->orderBy('tim')
             ->pluck('tim');
 
-        $absensiStudentFilter = function ($qb) use ($filter): void {
+        $absensiStudentFilter = function ($qb) use ($filter, $dosen): void {
             $qb->where('role', 'mahasiswa');
+            if ($dosen) {
+                DosenKelasScope::applySupervisedMahasiswaQuery($qb, $dosen);
+            }
             if ($filter['kelas'] !== '') {
                 $qb->where('kelas', $filter['kelas']);
             }
             if ($filter['tim'] !== '') {
                 $qb->where('tim', $filter['tim']);
+            }
+            if ($filter['semester'] !== '') {
+                $qb->where('semester', (int) $filter['semester']);
+            }
+            if ($filter['semester_type'] !== '') {
+                $qb->where('semester_type', $filter['semester_type']);
             }
         };
 
@@ -69,6 +79,8 @@ class PeriodicReportBuilder
             'mahasiswa' => (clone $mahasiswaBaseQuery)
                 ->when($filter['kelas'] !== '', fn ($q) => $q->where('kelas', $filter['kelas']))
                 ->when($filter['tim'] !== '', fn ($q) => $q->where('tim', $filter['tim']))
+                ->when($filter['semester'] !== '', fn ($q) => $q->where('semester', (int) $filter['semester']))
+                ->when($filter['semester_type'] !== '', fn ($q) => $q->where('semester_type', $filter['semester_type']))
                 ->count(),
             'dosen' => $dosen ? 0 : User::query()->where('role', 'dosen')->count(),
             'hadir' => $statusCounts['hadir'],
@@ -159,6 +171,8 @@ class PeriodicReportBuilder
         $studentRecaps = (clone $mahasiswaBaseQuery)
             ->when($filter['kelas'] !== '', fn ($q) => $q->where('kelas', $filter['kelas']))
             ->when($filter['tim'] !== '', fn ($q) => $q->where('tim', $filter['tim']))
+            ->when($filter['semester'] !== '', fn ($q) => $q->where('semester', (int) $filter['semester']))
+            ->when($filter['semester_type'] !== '', fn ($q) => $q->where('semester_type', $filter['semester_type']))
             ->orderBy('nama_lengkap')
             ->get(['id', 'nama_lengkap', 'nitk_nidn', 'kelas', 'tim'])
             ->map(function (User $student) use ($harianByUser, $filter) {
@@ -225,8 +239,93 @@ class PeriodicReportBuilder
             'bulan_ini' => 'Bulan ini',
             'bulan_lalu' => 'Bulan lalu',
             'tahun_bulan' => Carbon::parse($filter['bulan'] . '-01')->translatedFormat('F Y'),
+            'semester' => $filter['periode_label_semester'] ?? 'Semester',
             default => $filter['tanggal_mulai'] . ' s/d ' . $filter['tanggal_akhir'],
         };
+
+        // ── Grafik tambahan ──────────────────────────────────────────────
+        // Agregasi mingguan — periode semester ~5 bulan membuat garis harian
+        // terlalu padat; bucket ISO-week (Senin awal) dari data harian.
+        $chartWeekly = null;
+        if ($daySpan > 45) {
+            $weekMap = [];
+            foreach ($statusPerHari as $row) {
+                $d = $normalizeDate($row->tanggal);
+                $weekStart = Carbon::parse($d)->startOfWeek(Carbon::MONDAY)->toDateString();
+                $weekMap[$weekStart] = [
+                    'hadir' => ($weekMap[$weekStart]['hadir'] ?? 0) + (int) $row->hadir,
+                    'tidak_lengkap' => ($weekMap[$weekStart]['tidak_lengkap'] ?? 0) + (int) $row->tidak_lengkap,
+                    'alfa' => ($weekMap[$weekStart]['alfa'] ?? 0) + (int) $row->alfa,
+                ];
+            }
+            ksort($weekMap);
+            $chartWeekly = [
+                'labels' => array_keys($weekMap),
+                'hadir' => array_map(fn ($w) => $w['hadir'], $weekMap),
+                'tidak_lengkap' => array_map(fn ($w) => $w['tidak_lengkap'], $weekMap),
+                'alfa' => array_map(fn ($w) => $w['alfa'], $weekMap),
+            ];
+        }
+
+        // Rate kehadiran per kelas — perbandingan antar kelas dalam cakupan.
+        $kelasChart = collect($studentRecaps)
+            ->filter(fn ($r) => ($r['kelas'] ?? '-') !== '-')
+            ->groupBy('kelas')
+            ->map(function ($rows, $kelas) {
+                $h = $rows->sum('hadir');
+                $tl = $rows->sum('tidak_lengkap');
+                $a = $rows->sum('alfa');
+                $tot = $h + $tl + $a;
+                return [
+                    'kelas' => $kelas,
+                    'hadir' => $h,
+                    'tidak_lengkap' => $tl,
+                    'alfa' => $a,
+                    'rate' => $tot > 0 ? round(($h / $tot) * 100, 1) : 0.0,
+                ];
+            })
+            ->sortBy('kelas')->values()->all();
+
+        // Pola hari-dalam-minggu — hari mana yang paling rawan alfa.
+        $weekdayBuckets = array_fill(0, 7, ['hadir' => 0, 'tidak_lengkap' => 0, 'alfa' => 0]);
+        foreach ($statusPerHari as $row) {
+            $dow = Carbon::parse($row->tanggal)->dayOfWeek; // 0=Min … 6=Sab
+            $weekdayBuckets[$dow]['hadir'] += (int) $row->hadir;
+            $weekdayBuckets[$dow]['tidak_lengkap'] += (int) $row->tidak_lengkap;
+            $weekdayBuckets[$dow]['alfa'] += (int) $row->alfa;
+        }
+        $dowNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+        $weekdayChart = [
+            'labels' => [$dowNames[1], $dowNames[2], $dowNames[3], $dowNames[4], $dowNames[5], $dowNames[6], $dowNames[0]],
+            'hadir' => array_map(fn ($i) => $weekdayBuckets[$i]['hadir'], [1, 2, 3, 4, 5, 6, 0]),
+            'tidak_lengkap' => array_map(fn ($i) => $weekdayBuckets[$i]['tidak_lengkap'], [1, 2, 3, 4, 5, 6, 0]),
+            'alfa' => array_map(fn ($i) => $weekdayBuckets[$i]['alfa'], [1, 2, 3, 4, 5, 6, 0]),
+        ];
+
+        // Mahasiswa berisiko — alfa terbanyak / rate terendah (min. 3 sesi).
+        $atRisk = collect($studentRecapsActive)
+            ->map(function ($r) {
+                $tot = $r['hadir'] + $r['tidak_lengkap'] + $r['alfa'];
+                $r['total'] = $tot;
+                $r['rate'] = $tot > 0 ? round(($r['hadir'] / $tot) * 100, 1) : 0.0;
+                return $r;
+            })
+            ->filter(fn ($r) => $r['total'] >= 3)
+            ->sortBy([['alfa', 'desc'], ['rate', 'asc']])
+            ->take(10)
+            ->map(fn ($r) => [
+                'nama' => $r['nama'], 'nim' => $r['nim'], 'kelas' => $r['kelas'],
+                'alfa' => $r['alfa'], 'rate' => $r['rate'], 'total' => $r['total'],
+            ])
+            ->values()->all();
+
+        // Pilihan periode akademik untuk dropdown filter.
+        $periodeOptions = AcademicPeriod::orderByDesc('tanggal_mulai')->get()
+            ->map(fn (AcademicPeriod $p) => [
+                'id' => $p->id, 'label' => $p->label, 'jenis' => $p->jenis,
+                'is_active' => $p->is_active,
+            ])->all();
+        $activePeriod = AcademicPeriod::current();
 
         return compact(
             'filter',
@@ -241,7 +340,13 @@ class PeriodicReportBuilder
             'rankings',
             'detailRows',
             'activityLabel',
-            'periodeLabel'
+            'periodeLabel',
+            'chartWeekly',
+            'kelasChart',
+            'weekdayChart',
+            'atRisk',
+            'periodeOptions',
+            'activePeriod'
         );
     }
 
@@ -251,7 +356,7 @@ class PeriodicReportBuilder
     private static function resolveFilter(Request $request): array
     {
         $periode = (string) $request->query('periode', 'bulan_ini');
-        if (!in_array($periode, ['minggu_ini', 'minggu_lalu', 'bulan_ini', 'bulan_lalu', 'tahun_bulan', 'custom'], true)) {
+        if (!in_array($periode, ['minggu_ini', 'minggu_lalu', 'bulan_ini', 'bulan_lalu', 'tahun_bulan', 'custom', 'semester'], true)) {
             $periode = 'bulan_ini';
         }
 
@@ -279,6 +384,23 @@ class PeriodicReportBuilder
             ],
             default => [null, null],
         };
+
+        $periodRow = null;
+        if ($periode === 'semester') {
+            // periode_id → academic_periods; fallback periode aktif, lalu bulan ini.
+            $periodRow = AcademicPeriod::query()
+                ->when((int) $request->query('periode_id') > 0,
+                    fn ($q) => $q->where('id', (int) $request->query('periode_id')))
+                ->orderByDesc('is_active')->orderByDesc('tanggal_mulai')
+                ->first();
+            if ($periodRow) {
+                $mulai = $periodRow->tanggal_mulai->copy()->startOfDay();
+                $akhir = $periodRow->tanggal_selesai->copy()->endOfDay();
+            } else {
+                $mulai = $mulai ?? $now->copy()->startOfMonth();
+                $akhir = $akhir ?? $now->copy()->endOfMonth();
+            }
+        }
 
         if ($periode === 'custom') {
             try {
@@ -309,13 +431,27 @@ class PeriodicReportBuilder
             $rekorGroup = 'semua';
         }
 
+        // Filter kohort mahasiswa: semester ke-N + jenis periode akademiknya.
+        $semesterFilter = trim((string) $request->query('semester', ''));
+        if ($semesterFilter !== '' && (!ctype_digit($semesterFilter) || (int) $semesterFilter < 1 || (int) $semesterFilter > 8)) {
+            $semesterFilter = '';
+        }
+        $semesterType = (string) $request->query('semester_type', '');
+        if (!in_array($semesterType, ['ganjil', 'genap'], true)) {
+            $semesterType = '';
+        }
+
         return [
             'periode' => $periode,
+            'periode_id' => $periodRow?->id,
+            'periode_label_semester' => $periodRow?->label,
             'bulan' => $bulan,
             'tanggal_mulai' => $mulai->toDateString(),
             'tanggal_akhir' => $akhir->toDateString(),
             'kelas' => (string) $request->query('kelas', ''),
             'tim' => (string) $request->query('tim', ''),
+            'semester' => $semesterFilter,
+            'semester_type' => $semesterType,
             'aktivitas' => $aktivitas,
             'rekor' => $rekor,
             'rekor_group' => $rekorGroup,

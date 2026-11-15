@@ -12,6 +12,7 @@ use App\Models\LogAbsensi;
 use App\Models\ProgramStudi;
 use App\Models\User;
 use App\Support\AbsensiKebijakan;
+use App\Support\AdminAudit;
 use App\Support\TablePagination;
 use App\Support\AbsensiLabSlotResolver;
 use App\Support\AbsensiReadinessReport;
@@ -376,6 +377,8 @@ class AbsensiManagementController extends Controller
 
         AbsensiKebijakan::savePolicy($normalizedInput);
 
+        AdminAudit::catat('absensi.kebijakan', 'Kebijakan absensi', AbsensiKebijakan::labelMode());
+
         return back()->with('success', 'Kebijakan absensi wajib disimpan: ' . AbsensiKebijakan::labelMode());
     }
 
@@ -471,6 +474,8 @@ class AbsensiManagementController extends Controller
 
         AbsensiSesiSetting::query()->where('shift', $validated['shift'])->update($update);
 
+        AdminAudit::catat('absensi.sesi', 'Sesi '.$validated['shift']);
+
         return back()->with('success', 'Jadwal sesi ' . $validated['shift'] . ' disimpan.');
     }
 
@@ -539,6 +544,8 @@ class AbsensiManagementController extends Controller
             }
             AbsensiKalenderLibur::query()->updateOrCreate(['tanggal' => $tgl], $row);
         }
+
+        AdminAudit::catat('absensi.libur', $dates->implode(', '), $validated['keterangan'] ?? null);
 
         return back()->with('success', 'Kalender & pengecualian akademik berhasil disimpan.');
     }

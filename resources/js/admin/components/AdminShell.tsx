@@ -1,20 +1,24 @@
-import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type PropsWithChildren, type ReactNode } from 'react';
 import { usePage, router } from '@inertiajs/react';
 import {
     Activity, Bell, CheckCheck, ChevronRight, LayoutDashboard, LogOut, Menu, Moon,
     ShieldAlert, ShieldCheck, Sparkles, Sun, UserRound, X, Zap,
     Cpu, Calendar, Fingerprint, ScrollText, DoorOpen, CalendarCheck, Brush,
     GraduationCap, BookOpen, FlaskConical, Users, Megaphone, MessageSquare,
-    ListTodo, ClipboardCheck, BarChart3, Settings,
-    ClipboardList, Building2, FileText, FileCode, Check, User, Radar,
+    ListTodo, ClipboardCheck, BarChart3, Settings, Search,
+    ClipboardList, Building2, FileText, FileCode, Check, User, Radar, History,
 } from 'lucide-react';
 import type {
     AdminNotif, AuthUser, NotifOpsItem, SharedProps,
     SidebarGroup, SidebarLink, SidebarSection,
 } from '@admin/types';
 import { asset } from '@admin/lib/asset';
-import { subscribePrivate } from '@admin/lib/live';
+import { scheduleReload, subscribePrivate } from '@admin/lib/live';
 import { cn } from '@admin/lib/utils';
+import { GuideTour, TourHelpButton, type TourStep } from '../../shared/GuideTour';
+
+/** Slug untuk anchor panduan tur — konsisten antara link dan langkah tur. */
+const tourSlug = (s: string) => `adnav-${s.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
 const ICONS: Record<string, typeof LayoutDashboard> = {
     'layout-dashboard': LayoutDashboard, 'sparkles': Sparkles, 'cpu': Cpu,
@@ -26,6 +30,7 @@ const ICONS: Record<string, typeof LayoutDashboard> = {
     'settings': Settings, 'activity': Activity,
     'clipboard-list': ClipboardList, 'building-2': Building2, 'file-text': FileText,
     'file-code': FileCode, 'shield-check': ShieldCheck, 'user': User, 'radar': Radar,
+    'history': History,
 };
 
 function soonAlert(e: React.MouseEvent) {
@@ -57,6 +62,7 @@ function NavLink({ item, child = false }: { item: SidebarLink; child?: boolean }
         <a
             href={item.url}
             data-accent={accentOf(item.label)}
+            data-tour={tourSlug(item.label)}
             className={cn('ad-nav-link', child ? 'ad-nav-link--child' : 'ad-nav-link--top', item.active && 'is-active')}
             onClick={item.soon ? soonAlert : undefined}
         >
@@ -70,6 +76,86 @@ function NavLink({ item, child = false }: { item: SidebarLink; child?: boolean }
     );
 }
 
+/** Pencarian menu global di topbar — lompat ke halaman mana pun yang diizinkan. */
+function AdminMenuSearch({ menu }: { menu: SidebarSection[] }) {
+    const [q, setQ] = useState('');
+    const [open, setOpen] = useState(false);
+    const [idx, setIdx] = useState(0);
+    const ref = useRef<HTMLDivElement>(null);
+
+    const items = useMemo(() => {
+        const out: { label: string; group: string; url: string; soon?: boolean }[] = [];
+        for (const sec of menu) {
+            for (const node of sec.nodes) {
+                if (node.kind === 'link') {
+                    out.push({ label: node.label, group: sec.title ?? '', url: node.url, soon: node.soon });
+                } else if (node.kind === 'group') {
+                    for (const c of node.children) {
+                        out.push({ label: `${node.label} › ${c.label}`, group: node.label, url: c.url, soon: c.soon });
+                    }
+                }
+            }
+        }
+        return out;
+    }, [menu]);
+
+    const results = useMemo(() => {
+        const term = q.trim().toLowerCase();
+        if (!term) return items;
+        return items.filter((i) => i.label.toLowerCase().includes(term));
+    }, [items, q]);
+
+    useEffect(() => {
+        const onDoc = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, []);
+
+    const go = (item: { url: string; soon?: boolean }) => {
+        setOpen(false); setQ('');
+        if (item.soon) { soonAlert(); return; }
+        window.location.href = item.url;
+    };
+
+    return (
+        <div ref={ref} className="ad-search" data-tour="adtour-search">
+            <Search size={14} className="ad-search__icon" />
+            <input
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setOpen(true); setIdx(0); }}
+                onFocus={() => setOpen(true)}
+                onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(i + 1, results.length - 1)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx((i) => Math.max(i - 1, 0)); }
+                    else if (e.key === 'Enter' && results[idx]) go(results[idx]);
+                    else if (e.key === 'Escape') setOpen(false);
+                }}
+                placeholder="Cari menu / halaman…"
+                aria-label="Cari menu"
+                role="combobox" aria-expanded={open} aria-controls="ad-menusearch"
+            />
+            {open && (
+                <ul id="ad-menusearch" role="listbox" className="ad-search__pop">
+                    {results.length === 0 && <li className="ad-search__empty">Tidak ada menu “{q}”.</li>}
+                    {results.slice(0, 40).map((item, i) => (
+                        <li key={item.label} role="option" aria-selected={i === idx}>
+                            <button type="button" className={cn('ad-search__item', i === idx && 'is-active')}
+                                onMouseEnter={() => setIdx(i)}
+                                onClick={() => go(item)}>
+                                <Search size={12} />
+                                <span>{item.label}</span>
+                                {item.soon && <em>Segera</em>}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 /** Grup submenu collapsible (controlled) — accordion: hanya satu grup terbuka. */
 function NavGroup({ group, open, onToggle }: { group: SidebarGroup; open: boolean; onToggle: () => void }) {
     const Icon = ICONS[group.icon] ?? LayoutDashboard;
@@ -80,6 +166,7 @@ function NavGroup({ group, open, onToggle }: { group: SidebarGroup; open: boolea
             <button
                 type="button" className="ad-nav-group__btn"
                 data-accent={accentOf(group.key ?? group.label)}
+                data-tour={tourSlug(group.key ?? group.label)}
                 onClick={onToggle} aria-expanded={open}
             >
                 <Icon />
@@ -109,6 +196,14 @@ function NotifBell({ notif }: { notif: AdminNotif }) {
     const [total, setTotal] = useState(notif.total);
     const [busy, setBusy] = useState(false);
     const wrapRef = useRef<HTMLDivElement>(null);
+
+    // Prop `notif` berubah saat partial reload realtime (pengajuan.updated dsb.) —
+    // sinkronkan state lokal supaya lonceng tidak membeku di angka saat mount.
+    useEffect(() => {
+        setOps(notif.ops);
+        setAnns(notif.announcements);
+        setTotal(notif.total);
+    }, [notif]);
 
     useEffect(() => {
         if (!open) return;
@@ -463,6 +558,92 @@ interface ShellProps extends PropsWithChildren {
     actions?: ReactNode;
 }
 
+/* ── Panduan tur (onboarding) ───────────────────────────
+   Langkah menarget grup/menu nyata; yang tidak ada di peran pengguna
+   (mis. menu admin saat login dosen) dilewati otomatis. */
+const STAFF_TOUR: TourStep[] = [
+    {
+        target: '[data-tour="adnav-dashboard"]', side: 'right',
+        title: 'Dashboard',
+        body: 'Ringkasan operasional hari ini — kehadiran, aktivitas mesin, dan pengajuan yang menunggu tindakan Anda.',
+    },
+    {
+        target: '[data-tour="adnav-asisten-ai"]', side: 'right',
+        title: 'Asisten AI',
+        body: 'Tanyakan rekap absensi, data mahasiswa, atau buat laporan lewat percakapan — hasilnya mengikuti hak akses Anda.',
+    },
+    {
+        target: '[data-tour="adnav-absensi-perangkat"]', side: 'right',
+        title: 'Perangkat',
+        body: 'Kelola mesin absen & akses pintu, panduan program mesin, aturan absensi, fingerprint, dan log tap — semua operasional perangkat di sini.',
+    },
+    {
+        target: '[data-tour="adnav-manajemen-ruangan"]', side: 'right',
+        title: 'Manajemen Ruangan',
+        body: 'Data ruangan, persetujuan pengajuan, dan petugas kebersihan. Daftar ruangan bisa tampil sebagai tabel atau kartu (toggle di kanan atas), dan tiap ruangan punya halaman Riwayat aksesnya sendiri.',
+    },
+    {
+        target: '[data-tour="adnav-data-pengguna"]', side: 'right',
+        title: 'Data Pengguna',
+        body: 'Daftar akun mahasiswa, dosen, dan laboran. Admin dapat mengimpor akun massal dan mengatur peran.',
+    },
+    {
+        target: '[data-tour="adnav-proyek-pbl"]', side: 'right',
+        title: 'Proyek PBL',
+        body: 'Kelola proyek dan tim PBL — penentuan tim berpengaruh ke hak pengajuan ruangan mahasiswa.',
+    },
+    {
+        target: '[data-tour="adnav-dosen-rekap"]', side: 'right',
+        title: 'Rekap Absensi',
+        body: 'Rekap harian dan laporan periodik untuk kelas yang Anda ampu — bisa diekspor ke Excel/Word.',
+    },
+    {
+        target: '[data-tour="adnav-dosen-academic"]', side: 'right',
+        title: 'Akademik',
+        body: 'Data mahasiswa kelas Anda dan persetujuan pengajuan ruangan tim PBL yang Anda bimbing.',
+    },
+    {
+        target: '[data-tour="adnav-dosen-pbl"]', side: 'right',
+        title: 'Proyek PBL',
+        body: 'Proyek PBL yang Anda bimbing beserta tim dan anggotanya.',
+    },
+    {
+        target: '[data-tour="adnav-komunikasi"]', side: 'right',
+        title: 'Komunikasi',
+        body: 'Buat pengumuman, balas saran & masukan mahasiswa, dan pantau antrian notifikasi yang perlu ditindaklanjuti.',
+    },
+    {
+        target: '[data-tour="adnav-dosen-comm"]', side: 'right',
+        title: 'Komunikasi',
+        body: 'Pengumuman untuk mahasiswa dan saran & masukan yang masuk dari kelas Anda.',
+    },
+    {
+        target: '[data-tour="adnav-laporan-audit"]', side: 'right',
+        title: 'Laporan & Audit',
+        body: 'Rekap harian, laporan periodik, dan Jejak Aktivitas — catatan siapa melakukan apa di portal (buat ruangan, setujui pengajuan, ubah mesin, dst) untuk transparansi.',
+    },
+    {
+        target: '[data-tour="adtour-search"]', side: 'bottom',
+        title: 'Pencarian Menu',
+        body: 'Ketik nama halaman atau menu apa pun untuk melompat langsung ke sana — tersedia di setiap halaman portal.',
+    },
+    {
+        target: '[data-tour="adtour-bell"]', side: 'bottom',
+        title: 'Notifikasi',
+        body: 'Pengajuan ruangan baru, saran masuk, dan pengumuman tiba di sini secara realtime — termasuk peringatan keamanan saat pintu dibuka paksa atau menganga.',
+    },
+    {
+        target: '[data-tour="adtour-profile"]', side: 'bottom',
+        title: 'Profil & Keamanan',
+        body: 'Lihat profil, ganti password, dan keluar dari portal melalui menu ini.',
+    },
+    {
+        target: '[data-tour="help"]', side: 'bottom',
+        title: 'Tombol Panduan',
+        body: 'Klik ikon ini kapan saja untuk membuka kembali panduan tur — termasuk saat ada fitur baru yang ingin Anda kenali.',
+    },
+];
+
 export function AdminShell({ menu, notif, title, subtitle, actions, children }: ShellProps) {
     const { auth, branding, reverb, flash } = usePage<SharedProps>().props;
     const user = auth.user;
@@ -495,8 +676,12 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
     useEffect(() => {
         if (!reverb || !isStaff) return;
         return subscribePrivate(reverb, 'absensi.staff.laboran', {
-            'pengajuan.updated': () => router.reload({ only: ['notif', 'menu'] }),
-            'notifikasi.baru': () => router.reload({ only: ['notif', 'menu'] }),
+            // Selain lonceng/sidebar, segarkan juga data pengajuan di halaman yang
+            // sedang dibuka (daftar, statistik, riwayat keputusan) — halaman lain
+            // mengabaikan prop yang tidak mereka sediakan.
+            'pengajuan.updated': () => scheduleReload(['notif', 'menu', 'pengajuan', 'stats', 'riwayat']),
+            'notifikasi.baru': () => scheduleReload(['notif', 'menu']),
+            'ruangan.akses': () => scheduleReload(['event_terakhir', 'ruangan', 'riwayat', 'akses', 'mesin', 'stats']),
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reverb?.key, isStaff]);
@@ -506,18 +691,24 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
     useEffect(() => {
         if (!reverb) return;
         return subscribePrivate(reverb, 'notifikasi.semua', {
-            'notifikasi.baru': () => router.reload({ only: ['notif', 'menu'] }),
+            'notifikasi.baru': () => scheduleReload(['notif', 'menu']),
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [reverb?.key]);
 
     // Heartbeat presence — ping ringan tiap ~2,5 menit agar last_seen_at tetap
-    // segar walau pengguna pasif (tab dibiarkan terbuka).
+    // segar, TAPI hanya saat user aktif baru-baru ini. Tanpa gate ini ping
+    // memperpanjang SESSION_LIFETIME terus-menerus dan idle-guard tak pernah
+    // bisa logout (bug: sesi abadi saat tab dibiarkan).
     useEffect(() => {
-        const ping = () => fetch(route('session.ping'), {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        }).catch(() => { /* presence saja */ });
+        const ping = () => {
+            const last = (window as unknown as { __sbLastActivity?: number }).__sbLastActivity ?? Date.now();
+            if (Date.now() - last > 120000) return;
+            fetch(route('session.ping'), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            }).catch(() => { /* presence saja */ });
+        };
         const t = setInterval(ping, 150000);
         return () => clearInterval(t);
     }, []);
@@ -527,6 +718,21 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
     const { theme, toggle } = useTheme();
     const [navOpen, setNavOpen] = useState(false);
     const [logoutBusy, setLogoutBusy] = useState(false);
+
+    // Tur panduan — otomatis sekali per pengguna per perangkat, dibuka ulang via tombol "?".
+    const tourKey = `sb_tour_admin_v1_u${auth.user?.id ?? 'x'}`;
+    const [tourOpen, setTourOpen] = useState(false);
+    useEffect(() => {
+        try {
+            if (localStorage.getItem(tourKey)) return;
+        } catch { return; }
+        const t = setTimeout(() => setTourOpen(true), 1600);
+        return () => clearTimeout(t);
+    }, [tourKey]);
+    const closeTour = () => {
+        try { localStorage.setItem(tourKey, '1'); } catch { /* abaikan */ }
+        setTourOpen(false);
+    };
     // Mode rail (sidebar menyempit ke ikon) — key localStorage disamakan
     // dengan sidebar Blade agar status bertahan lintas React ↔ Blade.
     const [rail, setRail] = useState<boolean>(() => {
@@ -622,11 +828,14 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
                         {subtitle ? <div className="ad-topbar__sub">{subtitle}</div> : null}
                     </div>
                     <div className="ad-topbar__spacer" />
+                    <AdminMenuSearch menu={menu} />
+                    <div className="ad-topbar__spacer" />
+                    <TourHelpButton onClick={() => setTourOpen(true)} className="ad-icon-btn" />
                     <button
                         type="button" className="ad-icon-btn" aria-label="Ganti tema" onClick={toggle}
                     >{theme === 'dark' ? <Moon /> : <Sun />}</button>
-                    <NotifBell notif={notif} />
-                    <ProfileDropdown user={user} onLogout={logout} logoutBusy={logoutBusy} />
+                    <span data-tour="adtour-bell" className="inline-flex"><NotifBell notif={notif} /></span>
+                    <span data-tour="adtour-profile" className="inline-flex"><ProfileDropdown user={user} onLogout={logout} logoutBusy={logoutBusy} /></span>
                 </header>
                 <main className="ad-content">
                     {user?.must_change_password && (
@@ -642,6 +851,7 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
                     {children}
                 </main>
             </div>
+            <GuideTour steps={STAFF_TOUR} open={tourOpen} onClose={closeTour} />
         </div>
     );
 }

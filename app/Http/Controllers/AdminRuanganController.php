@@ -6,6 +6,7 @@ use App\Models\MesinIot;
 use App\Models\Ruangan;
 use App\Models\RuanganAccessEvent;
 use App\Models\RuanganPetugas;
+use App\Support\AdminAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -68,11 +69,13 @@ class AdminRuanganController extends Controller
                 'aktif' => (bool) $r->aktif,
                 'aturan' => $aturan,
                 'perangkat_total' => (int) ($perangkatCount[$r->id] ?? 0),
+                'monitor_metrics' => $r->monitor_metrics ?? [],
                 'jadwal_label' => $this->jadwalLabel($aturan),
                 'last_event' => $ev ? [
                     'jenis' => $ev->jenis,
                     'label' => $ev->terjadi_pada?->diffForHumans(),
                 ] : null,
+                'aktivitas_url' => route('admin.ruangan.aktivitas', $r),
             ];
         })->values()->all();
 
@@ -145,7 +148,7 @@ class AdminRuanganController extends Controller
             'lokasi' => 'nullable|string|max:160',
             'kapasitas' => 'nullable|integer|min:1|max:1000',
             'fasilitas' => 'nullable|string|max:500',
-            'foto' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'foto' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:8192',
             'hari' => 'nullable|array',
             'hari.*' => 'integer|min:1|max:7',
             'jam_buka' => 'nullable|date_format:H:i',
@@ -155,11 +158,13 @@ class AdminRuanganController extends Controller
             'max_duration_minutes' => 'nullable|integer|min:15|max:720',
             'max_pending_per_team' => 'nullable|integer|min:1|max:10',
             'max_peserta' => 'nullable|integer|min:1|max:1000',
+            'monitor_metrics' => 'nullable|array',
+            'monitor_metrics.*' => 'in:' . implode(',', Ruangan::MONITOR_KEYS),
         ]);
 
         $fotoBaru = $this->simpanFoto($request);
         try {
-            Ruangan::create([
+            $ruangan = Ruangan::create([
                 'kode' => strtoupper($data['kode']),
                 'nama' => $data['nama'],
                 'lokasi' => $data['lokasi'] ?? null,
@@ -167,11 +172,13 @@ class AdminRuanganController extends Controller
                 'fasilitas' => $this->fasilitasDari($data['fasilitas'] ?? null),
                 'foto' => $fotoBaru,
                 'aturan' => $this->aturanDari($data),
+                'monitor_metrics' => $this->monitorDari($data['monitor_metrics'] ?? null),
             ]);
         } catch (\Throwable $e) {
             $this->hapusFotoBaru($fotoBaru);
             return $this->gagalSimpanRuangan($e);
         }
+        AdminAudit::catat('ruangan.buat', "{$ruangan->nama} ({$ruangan->kode})");
 
         return back()->with('status', 'Ruangan ditambahkan.');
     }
@@ -183,7 +190,7 @@ class AdminRuanganController extends Controller
             'lokasi' => 'nullable|string|max:160',
             'kapasitas' => 'nullable|integer|min:1|max:1000',
             'fasilitas' => 'nullable|string|max:500',
-            'foto' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'foto' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:8192',
             'hapus_foto' => 'nullable|boolean',
             'aktif' => 'nullable|boolean',
             'hari' => 'nullable|array',
@@ -195,6 +202,8 @@ class AdminRuanganController extends Controller
             'max_duration_minutes' => 'nullable|integer|min:15|max:720',
             'max_pending_per_team' => 'nullable|integer|min:1|max:10',
             'max_peserta' => 'nullable|integer|min:1|max:1000',
+            'monitor_metrics' => 'nullable|array',
+            'monitor_metrics.*' => 'in:' . implode(',', Ruangan::MONITOR_KEYS),
         ]);
 
         $fotoLama = $ruangan->foto;
@@ -216,6 +225,9 @@ class AdminRuanganController extends Controller
                 'foto' => $foto,
                 'aktif' => (bool) ($data['aktif'] ?? $ruangan->aktif),
                 'aturan' => $this->aturanDari($data),
+                'monitor_metrics' => array_key_exists('monitor_metrics', $data)
+                    ? $this->monitorDari($data['monitor_metrics'])
+                    : $ruangan->monitor_metrics,
             ]);
         } catch (\Throwable $e) {
             $this->hapusFotoBaru($fotoBaru);
@@ -227,6 +239,8 @@ class AdminRuanganController extends Controller
         if ($fotoBaru || !empty($data['hapus_foto'])) {
             $this->hapusFotoPath($fotoLama);
         }
+
+        AdminAudit::catat('ruangan.ubah', "{$ruangan->nama} ({$ruangan->kode})");
 
         return back()->with('status', 'Ruangan diperbarui.');
     }
@@ -243,6 +257,14 @@ class AdminRuanganController extends Controller
             'max_pending_per_team' => isset($data['max_pending_per_team']) ? (int) $data['max_pending_per_team'] : null,
             'max_peserta' => isset($data['max_peserta']) ? (int) $data['max_peserta'] : null,
         ], fn ($v) => $v !== null);
+    }
+
+    /** Kunci metrik pantauan valid, urut kanonik — 'pintu' implisit selalu tampil. */
+    private function monitorDari(?array $input): ?array
+    {
+        $picked = array_values(array_intersect(Ruangan::MONITOR_KEYS, $input ?? []));
+
+        return $picked ?: null;
     }
 
     /** Daftar fasilitas dari input teks (pisah koma/baris baru) → array bersih. */
@@ -444,7 +466,7 @@ class AdminRuanganController extends Controller
             'jadwal_jam_selesai' => 'required|date_format:H:i|after:jadwal_jam_mulai',
         ]);
 
-        RuanganPetugas::create([
+        $petugasBaru = RuanganPetugas::create([
             'nama' => $data['nama'],
             'id_internal' => $data['id_internal'],
             'tipe_kredensial' => $data['tipe_kredensial'],
@@ -458,6 +480,8 @@ class AdminRuanganController extends Controller
                 'jam_selesai' => $data['jadwal_jam_selesai'],
             ]],
         ]);
+
+        AdminAudit::catat('petugas.buat', "{$petugasBaru->nama} ({$petugasBaru->id_internal})", "kredensial: {$petugasBaru->tipe_kredensial}");
 
         return back()->with('status', 'Petugas ditambahkan.');
     }
@@ -484,10 +508,95 @@ class AdminRuanganController extends Controller
             'jadwal' => $data['jadwal'] ?? $petugas->jadwal,
         ]);
 
+        AdminAudit::catat('petugas.ubah', "{$petugas->nama} ({$petugas->id_internal})", "status: {$petugas->status}");
+
         return back()->with('status', 'Petugas diperbarui.');
     }
 
     /** Terjemahkan kode alasan akses mesin menjadi teks yang dibaca manusia. */
+    /**
+     * Riwayat akses per ruangan — semua event pintu/izin/telemetri ruangan ini.
+     */
+    public function aktivitas(Request $request, Ruangan $ruangan)
+    {
+        \Inertia\Inertia::setRootView('app-admin');
+        $user = $request->user();
+
+        $filter = [
+            'jenis' => (string) $request->query('jenis', ''),
+            'dari' => (string) $request->query('dari', ''),
+            'sampai' => (string) $request->query('sampai', ''),
+        ];
+
+        $base = RuanganAccessEvent::query()->where('ruangan_id', $ruangan->id);
+        $query = (clone $base)
+            ->with(['user:id,nama_lengkap', 'mesin:id,nama_mesin,id_mesin', 'petugas:id,nama'])
+            ->latest('terjadi_pada');
+        if ($filter['jenis'] !== '') {
+            $query->where('jenis', $filter['jenis']);
+        }
+        if ($filter['dari'] !== '') {
+            $query->where('terjadi_pada', '>=', $filter['dari'].' 00:00:00');
+        }
+        if ($filter['sampai'] !== '') {
+            $query->where('terjadi_pada', '<=', $filter['sampai'].' 23:59:59');
+        }
+        $events = $query->paginate(20)->withQueryString();
+
+        $bulanIni = (clone $base)->whereMonth('terjadi_pada', now()->month)
+            ->whereYear('terjadi_pada', now()->year);
+
+        return \Inertia\Inertia::render('RuanganAktivitas', [
+            'menu' => $this->adminSidebarMenu($user),
+            'notif' => $this->adminNotifications($user),
+            'ruangan' => [
+                'id' => $ruangan->id,
+                'nama' => $ruangan->nama,
+                'kode' => $ruangan->kode,
+                'lokasi' => $ruangan->lokasi,
+                'foto_url' => $ruangan->foto ? asset($ruangan->foto) : null,
+            ],
+            'filters' => $filter,
+            'stats' => [
+                'total' => (clone $base)->count(),
+                'bulan_ini' => (clone $bulanIni)->count(),
+                'izinkan' => (clone $base)->where('hasil', 'izinkan')->count(),
+                'tolak' => (clone $base)->where(fn ($q) => $q->where('hasil', 'tolak')->orWhere('jenis', 'tolak'))->count(),
+                'paksa' => (clone $base)->where('jenis', 'pintu_paksa')->count(),
+            ],
+            'jenis_options' => (clone $base)->whereNotNull('jenis')->distinct()->orderBy('jenis')->pluck('jenis')->all(),
+            'events' => [
+                'data' => collect($events->items())->map(fn (RuanganAccessEvent $e) => [
+                    'id' => $e->id,
+                    'waktu' => $e->terjadi_pada?->translatedFormat('d M Y · H:i:s'),
+                    'nama' => $e->petugas?->nama ?? $e->user?->nama_lengkap
+                        ?? ($e->mesin?->nama_mesin ?: $e->mesin?->id_mesin) ?? '—',
+                    'jenis' => $e->jenis,
+                    'jenis_label' => match ($e->jenis) {
+                        'buka' => 'Buka Ruangan', 'tutup' => 'Tutup Ruangan',
+                        'check' => 'Verifikasi Izin', 'tolak' => 'Akses Ditolak',
+                        'telemetri' => 'Telemetri', 'pintu_paksa' => 'Pintu Dipaksa',
+                        'ajar' => 'Pintu Menganga', 'manual' => 'Buka Manual',
+                        default => (string) $e->jenis,
+                    },
+                    'hasil' => $e->hasil,
+                    'mesin' => $e->mesin?->id_mesin,
+                    'keterangan' => $e->meta['keterangan'] ?? $e->meta['catatan']
+                        ?? self::alasanAksesLabel($e->meta['alasan'] ?? null, $e->meta['tipe'] ?? null),
+                ])->all(),
+                'meta' => [
+                    'total' => $events->total(), 'from' => $events->firstItem(),
+                    'to' => $events->lastItem(), 'page' => $events->currentPage(),
+                    'last_page' => $events->lastPage(),
+                ],
+            ],
+            'urls' => [
+                'index' => route('admin.ruangan.aktivitas', $ruangan),
+                'back' => route('admin.ruangan.index'),
+            ],
+        ]);
+    }
+
     private static function alasanAksesLabel(?string $alasan, ?string $tipe): string
     {
         $map = [
@@ -525,6 +634,10 @@ class AdminRuanganController extends Controller
         abort_unless($request->user()?->isAdmin(), 403, 'Binding perangkat ke ruangan memerlukan kewenangan admin.');
         $data = $request->validate(['ruangan_id' => 'nullable|exists:ruangan,id']);
         $mesin->update(['ruangan_id' => $data['ruangan_id'] ?? null]);
+
+        $tujuan = $data['ruangan_id'] ? Ruangan::find($data['ruangan_id'])?->nama : null;
+        AdminAudit::catat('perangkat.binding', $mesin->id_mesin ?? $mesin->nama ?? "mesin #{$mesin->id}",
+            $tujuan ? "diikat ke {$tujuan}" : 'binding dilepas');
 
         return back()->with('status', $data['ruangan_id'] ? 'Perangkat diikat ke ruangan.' : 'Binding perangkat dilepas.');
     }

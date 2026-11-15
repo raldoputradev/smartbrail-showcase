@@ -65,7 +65,7 @@ class AnnouncementObserver
             'body' => $body,
             'url' => '/mahasiswa/notifikasi',
             'tag' => 'pengumuman-' . $announcement->id,
-        ]);
+        ], 'pengumuman');
     }
 
     /**

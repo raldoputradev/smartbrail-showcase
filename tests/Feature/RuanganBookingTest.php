@@ -163,16 +163,38 @@ class RuanganBookingTest extends TestCase
 
     public function test_konflik_persetujuan_ditolak_atomik(): void
     {
-        // Dua tim berbeda pada slot beririsan.
+        // Dua tim berbeda pada slot beririsan. Pengajuan kedua kini dibuat langsung
+        // via model — validasi store sudah menolak slot yang diklaim, sehingga
+        // konflik di level persetujuan hanya bisa muncul lewat data lama/race.
         $luar = $this->u['luar'];
         $this->actingAs($this->u['ketua'])->post(route('mahasiswa.ruangan.store'), $this->payloadPengajuan());
-        $this->actingAs($luar)->post(route('mahasiswa.ruangan.store'), $this->payloadPengajuan(['jam_mulai' => '10:00', 'jam_selesai' => '11:00', 'peserta' => [$luar->id]]));
+        $p2 = RuanganPengajuan::create([
+            'ruangan_id' => $this->room->id, 'pengaju_id' => $luar->id,
+            'pbl_project_id' => $luar->tim ? \App\Models\PblTeamMember::where('user_id', $luar->id)->value('pbl_project_id') : null,
+            'tujuan' => 'Rapat tim', 'tanggal' => '2026-11-12',
+            'jam_mulai' => '10:00', 'jam_selesai' => '11:00', 'status' => 'diajukan',
+        ]);
 
-        [$p1, $p2] = RuanganPengajuan::orderBy('id')->get();
+        $p1 = RuanganPengajuan::where('pengaju_id', $this->u['ketua']->id)->orderBy('id')->firstOrFail();
+
+        // Slot masih diklaim p2 ('diajukan' ikut memblokir) → setujui p1 pun tertahan.
+        try {
+            RuanganBookingService::setujui($p1, $this->u['laboran']);
+            $this->fail('Konflik tidak terdeteksi saat p2 masih pending');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertSame('diajukan', $p1->fresh()->status);
+        }
+
+        // Setelah p2 diputuskan (ditolak), p1 bisa disetujui — dan bila p2
+        // diajukan ulang pada slot yang kini disetujui, persetujuannya tertahan.
+        RuanganBookingService::tolak($p2, $this->u['laboran'], 'uji');
         RuanganBookingService::setujui($p1, $this->u['laboran']);
+        $p2 = $p2->fresh(); // wajib segar: atribut lama 'diajukan' membuat save() no-op
+        $p2->status = 'diajukan';
+        $p2->save();
 
         try {
-            RuanganBookingService::setujui($p2, $this->u['laboran']);
+            RuanganBookingService::setujui($p2->fresh(), $this->u['laboran']);
             $this->fail('Konflik tidak terdeteksi');
         } catch (\Illuminate\Validation\ValidationException $e) {
             $this->assertSame('diajukan', $p2->fresh()->status);
@@ -188,10 +210,12 @@ class RuanganBookingTest extends TestCase
         $this->assertSame('menunggu_penerimaan', $p->fresh()->status);
         $this->assertSame(0, RuanganIzin::count()); // izin belum aktif sebelum diterima
 
-        // Pengaju lain tidak bisa menerima
-        $this->actingAs($this->u['anggota'])->post(route('mahasiswa.ruangan.terima-pengganti', $p))->assertStatus(403);
+        // Di luar tim ditolak dengan error validasi (bukan 403 mentah)
+        $this->actingAs($this->u['luar'])->post(route('mahasiswa.ruangan.terima-pengganti', $p))
+            ->assertSessionHasErrors('pengajuan');
 
-        $this->actingAs($this->u['ketua'])->post(route('mahasiswa.ruangan.terima-pengganti', $p))->assertRedirect();
+        // Anggota tim yang sama boleh menerima atas nama tim
+        $this->actingAs($this->u['anggota'])->post(route('mahasiswa.ruangan.terima-pengganti', $p))->assertRedirect();
         $p = $p->fresh();
         $this->assertSame('disetujui', $p->status);
         $this->assertSame('14:00', substr($p->jam_mulai, 0, 5));
@@ -226,7 +250,7 @@ class RuanganBookingTest extends TestCase
         // Bukti kedatangan dari mesin => selesai.
         $izin = RuanganIzin::where('pengajuan_id', $p->id)->firstOrFail();
         RuanganAccessEvent::create([
-            'mesin_iot_id' => 1, 'ruangan_id' => $this->room->id, 'user_id' => $this->u['ketua']->id,
+            'mesin_iot_id' => $this->mesinRuangan()->id, 'ruangan_id' => $this->room->id, 'user_id' => $this->u['ketua']->id,
             'izin_id' => $izin->id, 'jenis' => 'check', 'hasil' => 'diizinkan',
             'terjadi_pada' => '2026-11-12 09:05:00',
         ]);
@@ -384,8 +408,10 @@ class RuanganBookingTest extends TestCase
 
     public function test_aksi_admin_only_ditolak_untuk_laboran_biasa(): void
     {
-        // Aksi khusus Admin: pengelolaan akun, import, pengaturan, konfigurasi perangkat.
-        $this->actingAs($this->u['laboran'])->get(route('admin.users'))->assertStatus(403);
+        // Daftar akun boleh dilihat laboran (perm users,view) — yang digerbang
+        // admin.only adalah aksi mutasinya: buat/ubah/hapus akun, import, pengaturan,
+        // konfigurasi perangkat.
+        $this->actingAs($this->u['laboran'])->get(route('admin.users'))->assertOk();
         $this->actingAs($this->u['laboran'])->post(route('admin.users.store'), [])->assertStatus(403);
         $this->actingAs($this->u['laboran'])->get(route('admin.settings'))->assertStatus(403);
         $this->actingAs($this->u['laboran'])->post(route('admin.mesin.store'), [])->assertStatus(403);

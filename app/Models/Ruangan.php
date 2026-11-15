@@ -9,11 +9,14 @@ class Ruangan extends Model
 {
     protected $table = 'ruangan';
 
-    protected $fillable = ['kode', 'nama', 'lokasi', 'kapasitas', 'fasilitas', 'foto', 'aktif', 'aturan'];
+    protected $fillable = ['kode', 'nama', 'lokasi', 'kapasitas', 'fasilitas', 'foto', 'aktif', 'aturan', 'monitor_metrics'];
+
+    /** Kunci metrik opsional yang bisa dipantau di panel Kondisi Ruangan. */
+    public const MONITOR_KEYS = ['apd', 'listrik', 'lingkungan', 'printer', 'solder'];
 
     protected function casts(): array
     {
-        return ['aktif' => 'boolean', 'aturan' => 'array', 'fasilitas' => 'array', 'kapasitas' => 'integer'];
+        return ['aktif' => 'boolean', 'aturan' => 'array', 'fasilitas' => 'array', 'kapasitas' => 'integer', 'monitor_metrics' => 'array'];
     }
 
     /**

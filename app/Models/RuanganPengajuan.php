@@ -106,7 +106,12 @@ class RuanganPengajuan extends Model
         if (in_array($this->status, [self::STATUS_DITOLAK, self::STATUS_DIBATALKAN, self::STATUS_SELESAI, self::STATUS_KEDALUWARSA], true)) {
             return $this->status;
         }
-        if ($this->selesaiAt()->isPast()) {
+        // Batas kedaluwarsa: tawaran dengan jadwal pengganti hidup sampai waktu
+        // penggantinya lewat — bukan jadwal asal yang memang sudah tidak bisa dipakai.
+        $batasAkhir = $this->status === self::STATUS_MENUNGGU_PENERIMAAN && $this->pengganti_selesai
+            ? $this->pengganti_selesai
+            : $this->selesaiAt();
+        if ($batasAkhir->isPast()) {
             if ($this->status === self::STATUS_DISETUJUI) {
                 return $this->adaKedatanganRuangan() ? self::STATUS_SELESAI : self::STATUS_KEDALUWARSA;
             }
@@ -156,9 +161,13 @@ class RuanganPengajuan extends Model
                 self::STATUS_DIAJUKAN => 'Tidak ada keputusan dari petugas sampai jadwal peminjaman terlewat.',
                 default => 'Jadwal peminjaman terlewat tanpa penyelesaian.',
             },
-            self::STATUS_DIBATALKAN => $this->diputus_oleh
-                ? 'Dicabut oleh petugas — lihat catatan keputusan.'
-                : 'Dibatalkan oleh pemohon.',
+            self::STATUS_DIBATALKAN => match (true) {
+                (int) $this->diputus_oleh === (int) $this->pengaju_id => $this->pengganti_catatan || $this->pengganti_mulai
+                    ? 'Pemohon menolak tawaran dari petugas — lihat catatan keputusan.'
+                    : 'Dibatalkan oleh pemohon.',
+                $this->diputus_oleh !== null => 'Dicabut oleh petugas — lihat catatan keputusan.',
+                default => 'Dibatalkan oleh pemohon.',
+            },
             default => null,
         };
     }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import {
-    Bell, ChevronDown, ChevronRight, KeyRound, LogOut, Menu, Search, ShieldAlert, UserRound, X,
+    Bell, Check, CheckCheck, ChevronDown, ChevronRight, KeyRound, LogOut, Menu, Search, ShieldAlert, UserRound, X,
 } from 'lucide-react';
 import {
     navTop, navRuangan, navMid, navBantuan, navSegera, allNavItems, type NavItem, type NavGroup,
@@ -17,7 +17,8 @@ import {
 import { router } from '@inertiajs/react';
 import { skeletonFor, GenericSkeleton } from '@/components/skeletons';
 import { LoadingRegion } from '@/components/ui/skeleton';
-import { subscribePrivate } from '@/lib/live';
+import { scheduleReload, subscribePrivate } from '@/lib/live';
+import { GuideTour, TourHelpButton, type TourStep } from '../../../shared/GuideTour';
 
 /* ── Tema ─────────────────────────────────────────────── */
 function useTheme() {
@@ -131,7 +132,38 @@ function MenuSearch() {
 function NotificationsBell() {
     const { navNotificationState } = usePage<SharedProps>().props;
     const state = navNotificationState;
-    const count = state?.unread_count ?? 0;
+    // Item yang baru saja ditandai dibaca — sinkron ulang lewat reload prop.
+    const [readUids, setReadUids] = useState<Set<string>>(new Set());
+    useEffect(() => setReadUids(new Set()), [state]);
+    const count = Math.max(0, (state?.unread_count ?? 0) - readUids.size);
+    const csrfToken = () => document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+    const markRead = (n: { uid: string; is_read: boolean; read_url?: string | null }) => {
+        if (!n.read_url || n.is_read || readUids.has(n.uid)) return;
+        setReadUids((prev) => new Set(prev).add(n.uid));
+        fetch(n.read_url, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': csrfToken(), 'Accept': 'application/json' },
+            credentials: 'same-origin',
+        })
+            .catch(() => {})
+            .finally(() => scheduleReload(['navNotificationState']));
+    };
+    const [markingAll, setMarkingAll] = useState(false);
+    const markAllRead = () => {
+        if (markingAll || count === 0) return;
+        setMarkingAll(true);
+        setReadUids(new Set((state?.items ?? []).filter((n) => !n.is_read).map((n) => n.uid)));
+        fetch(route('mahasiswa.notifications.read-all'), {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': csrfToken(), 'Accept': 'application/json' },
+            credentials: 'same-origin',
+        })
+            .catch(() => {})
+            .finally(() => {
+                setMarkingAll(false);
+                scheduleReload(['navNotificationState']);
+            });
+    };
     // Goyangan ekstra singkat saat jumlah notifikasi bertambah.
     const prevCount = useRef(count);
     const [justIn, setJustIn] = useState(false);
@@ -162,26 +194,55 @@ function NotificationsBell() {
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[330px] max-w-[calc(100vw-20px)]">
-                <div className="px-3 py-2 text-[12.5px] font-bold">Notifikasi</div>
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
+                    <span className="text-[12.5px] font-bold">Notifikasi</span>
+                    {count > 0 && (
+                        <button type="button" onClick={markAllRead} disabled={markingAll}
+                            className="inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[11px] font-semibold text-sb-primary hover:bg-sb-hover disabled:opacity-50"
+                        >
+                            <CheckCheck size={13} /> Tandai semua dibaca
+                        </button>
+                    )}
+                </div>
                 <DropdownMenuSeparator />
                 <div className="max-h-[320px] overflow-y-auto sb-scroll">
                     {!state || state.items.length === 0 ? (
                         <p className="px-3 py-4 text-center text-[12.5px] text-sb-muted">Belum ada notifikasi.</p>
                     ) : state.items.map((n) => (
-                        <a key={n.uid} href={n.action_url ?? route('mahasiswa.notifications')}
-                            className={cn('block rounded-[8px] px-3 py-2.5 hover:bg-sb-hover', !n.is_read && 'bg-sb-primary-soft/50')}
+                        <div key={n.uid}
+                            className={cn('rounded-[8px] px-3 py-2.5 hover:bg-sb-hover', !n.is_read && !readUids.has(n.uid) && 'bg-sb-primary-soft/50')}
                         >
-                            <span className="block text-[13px] font-semibold leading-snug">{n.title}</span>
-                            <span className="mt-0.5 line-clamp-2 block text-[12px] text-sb-muted">{n.excerpt}</span>
-                            <span className="mt-1 block text-[11px] text-sb-muted">
-                                {n.category_label}{n.meta ? ` · ${n.meta}` : ''} · {n.time_human}
-                            </span>
-                        </a>
+                            <div className="flex items-start gap-2">
+                                <button type="button" onClick={() => markRead(n)}
+                                    className="block min-w-0 flex-1 text-left"
+                                    title={n.is_read || readUids.has(n.uid) ? 'Sudah dibaca' : 'Klik untuk menandai dibaca'}
+                                >
+                                    <span className="block text-[13px] font-semibold leading-snug">{n.title}</span>
+                                    <span className="mt-0.5 line-clamp-2 block text-[12px] text-sb-muted">{n.excerpt}</span>
+                                    <span className="mt-1 block text-[11px] text-sb-muted">
+                                        {n.category_label}{n.meta ? ` · ${n.meta}` : ''} · {n.time_human}
+                                    </span>
+                                </button>
+                                {!n.is_read && !readUids.has(n.uid) && (
+                                    <button type="button" onClick={() => markRead(n)}
+                                        aria-label="Tandai dibaca" title="Tandai dibaca"
+                                        className="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full text-sb-primary hover:bg-sb-primary-soft"
+                                    >
+                                        <Check size={13} strokeWidth={2.5} />
+                                    </button>
+                                )}
+                            </div>
+                            {n.action_url && (
+                                <a href={n.action_url} className="mt-1 inline-block text-[11.5px] font-semibold text-sb-primary hover:underline">
+                                    {n.action_label ?? 'Buka'} →
+                                </a>
+                            )}
+                        </div>
                     ))}
                 </div>
                 <DropdownMenuSeparator />
                 <a href={route('mahasiswa.notifications')} className="block rounded-[8px] px-3 py-2 text-center text-[12.5px] font-semibold text-sb-primary hover:bg-sb-hover">
-                    Lihat semua
+                    Halaman notifikasi
                 </a>
             </DropdownMenuContent>
         </DropdownMenu>
@@ -288,9 +349,10 @@ function NavLinkItem({ item, rail, onNavigate }: { item: NavItem; rail: boolean;
             )}
         </>
     );
+    const tourAttr = item.tour ? `nav-${item.tour}` : undefined;
     if (item.soon) {
         return (
-            <li>
+            <li data-tour={tourAttr}>
                 <button type="button" className={cn(cls, 'w-full text-left')} title={rail ? `${item.label} (segera hadir)` : undefined}
                     onClick={() => { soonAlert(); onNavigate?.(); }}>
                     {inner}
@@ -299,10 +361,10 @@ function NavLinkItem({ item, rail, onNavigate }: { item: NavItem; rail: boolean;
         );
     }
     if (item.external) {
-        return <li><a href={item.href} className={cls} title={rail ? item.label : undefined}>{inner}</a></li>;
+        return <li data-tour={tourAttr}><a href={item.href} className={cls} title={rail ? item.label : undefined}>{inner}</a></li>;
     }
     return (
-        <li>
+        <li data-tour={tourAttr}>
             <Link href={item.href} className={cls} title={rail ? item.label : undefined}
                 aria-current={active ? 'page' : undefined} onClick={onNavigate}>
                 {inner}
@@ -325,6 +387,7 @@ function NavGroupBlock({ group, rail, onNavigate, open, onToggle }: { group: Nav
     return (
         <div>
             <button type="button" onClick={onToggle} aria-expanded={open}
+                data-tour={`group-${group.key}`}
                 className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13.5px] font-semibold text-sb-sidebar-text/85 transition hover:bg-white/10 hover:text-white"
             >
                 <group.icon size={19} strokeWidth={1.9} className="shrink-0" />
@@ -466,9 +529,84 @@ function Sidebar({ rail, onNavigate }: { rail: boolean; onNavigate?: () => void 
     );
 }
 
+/* ── Panduan tur (onboarding) ─────────────────────────── */
+const STUDENT_TOUR: TourStep[] = [
+    {
+        target: '[data-tour="nav-beranda"]', side: 'right',
+        title: 'Beranda',
+        body: 'Halaman utama Anda — ringkasan kehadiran hari ini, jadwal berikutnya, dan pengumuman terbaru dalam satu tampilan.',
+    },
+    {
+        target: '[data-tour="nav-absensi"]', side: 'right',
+        title: 'Absensi',
+        body: 'Lihat riwayat tap masuk/pulang, status kehadiran (hadir, terlambat, alfa), dan rekapitulasi per mata kuliah.',
+    },
+    {
+        target: '[data-tour="group-ruangan"]', side: 'right',
+        title: 'Ruangan',
+        body: 'Ajukan pemakaian ruang lab untuk tim PBL dan pantau status persetujuannya. Bila disetujui, akses pintu ruangan aktif otomatis sesuai jadwal.',
+    },
+    {
+        target: '[data-tour="nav-kalender"]', side: 'right',
+        title: 'Kalender',
+        body: 'Jadwal kuliah, agenda laboratorium, dan pemakaian ruangan dalam satu kalender.',
+    },
+    {
+        target: '[data-tour="nav-tim-pbl"]', side: 'right',
+        title: 'Tim PBL',
+        body: 'Lihat tim proyek PBL Anda beserta anggota dan dosen pembimbing.',
+    },
+    {
+        target: '[data-tour="group-bantuan"]', side: 'right',
+        title: 'Laporan & Bantuan',
+        body: 'Laporkan kendala lewat Riwayat Laporan dan terima balasan petugas. Panduan penggunaan lengkap juga ada di grup ini.',
+    },
+    {
+        target: '[data-tour="cari-menu"]', side: 'bottom',
+        title: 'Pencarian Menu',
+        body: 'Ketik nama fitur untuk melompat langsung ke halamannya — tidak perlu menghafal letak menu.',
+    },
+    {
+        target: '[data-tour="lonceng"]', side: 'bottom',
+        title: 'Notifikasi',
+        body: 'Pengumuman, balasan laporan, dan perubahan status pengajuan ruangan masuk di sini secara realtime — tanpa perlu refresh.',
+    },
+    {
+        target: '[data-tour="tema"]', side: 'bottom',
+        title: 'Mode Gelap / Terang',
+        body: 'Ganti tampilan portal sesuai kenyamanan Anda. Pilihan tersimpan di perangkat ini.',
+    },
+    {
+        target: '[data-tour="akun"]', side: 'bottom',
+        title: 'Akun Anda',
+        body: 'Kelola profil, ganti password, dan keluar dari portal melalui menu ini.',
+    },
+    {
+        target: '[data-tour="help"]', side: 'bottom',
+        title: 'Tombol Panduan',
+        body: 'Klik ikon ini kapan saja untuk membuka kembali panduan tur — termasuk saat ada fitur baru yang ingin Anda kenali.',
+    },
+];
+
 /* ── Shell ────────────────────────────────────────────── */
 export function AppShell({ children, title }: PropsWithChildren<{ title?: string }>) {
     const { auth, flash, reverb } = usePage<SharedProps>().props;
+
+    // Tur panduan penggunaan — otomatis tampil sekali per pengguna per perangkat,
+    // bisa dibuka ulang lewat tombol "?" di topbar.
+    const tourKey = `sb_tour_v1_u${auth.user?.id ?? 'x'}`;
+    const [tourOpen, setTourOpen] = useState(false);
+    useEffect(() => {
+        try {
+            if (localStorage.getItem(tourKey)) return;
+        } catch { return; }
+        const t = setTimeout(() => setTourOpen(true), 1600);
+        return () => clearTimeout(t);
+    }, [tourKey]);
+    const closeTour = () => {
+        try { localStorage.setItem(tourKey, '1'); } catch { /* abaikan */ }
+        setTourOpen(false);
+    };
 
     // Popup sambutan setelah login — sekali per sesi login (flash dikonsumsi server-side).
     useEffect(() => {
@@ -499,28 +637,50 @@ export function AppShell({ children, title }: PropsWithChildren<{ title?: string
     const { url } = usePage();
 
     // Skeleton konten saat navigasi Inertia — hanya area main, delay 150ms anti-kilat.
+    // Reload realtime (visit ke path yang sama, mis. router.reload) tidak menampilkan
+    // skeleton — halaman tidak "kedip" saat data diperbarui di latar belakang.
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
+        let watchdog: ReturnType<typeof setTimeout> | null = null;
         const offStart = router.on('start', (e) => {
             const target = e.detail.visit.url?.pathname ?? '';
-            timer = setTimeout(() => setNavSkeleton(skeletonFor(target)), 150);
+            if (!target || target === window.location.pathname) return;
+            timer = setTimeout(() => {
+                setNavSkeleton(skeletonFor(target));
+                // Watchdog: bila 'finish' tidak pernah datang (visit nyangkut),
+                // skeleton tetap dibersihkan agar halaman tidak membeku.
+                if (watchdog) clearTimeout(watchdog);
+                watchdog = setTimeout(() => setNavSkeleton(null), 12000);
+            }, 150);
         });
         const offFinish = router.on('finish', () => {
             if (timer) clearTimeout(timer);
+            if (watchdog) clearTimeout(watchdog);
             setNavSkeleton(null);
         });
-        return () => { offStart(); offFinish(); if (timer) clearTimeout(timer); };
+        return () => {
+            offStart();
+            offFinish();
+            if (timer) clearTimeout(timer);
+            if (watchdog) clearTimeout(watchdog);
+        };
     }, []);
 
     useEffect(() => { setDrawer(false); }, [url]);
 
     // Heartbeat presence — ping ringan tiap ~2,5 menit agar last_seen_at tetap
-    // segar walau pengguna pasif (tab dibiarkan terbuka).
+    // segar, TAPI hanya saat user aktif baru-baru ini. Tanpa gate ini ping
+    // memperpanjang SESSION_LIFETIME terus-menerus dan idle-guard tak pernah
+    // bisa logout (bug: sesi abadi saat tab dibiarkan).
     useEffect(() => {
-        const ping = () => fetch(route('session.ping'), {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        }).catch(() => { /* presence saja */ });
+        const ping = () => {
+            const last = (window as unknown as { __sbLastActivity?: number }).__sbLastActivity ?? Date.now();
+            if (Date.now() - last > 120000) return;
+            fetch(route('session.ping'), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            }).catch(() => { /* presence saja */ });
+        };
         const t = setInterval(ping, 150000);
         return () => clearInterval(t);
     }, []);
@@ -529,7 +689,7 @@ export function AppShell({ children, title }: PropsWithChildren<{ title?: string
     useEffect(() => {
         const uid = auth.user?.id;
         if (!reverb || !uid) return;
-        const refresh = () => router.reload({ only: ['navNotificationState'] });
+        const refresh = () => scheduleReload(['navNotificationState']);
         return subscribePrivate(reverb, `mahasiswa.${uid}`, {
             'notifikasi.baru': refresh,
             'pengajuan.updated': refresh,
@@ -569,13 +729,15 @@ export function AppShell({ children, title }: PropsWithChildren<{ title?: string
                     </button>
                     <h1 className="truncate text-[16px] font-bold">{title ?? ''}</h1>
                     {/* Pencarian menu — di tengah topbar, lebar agar hasil berkonteks terbaca */}
-                    <div className="hidden flex-1 justify-center px-4 sm:flex">
+                    <div className="hidden flex-1 justify-center px-4 sm:flex" data-tour="cari-menu">
                         <MenuSearch />
                     </div>
                     <div className="ml-auto flex items-center gap-1.5">
-                        <NotificationsBell />
-                        <ThemeToggle />
-                        <AccountMenu />
+                        <TourHelpButton onClick={() => setTourOpen(true)}
+                            className="grid h-9 w-9 place-items-center rounded-[10px] text-sb-muted transition hover:bg-sb-hover hover:text-sb-text" />
+                        <span data-tour="lonceng" className="inline-flex"><NotificationsBell /></span>
+                        <span data-tour="tema" className="inline-flex"><ThemeToggle /></span>
+                        <span data-tour="akun" className="inline-flex"><AccountMenu /></span>
                     </div>
                 </header>
                 <main ref={mainRef} className="sb-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-10 pt-3 sm:px-6 sm:pt-5" id="sbMain">
@@ -608,6 +770,7 @@ export function AppShell({ children, title }: PropsWithChildren<{ title?: string
             </div>
 
             <AssistantWidget />
+            <GuideTour steps={STUDENT_TOUR} open={tourOpen} onClose={closeTour} />
         </div>
     );
 }

@@ -32,7 +32,7 @@ function initials(nama: string) {
 }
 
 type TolakState = { row: PgjRow } | null;
-type GantiState = { row: PgjRow; mulai: string; selesai: string; catatan: string } | null;
+type GantiState = { row: PgjRow; mode: 'jadwal' | 'prioritas'; mulai: string; selesai: string; catatan: string } | null;
 
 export default function PengajuanRuangan(props: PengajuanRuanganProps) {
     const { errors, flash } = usePage<SharedProps & { errors: Record<string, string> }>().props;
@@ -104,10 +104,15 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
             body: `Slot ${p.tanggal} ${p.jam} tetap bebas. Penolakan tercatat atas nama Anda dan mahasiswa diberi notifikasi.`,
         })),
         pengganti: (g: NonNullable<GantiState>) => post(`${props.urls.pengganti_base}${g.row.id}/pengganti`, {
-            mulai: g.mulai, selesai: g.selesai, catatan: g.catatan || undefined,
+            pengganti_mulai: g.mode === 'jadwal' ? g.mulai : '',
+            pengganti_selesai: g.mode === 'jadwal' ? g.selesai : '',
+            catatan: g.catatan,
         }, () => setDone({
-            icon: 'ok', title: 'Waktu Pengganti Ditawarkan', kode: g.row.kode, nama: g.row.pemohon.nama,
-            body: 'Tawaran jadwal pengganti terkirim — mahasiswa diminta menerima atau menolak dari halaman pengajuannya.',
+            icon: 'ok', title: g.mode === 'jadwal' ? 'Waktu Pengganti Ditawarkan' : 'Tawaran Prioritas Terkirim',
+            kode: g.row.kode, nama: g.row.pemohon.nama,
+            body: g.mode === 'jadwal'
+                ? 'Tawaran jadwal pengganti terkirim — mahasiswa diminta menerima atau menolak dari halaman pengajuannya.'
+                : 'Mahasiswa diminta konfirmasi masih berminat — bila ya, pengajuan kembali ke antrean Anda dengan catatan prioritas.',
         })),
         cabut: (p: PgjRow) => post(`${props.urls.cabut_base}${p.id}/cabut`, {}, () => setDone({
             icon: 'warn', title: 'Persetujuan Dicabut', kode: p.kode, nama: p.pemohon.nama,
@@ -246,7 +251,10 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
                                 </span>
                             </div>
                             <div className="ad-panel__body ad-pgj-detail">
-                                <h4 className="ad-pgj-djudul">{selected.judul}</h4>
+                                <div className="ad-pgj-quote">
+                                    <span>Catatan pemohon</span>
+                                    <p>&ldquo;{selected.judul}&rdquo;</p>
+                                </div>
                                 <div className="ad-mesin-detail">
                                     <div className="ad-mesin-detail__row"><span>Ruangan</span><strong>{selected.ruangan}</strong></div>
                                     <div className="ad-mesin-detail__row"><span>Jadwal</span><strong>{selected.hari}, {selected.tanggal} · {selected.jam}</strong></div>
@@ -262,10 +270,13 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
                                 )}
                                 {selected.pengganti && (
                                     <div className="ad-pgj-ganti">
-                                        <strong><RefreshCcw size={12} /> Jadwal Pengganti Ditawarkan</strong>
-                                        <span>{selected.pengganti.mulai} – {selected.pengganti.selesai ?? '—'}</span>
+                                        <strong><RefreshCcw size={12} /> {selected.pengganti.mulai ? 'Jadwal Pengganti Ditawarkan' : 'Tawaran Prioritas (Tanpa Jadwal)'}</strong>
+                                        {selected.pengganti.mulai && <span>{selected.pengganti.mulai} – {selected.pengganti.selesai ?? '—'}</span>}
                                         {selected.pengganti.catatan && <small>{selected.pengganti.catatan}</small>}
                                     </div>
+                                )}
+                                {selected.alasan_status && (
+                                    <div className="ad-pgj-alasan"><strong>Kenapa {selected.status_efektif === 'kedaluwarsa' ? 'kedaluwarsa' : 'berakhir'}?</strong> {selected.alasan_status}</div>
                                 )}
                                 {selected.alasan && (
                                     <div className="ad-pgj-alasan"><strong>Catatan keputusan:</strong> {selected.alasan}</div>
@@ -281,7 +292,7 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
                                             <CheckCircle2 size={14} /> Setujui
                                         </button>
                                         <button className="ad-mesin-btn" disabled={busy}
-                                            onClick={() => setGanti({ row: selected, mulai: '', selesai: '', catatan: '' })}>
+                                            onClick={() => setGanti({ row: selected, mode: 'jadwal', mulai: '', selesai: '', catatan: '' })}>
                                             <RefreshCcw size={14} /> Tawarkan Pengganti
                                         </button>
                                         <button className="ad-mesin-btn ad-mesin-btn--danger" disabled={busy}
@@ -290,7 +301,7 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
                                         </button>
                                     </div>
                                 )}
-                                {props.can.update && selected.status === 'disetujui' && (
+                                {props.can.update && selected.status_efektif === 'disetujui' && (
                                     <div className="ad-pgj-actions">
                                         <button className="ad-mesin-btn ad-mesin-btn--danger" disabled={busy}
                                             onClick={() => setConfirm({ row: selected, aksi: 'cabut' })}>
@@ -365,14 +376,14 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
                     <div className="ad-mesin-confirm" onClick={(e) => e.stopPropagation()}>
                         <h4>Tolak pengajuan {tolak.row.kode}?</h4>
                         <div className="ad-mesin-field" style={{ marginBottom: 14 }}>
-                            <label>Alasan penolakan (opsional)</label>
+                            <label>Alasan penolakan <em>*</em></label>
                             <textarea rows={3} value={alasanTolak} maxLength={500}
-                                placeholder="Misal: jadwal bentrok dengan kegiatan lab…"
+                                placeholder="Wajib — mahasiswa melihat ini. Misal: jadwal bentrok dengan kegiatan lab…"
                                 onChange={(e) => setAlasanTolak(e.target.value)} />
                         </div>
                         <div className="ad-mesin-confirm__actions">
                             <button className="ad-mesin-btn ad-mesin-btn--ghost" onClick={() => setTolak(null)}>Batal</button>
-                            <button className="ad-mesin-btn ad-mesin-btn--danger" disabled={busy}
+                            <button className="ad-mesin-btn ad-mesin-btn--danger" disabled={busy || alasanTolak.trim().length < 3}
                                 onClick={() => aksiPost.tolak(tolak.row, alasanTolak)}>
                                 {busy ? 'Memproses…' : 'Tolak Pengajuan'}
                             </button>
@@ -383,30 +394,64 @@ export default function PengajuanRuangan(props: PengajuanRuanganProps) {
 
             {ganti && (
                 <div className="ad-mesin-scrim" onClick={() => setGanti(null)}>
-                    <div className="ad-mesin-confirm" onClick={(e) => e.stopPropagation()}>
-                        <h4>Tawarkan jadwal pengganti — {ganti.row.kode}</h4>
-                        <div className="ad-rg-grid2" style={{ marginBottom: 10 }}>
-                            <div className="ad-mesin-field">
-                                <label>Mulai <em>*</em></label>
-                                <input type="datetime-local" value={ganti.mulai}
-                                    onChange={(e) => setGanti({ ...ganti, mulai: e.target.value })} />
-                            </div>
-                            <div className="ad-mesin-field">
-                                <label>Selesai <em>*</em></label>
-                                <input type="datetime-local" value={ganti.selesai}
-                                    onChange={(e) => setGanti({ ...ganti, selesai: e.target.value })} />
-                            </div>
+                    <div className="ad-mesin-confirm ad-pgj-offer" onClick={(e) => e.stopPropagation()}>
+                        <h4>Tawarkan ke {ganti.row.pemohon.nama}</h4>
+                        <div className="ad-pgj-offer__ctx">
+                            <span className="ad-pgj-kode">{ganti.row.kode}</span>
+                            <span><DoorOpen size={12} /> {ganti.row.ruangan}</span>
+                            <span><Clock size={12} /> {ganti.row.hari}, {ganti.row.tanggal} · {ganti.row.jam}</span>
                         </div>
+
+                        <div className="ad-pgj-offer__modes" role="tablist" aria-label="Bentuk tawaran">
+                            {([
+                                ['jadwal', 'Jadwal Pengganti', 'Tawarkan slot konkret — diterima = langsung disetujui.'],
+                                ['prioritas', 'Prioritas / Berlaku', 'Tanpa tanggal — minta konfirmasi berminat, lalu antre prioritas.'],
+                            ] as const).map(([m, label, hint]) => (
+                                <button key={m} type="button" role="tab" aria-selected={ganti.mode === m}
+                                    className={cn('ad-pgj-offer__mode', ganti.mode === m && 'is-active')}
+                                    onClick={() => setGanti({ ...ganti, mode: m })}>
+                                    <b>{label}</b>
+                                    <small>{hint}</small>
+                                </button>
+                            ))}
+                        </div>
+
+                        {ganti.mode === 'jadwal' ? (
+                            <div className="ad-rg-grid2" style={{ marginBottom: 10 }}>
+                                <div className="ad-mesin-field">
+                                    <label>Mulai <em>*</em></label>
+                                    <input type="datetime-local" value={ganti.mulai}
+                                        onChange={(e) => setGanti({ ...ganti, mulai: e.target.value })} />
+                                </div>
+                                <div className="ad-mesin-field">
+                                    <label>Selesai <em>*</em></label>
+                                    <input type="datetime-local" value={ganti.selesai}
+                                        onChange={(e) => setGanti({ ...ganti, selesai: e.target.value })} />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="ad-pgj-offer__note">
+                                <RefreshCcw size={13} />
+                                Dipakai saat slot diminta ada prioritas lain — mahasiswa yang mengonfirmasi
+                                kembali ke antrean dan tampil menunggu keputusan Anda.
+                            </div>
+                        )}
+
                         <div className="ad-mesin-field" style={{ marginBottom: 14 }}>
-                            <label>Catatan</label>
-                            <input value={ganti.catatan} maxLength={500} placeholder="Alasan pengalihan jadwal…"
+                            <label>Alasan untuk pemohon <em>*</em></label>
+                            <textarea rows={3} value={ganti.catatan} maxLength={500}
+                                placeholder="Misal: slot ini dipakai kegiatan lab prioritas — kami tawarkan sebagai gantinya…"
                                 onChange={(e) => setGanti({ ...ganti, catatan: e.target.value })} />
+                            <small className="ad-pgj-offer__count">{ganti.catatan.length}/500 — wajib, tampil ke mahasiswa beserta pilihan Terima/Tolak.</small>
                         </div>
+
                         <div className="ad-mesin-confirm__actions">
                             <button className="ad-mesin-btn ad-mesin-btn--ghost" onClick={() => setGanti(null)}>Batal</button>
-                            <button className="ad-mesin-btn ad-mesin-btn--primary" disabled={busy || !ganti.mulai || !ganti.selesai}
+                            <button className="ad-mesin-btn ad-mesin-btn--primary"
+                                disabled={busy || ganti.catatan.trim().length < 5
+                                    || (ganti.mode === 'jadwal' && (!ganti.mulai || !ganti.selesai))}
                                 onClick={() => aksiPost.pengganti(ganti)}>
-                                {busy ? 'Memproses…' : 'Kirim Tawaran'}
+                                {busy ? 'Memproses…' : <><Send size={14} /> Kirim Tawaran</>}
                             </button>
                         </div>
                     </div>

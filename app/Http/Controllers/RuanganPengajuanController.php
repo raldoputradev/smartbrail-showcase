@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Ruangan;
 use App\Models\RuanganPengajuan;
 use App\Models\User;
+use App\Support\AdminAudit;
 use App\Support\RuanganBookingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -159,12 +160,30 @@ class RuanganPengajuanController extends Controller
     public function terimaPengganti(Request $request, RuanganPengajuan $pengajuan)
     {
         try {
-            RuanganBookingService::terimaPengganti($pengajuan, $request->user());
+            $prioritas = RuanganBookingService::terimaPengganti($pengajuan, $request->user());
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
 
-        return redirect()->route('mahasiswa.ruangan')->with('status', 'Waktu pengganti diterima — izin aktif.');
+        return redirect()->route('mahasiswa.ruangan')->with('status', $prioritas
+            ? 'Konfirmasi diterima — pengajuan kembali ke antrean prioritas petugas.'
+            : 'Waktu pengganti diterima — izin aktif.');
+    }
+
+    public function tolakPengganti(Request $request, RuanganPengajuan $pengajuan)
+    {
+        $data = $request->validate([
+            'alasan' => 'required|string|min:3|max:500',
+        ], [
+            'alasan.required' => 'Isi alasan Anda menolak tawaran ini — petugas perlu tahu kenapa.',
+        ]);
+        try {
+            RuanganBookingService::tolakPengganti($pengajuan, $request->user(), $data['alasan']);
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors());
+        }
+
+        return redirect()->route('mahasiswa.ruangan')->with('status', 'Tawaran ditolak — pengajuan diakhiri.');
     }
 
     public function batalkan(Request $request, RuanganPengajuan $pengajuan)
@@ -250,7 +269,7 @@ class RuanganPengajuanController extends Controller
                 'judul' => $p->tujuan,
                 'status' => $p->status,
                 'status_efektif' => $st,
-                'boleh_putus' => in_array($p->status, RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true),
+                'boleh_putus' => in_array($p->statusEfektif(), RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true),
                 'pemohon' => [
                     'nama' => $snap['pengaju']['name'] ?? $p->pengaju?->nama_lengkap ?? '—',
                     'role' => $p->pengaju?->role ?? '',
@@ -258,21 +277,22 @@ class RuanganPengajuanController extends Controller
                 ],
                 'pembimbing' => $snap['pembimbing']['name'] ?? null,
                 'ruangan' => $p->ruangan?->nama ?? '—',
-                'tanggal' => $p->tanggal->translatedFormat('d M Y'),
+                'tanggal' => self::dfmt($p->tanggal, 'd M Y', 'd/m/Y'),
                 'tanggal_iso' => $p->tanggal->toDateString(),
                 'hari' => $p->tanggal->translatedFormat('l'),
                 'jam' => substr((string) $p->jam_mulai, 0, 5) . '–' . substr((string) $p->jam_selesai, 0, 5),
                 'peserta_n' => count($p->peserta ?? []),
                 'peserta' => collect($snap['peserta'] ?? [])->pluck('name')->all(),
-                'pengganti' => $p->pengganti_mulai ? [
-                    'mulai' => $p->pengganti_mulai->translatedFormat('d M Y H:i'),
-                    'selesai' => $p->pengganti_selesai?->translatedFormat('d M Y H:i'),
+                'pengganti' => ($p->pengganti_mulai || $p->pengganti_catatan) ? [
+                    'mulai' => ($p->pengganti_mulai ? self::dfmt($p->pengganti_mulai, 'd M Y H:i', 'd/m/Y H:i') : null),
+                    'selesai' => ($p->pengganti_selesai ? self::dfmt($p->pengganti_selesai, 'd M Y H:i', 'd/m/Y H:i') : null),
                     'catatan' => $p->pengganti_catatan,
                 ] : null,
                 'alasan' => $p->alasan_keputusan,
+                'alasan_status' => $p->alasan_status,
                 'diputus_oleh' => $p->diputus_oleh ? ($diputusOleh[$p->diputus_oleh] ?? '—') : null,
-                'diputus_pada' => $p->diputus_pada?->translatedFormat('d M Y, H:i'),
-                'dibuat' => $p->created_at?->translatedFormat('d M Y, H:i'),
+                'diputus_pada' => ($p->diputus_pada ? self::dfmt($p->diputus_pada, 'd M Y, H:i', 'd/m/Y, H:i') : null),
+                'dibuat' => ($p->created_at ? self::dfmt($p->created_at, 'd M Y, H:i', 'd/m/Y, H:i') : null),
             ];
         })->values()->all();
 
@@ -282,7 +302,7 @@ class RuanganPengajuanController extends Controller
             ->whereNotNull('diputus_pada')
             ->orderByDesc('diputus_pada')->limit(8)->get()
             ->map(fn (RuanganPengajuan $p) => [
-                'waktu' => $p->diputus_pada->translatedFormat('d M Y, H:i'),
+                'waktu' => self::dfmt($p->diputus_pada, 'd M Y, H:i', 'd/m/Y, H:i'),
                 'kode' => 'PR-' . $p->tanggal->format('Y') . '-' . str_pad((string) $p->id, 4, '0', STR_PAD_LEFT),
                 'kegiatan' => $p->tujuan,
                 'ruangan' => $p->ruangan?->nama ?? '—',
@@ -328,18 +348,20 @@ class RuanganPengajuanController extends Controller
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
+        AdminAudit::catat('pengajuan.setujui', $this->labelPengajuan($pengajuan), $request->input('alasan'));
 
         return back()->with('status', 'Pengajuan disetujui — izin peserta diterbitkan.');
     }
 
     public function tolak(Request $request, RuanganPengajuan $pengajuan)
     {
-        $request->validate(['alasan' => 'nullable|string|max:500']);
+        $request->validate(['alasan' => 'required|string|min:3|max:500']);
         try {
             RuanganBookingService::tolak($pengajuan, $request->user(), $request->input('alasan'));
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
+        AdminAudit::catat('pengajuan.tolak', $this->labelPengajuan($pengajuan), $request->input('alasan'));
 
         return back()->with('status', 'Pengajuan ditolak.');
     }
@@ -347,23 +369,26 @@ class RuanganPengajuanController extends Controller
     public function tawarkanPengganti(Request $request, RuanganPengajuan $pengajuan)
     {
         $data = $request->validate([
-            'pengganti_mulai' => 'required|date',
-            'pengganti_selesai' => 'required|date|after:pengganti_mulai',
-            'catatan' => 'nullable|string|max:500',
+            'pengganti_mulai' => 'nullable|date|required_with:pengganti_selesai',
+            'pengganti_selesai' => 'nullable|date|after:pengganti_mulai|required_with:pengganti_mulai',
+            'catatan' => 'required|string|min:5|max:500',
+        ], [
+            'catatan.required' => 'Alasan tawaran wajib diisi — mahasiswa perlu tahu kenapa jadwalnya dialihkan.',
         ]);
         try {
             RuanganBookingService::tawarkanPengganti(
                 $pengajuan,
                 $request->user(),
-                Carbon::parse($data['pengganti_mulai']),
-                Carbon::parse($data['pengganti_selesai']),
-                $data['catatan'] ?? null
+                $data['pengganti_mulai'] ? Carbon::parse($data['pengganti_mulai']) : null,
+                $data['pengganti_selesai'] ? Carbon::parse($data['pengganti_selesai']) : null,
+                $data['catatan']
             );
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
+        AdminAudit::catat('pengajuan.pengganti', $this->labelPengajuan($pengajuan), $data['catatan']);
 
-        return back()->with('status', 'Waktu pengganti ditawarkan — menunggu penerimaan pengaju.');
+        return back()->with('status', 'Tawaran terkirim — menunggu penerimaan pengaju.');
     }
 
     public function cabut(Request $request, RuanganPengajuan $pengajuan)
@@ -373,7 +398,23 @@ class RuanganPengajuanController extends Controller
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
+        AdminAudit::catat('pengajuan.cabut', $this->labelPengajuan($pengajuan), $request->input('alasan'));
 
         return back()->with('status', 'Pengajuan dicabut — izin peserta diakhiri.');
+    }
+
+    private function labelPengajuan(RuanganPengajuan $p): string
+    {
+        $ruangan = $p->ruangan?->nama ?? $p->ruangan?->kode;
+
+        return 'Pengajuan #'.$p->id.($ruangan ? " · {$ruangan}" : '');
+    }
+
+    /** Format tanggal mengikuti preferensi viewer (format_tanggal: teks|angka). */
+    private static function dfmt(\DateTimeInterface $c, string $teks, string $angka): string
+    {
+        $u = request()->user();
+
+        return $u ? $u->dfmt($c, $teks, $angka) : Carbon::instance($c)->translatedFormat($teks);
     }
 }

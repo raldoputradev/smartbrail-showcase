@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Announcement;
 use App\Models\AnnouncementRead;
+use App\Support\AdminAudit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -202,6 +203,8 @@ class AnnouncementController extends Controller
             }
         }
 
+        AdminAudit::catat('pengumuman.buat', $row->judul ?? 'pengumuman', $publish ? 'dipublikasikan' : 'draft');
+
         return $this->redirectToComposer($request, $row->id)
             ->with('success', $publish ? 'Pengumuman dipublikasikan.' : 'Draft pengumuman disimpan.');
     }
@@ -262,6 +265,8 @@ class AnnouncementController extends Controller
             'is_active' => $publish,
         ]);
 
+        AdminAudit::catat('pengumuman.ubah', $announcement->judul);
+
         return $this->redirectToComposer($request, $announcement->id)
             ->with('success', $publish ? 'Pengumuman diperbarui & dipublikasikan.' : 'Draft disimpan.');
     }
@@ -270,6 +275,7 @@ class AnnouncementController extends Controller
     {
         abort_if($announcement->isLockerNotification(), 404);
 
+        AdminAudit::catat('pengumuman.hapus', $announcement->judul);
         $announcement->delete();
 
         return $this->redirectToComposer($request)
@@ -281,6 +287,7 @@ class AnnouncementController extends Controller
         abort_if($announcement->isLockerNotification(), 404);
 
         $announcement->update(['is_active' => ! $announcement->is_active]);
+        AdminAudit::catat('pengumuman.toggle', $announcement->judul, $announcement->is_active ? 'aktif' : 'nonaktif');
 
         return $this->redirectToComposer($request, $announcement->id)
             ->with('success', 'Status pengumuman diperbarui.');

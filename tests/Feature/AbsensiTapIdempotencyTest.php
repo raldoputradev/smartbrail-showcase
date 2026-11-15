@@ -533,15 +533,41 @@ class AbsensiTapIdempotencyTest extends TestCase
         $clean['QUEUE_CONNECTION'] = 'sync';
         $clean['SESSION_DRIVER'] = 'array';
 
-        $process = new Process([
-            PHP_BINARY,
-            base_path('tests/Support/idempotent_tap_worker.php'),
-        ], base_path());
+        $process = new Process(array_merge(
+            $this->workerPhpCommand(),
+            [base_path('tests/Support/idempotent_tap_worker.php')],
+        ), base_path());
         $process->setEnv($clean);
         $process->setTimeout(60);
         $process->start();
 
         return $process;
+    }
+
+    /**
+     * Worker di-spawn lewat PHP_BINARY, tetapi flag `-d` yang dipakai untuk
+     * menjalankan suite (mis. `-d extension=pdo_sqlite` saat php.ini belum
+     * memuatnya) tidak diwariskan ke child process. Probe child PHP sekali
+     * dan tambahkan flag yang dibutuhkan agar worker tidak mati di getPdo().
+     *
+     * @return list<string>
+     */
+    private function workerPhpCommand(): array
+    {
+        static $command = null;
+        if ($command !== null) {
+            return $command;
+        }
+
+        $command = [PHP_BINARY];
+        $probe = new Process([PHP_BINARY, '-r', 'echo extension_loaded("pdo_sqlite") ? "1" : "0";'], base_path());
+        $probe->run();
+        if (trim($probe->getOutput()) !== '1') {
+            $command[] = '-d';
+            $command[] = 'extension=pdo_sqlite';
+        }
+
+        return $command;
     }
 
     /**

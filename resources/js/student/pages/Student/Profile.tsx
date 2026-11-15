@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, router, useForm, usePage } from '@inertiajs/react';
 import {
-    Camera, CheckCircle2, Fingerprint, KeyRound, Lock, MailCheck,
+    Bell, Camera, CheckCircle2, Fingerprint, KeyRound, Lock, MailCheck,
     Moon, Settings2, ShieldCheck, Sun, Trash2, User,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
@@ -45,6 +45,65 @@ export default function Profile({ user, prodiName, pendingEmailOtp, kartuAkses, 
     const [tab, setTab] = useState<TabKey>('profil');
     const [theme, setTheme] = useState<'light' | 'dark'>(() =>
         (document.documentElement.dataset.theme as 'light' | 'dark') || 'light');
+
+    // Notifikasi browser (Web Push) — SbPush dari /js/webpush.js
+    const [pushState, setPushState] = useState<'loading' | 'unsupported' | 'denied' | 'on' | 'off'>('loading');
+    const [pushBusy, setPushBusy] = useState(false);
+    useEffect(() => {
+        const p = (window as any).SbPush;
+        if (!p?.supported?.()) { setPushState('unsupported'); return; }
+        if (Notification.permission === 'denied') { setPushState('denied'); return; }
+        p.subscription().then((s: any) => setPushState(s ? 'on' : 'off')).catch(() => setPushState('off'));
+    }, []);
+    const togglePush = async () => {
+        const p = (window as any).SbPush;
+        if (!p || pushBusy) return;
+        setPushBusy(true);
+        try {
+            if (pushState !== 'on') {
+                const res = await p.enable();
+                setPushState(res.ok ? 'on' : (res.reason === 'denied' ? 'denied' : 'off'));
+            } else {
+                await p.disable();
+                setPushState('off');
+            }
+        } finally {
+            setPushBusy(false);
+        }
+    };
+
+    // Preferensi server (kategori push, digest email, format tanggal) — kolom users.preferences
+    const [prefs, setPrefs] = useState<Record<string, any>>(() => (auth.user as any)?.preferences ?? {});
+    const [prefBusy, setPrefBusy] = useState(false);
+    const csrf = () => document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+    const savePrefs = async (patch: Record<string, any>, reload = false) => {
+        if (prefBusy) return;
+        setPrefBusy(true);
+        setPrefs((prev) => ({ ...prev, ...patch }));
+        try {
+            await fetch(route('mahasiswa.preferensi.update'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf(), 'Accept': 'application/json' },
+                body: JSON.stringify(patch),
+                credentials: 'same-origin',
+            });
+            if (reload) router.reload();
+        } finally {
+            setPrefBusy(false);
+        }
+    };
+    const pushKat = (k: string) => prefs?.push_kategori?.[k] !== false;
+    const setPushKat = (k: string, v: boolean) =>
+        savePrefs({ push_kategori: { ...prefs?.push_kategori, [k]: v } });
+
+    // Ukuran teks — preferensi lokal perangkat (zoom ringan)
+    const [textSize, setTextSize] = useState<'normal' | 'besar'>(() =>
+        (localStorage.getItem('smartbrail_student_fs') as 'normal' | 'besar') || 'normal');
+    const setAppTextSize = (s: 'normal' | 'besar') => {
+        document.documentElement.style.zoom = s === 'besar' ? '1.12' : '';
+        try { localStorage.setItem('smartbrail_student_fs', s); } catch { /* abaikan */ }
+        setTextSize(s);
+    };
 
     const contact = useForm({ email: user.email ?? '', no_hp: user.no_hp ?? '' });
     const otp = useForm({ otp_code: '' });
@@ -336,6 +395,123 @@ export default function Profile({ user, prodiName, pendingEmailOtp, kartuAkses, 
                             className={theme === 'dark' ? '' : 'border border-sb-border'}
                             onClick={() => setAppTheme('dark')} aria-pressed={theme === 'dark'}>
                             <Moon size={14} /> Gelap
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-sb-border pt-5">
+                    <div>
+                        <p className="flex items-center gap-1.5 text-[13.5px] font-bold"><Bell size={14} /> Notifikasi browser</p>
+                        <p className="text-[12px] text-sb-muted">
+                            Info pengajuan ruangan, pengumuman &amp; balasan laporan langsung ke perangkat — walau portal tidak dibuka.
+                        </p>
+                        {pushState === 'denied' && (
+                            <p className="mt-1 text-[11.5px] text-sb-danger">
+                                Izin diblokir browser — aktifkan lewat ikon gembok/pengaturan situs di bilah alamat.
+                            </p>
+                        )}
+                    </div>
+                    {pushState === 'unsupported' ? (
+                        <span className="text-[12px] text-sb-muted">Tidak didukung browser ini</span>
+                    ) : pushState === 'denied' ? (
+                        <span className="rounded-full border border-sb-border px-3 py-1 text-[11.5px] font-semibold text-sb-muted">Diblokir</span>
+                    ) : (
+                        <button type="button" role="switch" aria-checked={pushState === 'on'}
+                            aria-label="Notifikasi browser"
+                            disabled={pushBusy || pushState === 'loading'}
+                            onClick={togglePush}
+                            className={`relative h-6 w-11 flex-none rounded-full transition disabled:opacity-50 ${pushState === 'on' ? 'bg-sb-primary' : 'bg-sb-border'}`}
+                        >
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${pushState === 'on' ? 'left-[22px]' : 'left-0.5'}`} />
+                        </button>
+                    )}
+                </div>
+
+                {/* Kategori push */}
+                <div className="mt-5 border-t border-sb-border pt-5">
+                    <p className="text-[13.5px] font-bold">Kategori notifikasi browser</p>
+                    <p className="text-[12px] text-sb-muted">Pilih jenis info yang dikirim sebagai notifikasi push ke perangkat ini.</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {([
+                            ['pengajuan', 'Pengajuan Ruangan', 'Keputusan & tawaran jadwal'],
+                            ['pengumuman', 'Pengumuman', 'Info dari laboran/admin'],
+                            ['laporan', 'Balasan Laporan', 'Tanggapan atas laporan Anda'],
+                        ] as const).map(([k, label, desc]) => (
+                            <label key={k}
+                                className={`flex cursor-pointer items-start gap-2.5 rounded-[10px] border p-3 transition ${pushKat(k) ? 'border-sb-primary/50 bg-sb-primary-soft/40' : 'border-sb-border'}`}
+                            >
+                                <input type="checkbox" className="mt-0.5 accent-sb-primary"
+                                    checked={pushKat(k)} disabled={prefBusy}
+                                    onChange={(e) => setPushKat(k, e.target.checked)} />
+                                <span>
+                                    <span className="block text-[12.5px] font-bold">{label}</span>
+                                    <span className="block text-[11px] text-sb-muted">{desc}</span>
+                                </span>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Ringkasan email harian */}
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-sb-border pt-5">
+                    <div>
+                        <p className="text-[13.5px] font-bold">Ringkasan email harian</p>
+                        <p className="text-[12px] text-sb-muted">
+                            Rekap absensi, keputusan pengajuan & notifikasi tiap sore (~17:20 WIB)
+                            {isEmailVerified ? ` ke ${user.email}` : ' — butuh email terverifikasi'}.
+                        </p>
+                    </div>
+                    {isEmailVerified ? (
+                        <button type="button" role="switch" aria-checked={!!prefs?.digest_email}
+                            aria-label="Ringkasan email harian" disabled={prefBusy}
+                            onClick={() => savePrefs({ digest_email: !prefs?.digest_email })}
+                            className={`relative h-6 w-11 flex-none rounded-full transition disabled:opacity-50 ${prefs?.digest_email ? 'bg-sb-primary' : 'bg-sb-border'}`}
+                        >
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${prefs?.digest_email ? 'left-[22px]' : 'left-0.5'}`} />
+                        </button>
+                    ) : (
+                        <span className="text-[12px] text-sb-muted">Verifikasi email dulu</span>
+                    )}
+                </div>
+
+                {/* Format tanggal */}
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-sb-border pt-5">
+                    <div>
+                        <p className="text-[13.5px] font-bold">Format tanggal</p>
+                        <p className="text-[12px] text-sb-muted">Gaya penulisan tanggal di seluruh portal.</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button size="sm" variant={(prefs?.format_tanggal ?? 'teks') === 'teks' ? 'primary' : 'ghost'}
+                            className={(prefs?.format_tanggal ?? 'teks') === 'teks' ? '' : 'border border-sb-border'}
+                            disabled={prefBusy}
+                            onClick={() => savePrefs({ format_tanggal: 'teks' }, true)}>
+                            16 Nov 2026
+                        </Button>
+                        <Button size="sm" variant={prefs?.format_tanggal === 'angka' ? 'primary' : 'ghost'}
+                            className={prefs?.format_tanggal === 'angka' ? '' : 'border border-sb-border'}
+                            disabled={prefBusy}
+                            onClick={() => savePrefs({ format_tanggal: 'angka' }, true)}>
+                            16/11/2026
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Ukuran teks */}
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-sb-border pt-5">
+                    <div>
+                        <p className="text-[13.5px] font-bold">Ukuran teks</p>
+                        <p className="text-[12px] text-sb-muted">Perbesar tampilan agar lebih nyaman dibaca — tersimpan di perangkat ini.</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button size="sm" variant={textSize === 'normal' ? 'primary' : 'ghost'}
+                            className={textSize === 'normal' ? '' : 'border border-sb-border'}
+                            onClick={() => setAppTextSize('normal')} aria-pressed={textSize === 'normal'}>
+                            Normal
+                        </Button>
+                        <Button size="sm" variant={textSize === 'besar' ? 'primary' : 'ghost'}
+                            className={textSize === 'besar' ? '' : 'border border-sb-border'}
+                            onClick={() => setAppTextSize('besar')} aria-pressed={textSize === 'besar'}>
+                            Besar
                         </Button>
                     </div>
                 </div>

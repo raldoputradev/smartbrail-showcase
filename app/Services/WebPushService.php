@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\PushSubscription;
+use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
@@ -23,14 +24,20 @@ class WebPushService
     /**
      * @param  iterable<int>  $userIds
      * @param  array{title: string, body: string, url?: string, tag?: string}  $payload
+     * @param  string|null  $kategori  pengajuan|pengumuman|laporan — hormati preferensi push_kategori user
      */
-    public function sendToUsers(iterable $userIds, array $payload): int
+    public function sendToUsers(iterable $userIds, array $payload, ?string $kategori = null): int
     {
         if (! $this->isConfigured()) {
             return 0;
         }
 
         $ids = collect($userIds)->filter()->map(fn ($id) => (int) $id)->unique()->values();
+        if ($kategori !== null) {
+            $ids = User::query()->whereIn('id', $ids)->get(['id', 'preferences'])
+                ->filter(fn (User $u) => $u->wantsPushKategori($kategori))
+                ->pluck('id');
+        }
         if ($ids->isEmpty()) {
             return 0;
         }

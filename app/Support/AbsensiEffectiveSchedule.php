@@ -391,6 +391,31 @@ class AbsensiEffectiveSchedule
             }
         }
 
+        // Durasi label = selisih tap terhadap JADWAL efektif (bukan nilai toleransi
+        // tersimpan) — angka label selalu cocok dengan jadwal yang tercetak.
+        $durMasuk = 0;
+        $durPulang = 0;
+        if ($jamMasuk) {
+            try {
+                $tapMasuk = Carbon::parse("{$dateStr} {$jamMasuk}", $tz);
+                $targetMasuk = Carbon::parse("{$dateStr} {$jadwalMasukStr}", $tz);
+                if ($tapMasuk->greaterThan($targetMasuk)) {
+                    $durMasuk = (int) $targetMasuk->diffInMinutes($tapMasuk);
+                }
+            } catch (\Throwable) {
+            }
+        }
+        if ($jamPulang) {
+            try {
+                $tapPulang = Carbon::parse("{$dateStr} {$jamPulang}", $tz);
+                $targetPulang = Carbon::parse("{$dateStr} {$jadwalPulangStr}", $tz);
+                if ($tapPulang->greaterThan($targetPulang)) {
+                    $durPulang = (int) $targetPulang->diffInMinutes($tapPulang);
+                }
+            } catch (\Throwable) {
+            }
+        }
+
         // 1. Kelengkapan
         [$kelKode, $kelLabel, $kelTone, $kelDesc] = match ($status) {
             'lengkap' => ['lengkap', 'Lengkap', 'ok', 'Tap masuk & pulang tercatat'],
@@ -415,7 +440,7 @@ class AbsensiEffectiveSchedule
         if ($jamMasuk) {
             if ($telatMasuk > 0) {
                 $masukKode = 'terlambat';
-                $masukLabel = "Terlambat {$telatMasuk} menit";
+                $masukLabel = 'Terlambat ' . self::formatDurasiMenit($durMasuk > 0 ? $durMasuk : $telatMasuk);
                 $masukTone = 'warn';
             } else {
                 $isEarly = false;
@@ -447,12 +472,14 @@ class AbsensiEffectiveSchedule
             if ($pulangCepatFlag || $pulangCepatMenit > 0) {
                 $pulangKode = 'pulang_cepat';
                 $pulangLabel = $pulangCepatMenit > 0
-                    ? "Pulang lebih awal {$pulangCepatMenit} menit"
+                    ? 'Pulang lebih awal ' . self::formatDurasiMenit($pulangCepatMenit)
                     : 'Pulang lebih awal';
                 $pulangTone = 'warn';
-            } elseif ($pulangLemburFlag || $telatPulang > 0) {
+            } elseif ($pulangLemburFlag || $telatPulang > 0 || $durPulang > 0) {
                 $pulangKode = 'melewati_jadwal';
-                $pulangLabel = 'Melewati jam jadwal';
+                $pulangLabel = ($durPulang > 0 ? $durPulang : $telatPulang) > 0
+                    ? 'Melewati jadwal ' . self::formatDurasiMenit($durPulang > 0 ? $durPulang : $telatPulang)
+                    : 'Melewati jam jadwal';
                 $pulangTone = 'info';
             } else {
                 $pulangKode = 'tepat_waktu';
@@ -510,9 +537,22 @@ class AbsensiEffectiveSchedule
             'ketepatan_pulang_tone' => $pulangTone,
             'ringkasan_ketepatan' => $ringkasanKetepatan,
             'ringkasan_ketepatan_tone' => $ringkasanTone,
-            'menit_terlambat_masuk' => $telatMasuk,
+            'menit_terlambat_masuk' => $durMasuk > 0 ? $durMasuk : $telatMasuk,
+            'menit_terlambat_pulang' => $durPulang > 0 ? $durPulang : $telatPulang,
             'menit_pulang_cepat' => $pulangCepatMenit,
             'has_punctuality_note' => $hasPunctualityNote,
         ];
+    }
+
+    /** Format menit → "2 jam 29 menit" / "1 jam" / "45 menit" untuk label ketepatan. */
+    private static function formatDurasiMenit(int $menit): string
+    {
+        $jam = intdiv($menit, 60);
+        $sisa = $menit % 60;
+        return match (true) {
+            $jam > 0 && $sisa > 0 => "{$jam} jam {$sisa} menit",
+            $jam > 0 => "{$jam} jam",
+            default => "{$menit} menit",
+        };
     }
 }

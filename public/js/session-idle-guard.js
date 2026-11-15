@@ -26,8 +26,14 @@
     const csrf = cfg.csrf || '';
     // Perpanjang sesi server setiap ~2 menit selama user masih aktif
     const pingEveryMs = Math.min(120000, Math.max(30000, Math.floor(idleMs / 4)));
+    // Peringatan tampil (idleMs - warnMs) setelah aktivitas terakhir
+    const warnMs = Math.min(Math.max(0, (cfg.warnMinutes || 0) * 60 * 1000), Math.max(0, idleMs - 5000));
 
     let idleTimer = null;
+    let warnTimer = null;
+    let warnTicker = null;
+    let warnEl = null;
+    let warnDeadline = 0;
     let lastActivityReset = 0;
     let lastPingAt = 0;
     let pingInFlight = false;
@@ -83,13 +89,63 @@
         });
     }
 
+    function fmtCountdown(ms) {
+        const s = Math.max(0, Math.ceil(ms / 1000));
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function ensureWarnEl() {
+        if (warnEl) return warnEl;
+        warnEl = document.createElement('div');
+        warnEl.setAttribute('role', 'alert');
+        warnEl.style.cssText = [
+            'position:fixed', 'top:16px', 'left:50%', 'transform:translateX(-50%)',
+            'z-index:99999', 'display:flex', 'align-items:center', 'gap:12px',
+            'background:#1e293b', 'color:#e2e8f0', 'border:1px solid #f59e0b',
+            'border-radius:12px', 'padding:12px 16px', 'font:500 14px/1.4 system-ui,sans-serif',
+            'box-shadow:0 10px 30px rgba(0,0,0,.45)', 'max-width:min(92vw,480px)',
+        ].join(';');
+        warnEl.innerHTML =
+            '<span style="flex:1">Sesi akan berakhir dalam <b id="sb-warn-count"></b> karena tidak ada aktivitas.</span>' +
+            '<button type="button" id="sb-warn-stay" style="background:#f59e0b;color:#111827;border:0;border-radius:8px;padding:7px 12px;font:600 13px system-ui;cursor:pointer;white-space:nowrap">Tetap masuk</button>';
+        return warnEl;
+    }
+
+    function showWarning() {
+        const el = ensureWarnEl();
+        warnDeadline = Date.now() + warnMs;
+        if (!el.isConnected) document.body.appendChild(el);
+        const count = el.querySelector('#sb-warn-count');
+        function tick() {
+            if (count) count.textContent = fmtCountdown(warnDeadline - Date.now());
+        }
+        tick();
+        if (warnTicker) clearInterval(warnTicker);
+        warnTicker = setInterval(tick, 1000);
+        const btn = el.querySelector('#sb-warn-stay');
+        if (btn) {
+            btn.onclick = function () {
+                // Klik tombol = aktivitas; listener document juga menangkapnya.
+                onActivity(true);
+            };
+        }
+    }
+
+    function hideWarning() {
+        if (warnTicker) { clearInterval(warnTicker); warnTicker = null; }
+        if (warnEl && warnEl.isConnected) warnEl.remove();
+    }
+
     function clearTimers() {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = null;
+        if (warnTimer) clearTimeout(warnTimer);
+        warnTimer = null;
     }
 
     function scheduleIdle() {
         clearTimers();
+        hideWarning();
 
         const abs = absoluteDeadline();
         if (abs && Date.now() >= abs) {
@@ -102,43 +158,24 @@
         if (abs) {
             wait = Math.min(wait, Math.max(1000, abs - Date.now()));
         }
+        if (warnMs > 0 && wait > warnMs + 500) {
+            warnTimer = setTimeout(showWarning, wait - warnMs);
+        }
         idleTimer = setTimeout(onIdleTimeout, wait);
     }
 
     function onIdleTimeout() {
-        const abs = absoluteDeadline();
-        if (abs && Date.now() >= abs) {
-            forceLogout();
-            return;
-        }
-        // Konfirmasi ke server dulu — kalau masih valid, perpanjang idle
-        pingServer()
-            .then(function (r) {
-                if (!r) {
-                    forceLogout();
-                    return;
-                }
-                if (r.status === 401) {
-                    forceLogout();
-                    return;
-                }
-                if (r.ok) {
-                    scheduleIdle();
-                    return;
-                }
-                // Error non-auth: jangan langsung kick
-                scheduleIdle();
-            })
-            .catch(function () {
-                // Network blip — coba lagi nanti, jangan logout
-                scheduleIdle();
-            });
+        // Idle adalah keputusan klien — JANGAN ping server di sini: ping itu
+        // sendiri me-refresh SESSION_LIFETIME sehingga respons selalu "valid"
+        // dan timer tak pernah berhenti (bug: idle logout tak pernah terjadi).
+        forceLogout();
     }
 
-    function onActivity() {
+    function onActivity(force) {
         const now = Date.now();
-        if (now - lastActivityReset < 5000) return;
+        if (!force && now - lastActivityReset < 5000) return;
         lastActivityReset = now;
+        window.__sbLastActivity = now;
         scheduleIdle();
 
         // Perpanjang sesi Laravel saat user benar-benar aktif
@@ -170,13 +207,17 @@
             });
     });
 
-    // Heartbeat presence — jaga last_seen_at tetap segar walau user pasif
-    // (tab dibiarkan terbuka). Browser men-throttle interval di tab tersembunyi,
-    // jadi tidak membebani server.
+    // Heartbeat presence — jaga last_seen_at tetap segar selama user masih
+    // berinteraksi baru-baru ini. PENTING: jangan ping saat user diam melebihi
+    // pingEveryMs — ping apa pun memperpanjang SESSION_LIFETIME di server dan
+    // akan mengalahkan idle-timeout (bug: sesi tidak pernah berakhir).
     setInterval(function () {
-        pingServer().catch(function () { /* presence saja — abaikan error */ });
+        if (Date.now() - lastActivityReset <= pingEveryMs) {
+            pingServer().catch(function () { /* presence saja — abaikan error */ });
+        }
     }, 150000);
 
     // Ping awal agar sesi server hidup sejak halaman dibuka
+    window.__sbLastActivity = Date.now();
     pingServer().finally(scheduleIdle);
 })();

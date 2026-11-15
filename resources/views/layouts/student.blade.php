@@ -16,6 +16,9 @@
             }
             document.documentElement.setAttribute('data-theme', t);
             try {
+                if (localStorage.getItem('smartbrail_student_fs') === 'besar') {
+                    document.documentElement.style.zoom = '1.12';
+                }
                 if (window.innerWidth > 1024 && localStorage.getItem('simalas_student_sidebar_collapsed') === '1') {
                     document.documentElement.classList.add('sp-rail');
                 }
@@ -232,7 +235,7 @@
                                     @endforelse
                                 </div>
                                 <div class="sp-notif-popover__foot">
-                                    <a href="{{ route('mahasiswa.notifications') }}" class="sp-link">Buka riwayat notifikasi &rarr;</a>
+                                    <a href="{{ route('mahasiswa.notifications') }}" class="sp-link">Halaman notifikasi &rarr;</a>
                                 </div>
                             </div>
                         </div>

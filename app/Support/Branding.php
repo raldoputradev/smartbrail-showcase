@@ -23,7 +23,16 @@ class Branding
             return null;
         }
 
-        return is_file(public_path($path)) ? $path : null;
+        if (! is_file(public_path($path))) {
+            return null;
+        }
+
+        $webp = preg_replace('/\.[a-z0-9]+$/i', '.webp', $path);
+        if ($webp !== $path && is_file(public_path($webp))) {
+            return $webp;
+        }
+
+        return $path;
     }
 
     /** URL logo kustom dengan cache-bust filemtime; '' bila tidak ada. */

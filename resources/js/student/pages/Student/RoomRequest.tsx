@@ -14,7 +14,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Anggota, KetersediaanResp, Pengajuan, RuanganEntry, SharedProps, Slot, Tim } from '@/types';
 import { apiGet } from '@/lib/api';
-import { subscribePrivate } from '@/lib/live';
+import { scheduleReload, subscribePrivate } from '@/lib/live';
 import { hhmm, tanggalHuman, tanggalSingkat } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -129,7 +129,7 @@ export default function RoomRequest({ tim, anggota, ruanganList, pengajuan, tabR
     useEffect(() => {
         if (!reverb?.key) return;
         return subscribePrivate(reverb, `mahasiswa.${userId}`, {
-            'pengajuan.updated': () => router.reload({ only: ['pengajuan', 'navNotificationState'] }),
+            'pengajuan.updated': () => scheduleReload(['pengajuan', 'navNotificationState']),
         });
     }, [reverb?.key, userId]);
 
@@ -246,6 +246,7 @@ function AjukanTab({ tim, anggota, ruanganList, userId, onSubmitted }: {
     const [selRange, setSelRange] = useState<{ start: number; end: number } | null>(null);
     const [modalPeserta, setModalPeserta] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
+    const availCtx = useRef<{ rId: number; tgl: string }>({ rId: 0, tgl: '' });
 
     const form = useForm({
         ruangan_id: entry?.model.id ?? 0,
@@ -281,9 +282,28 @@ function AjukanTab({ tim, anggota, ruanganList, userId, onSubmitted }: {
     // Muat ulang slot saat ruangan/tanggal berubah; hapus pilihan tak valid.
     useEffect(() => {
         if (!entry) return;
+        availCtx.current = { rId: entry.model.id, tgl: tanggal };
         setSelRange(null);
         loadAvail(entry.model.id, tanggal);
     }, [entry, tanggal, loadAvail]);
+
+    // Realtime: pengajuan tim lain yang dibuat/dibatalkan/diputus mengubah slot —
+    // segarkan grid bila cocok dengan ruangan+tanggal yang sedang dilihat.
+    const { reverb } = usePage<SharedProps>().props;
+    useEffect(() => {
+        if (!reverb?.key) return;
+        return subscribePrivate(reverb, 'ruangan.ketersediaan', {
+            'pengajuan.updated': (data) => {
+                const { rId, tgl } = availCtx.current;
+                if (!rId) return;
+                const evR = Number(data.ruangan_id ?? 0);
+                const evT = String(data.tanggal ?? '');
+                if (evR && evR !== rId) return;
+                if (evT && evT !== tgl) return;
+                loadAvail(rId, tgl);
+            },
+        });
+    }, [reverb?.key, loadAvail]);
 
     // Validasi ulang rentang pilihan setelah data baru tiba.
     useEffect(() => {
@@ -648,11 +668,33 @@ const PERIODE_OPSI = [
 ] as const;
 
 function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
-    const [detailId, setDetailId] = useState<number | null>(null);
+    // Id kartu terbuka disimpan di query URL (?detail=N) — bertahan walau halaman
+    // remount saat reload realtime, sehingga kartu tetap terbuka dan statusnya
+    // ikut segar (tidak "keluar dari kartu" saat keputusan masuk).
+    const [detailId, setDetailId] = useState<number | null>(() => {
+        const v = new URLSearchParams(window.location.search).get('detail');
+        const n = v ? parseInt(v, 10) : NaN;
+        return Number.isFinite(n) ? n : null;
+    });
+    const [declineOpen, setDeclineOpen] = useState(false);
+    const [declineAlasan, setDeclineAlasan] = useState('');
+    const [detailSnapshot, setDetailSnapshot] = useState<Pengajuan | null>(null);
     const act = useForm({});
-    // Simpan id saja — objek detail diambil dari props agar ikut segar saat reload realtime.
-    const detail = useMemo(() => pengajuan.find((p) => p.id === detailId) ?? null, [pengajuan, detailId]);
-    const setDetail = (p: Pengajuan | null) => setDetailId(p?.id ?? null);
+    // Utamakan data segar dari props; bila item terpilih tidak ada di hasil reload,
+    // pakai snapshot terakhir supaya kartu tidak tertutup hanya karena refresh data.
+    const detail = useMemo(
+        () => pengajuan.find((p) => p.id === detailId) ?? detailSnapshot,
+        [pengajuan, detailId, detailSnapshot],
+    );
+    const setDetail = (p: Pengajuan | null) => {
+        setDetailId(p?.id ?? null);
+        setDetailSnapshot(p);
+        setDeclineOpen(false);
+        setDeclineAlasan('');
+        const url = new URL(window.location.href);
+        if (p) url.searchParams.set('detail', String(p.id)); else url.searchParams.delete('detail');
+        window.history.replaceState(window.history.state, '', url.toString());
+    };
 
     const [q, setQ] = useState('');
     const [periode, setPeriode] = useState<string>('semua');
@@ -719,24 +761,25 @@ function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
             {pageItems.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2">
                     {pageItems.map((p) => (
-                        <div key={p.id} className="flex gap-3.5 rounded-[14px] border border-sb-border bg-sb-surface p-3 transition hover:border-sb-primary/40">
-                            <div className="relative h-[104px] w-[120px] shrink-0 overflow-hidden rounded-[10px] bg-gradient-to-br from-sb-primary/80 to-sb-accent/70">
+                        <div key={p.id} className="flex flex-col gap-3 overflow-hidden rounded-[14px] border border-sb-border bg-sb-surface p-3 transition hover:border-sb-primary/40 sm:flex-row sm:gap-3.5">
+                            <div className="relative h-[130px] w-full shrink-0 overflow-hidden rounded-[10px] bg-gradient-to-br from-sb-primary/80 to-sb-accent/70 sm:h-[104px] sm:w-[120px]">
                                 {p.ruangan?.foto_url
                                     ? <img src={p.ruangan.foto_url} alt={p.ruangan.nama} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
                                     : <span className="absolute inset-0 grid place-items-center text-white/90"><DoorOpen size={26} /></span>}
                                 <span className="absolute bottom-1.5 left-1.5 rounded-[6px] bg-black/45 px-1.5 py-0.5 text-[9.5px] font-bold text-white backdrop-blur-sm">{p.ruangan?.kode ?? '—'}</span>
+                                <Badge tone={toneFor(p.status_efektif)} className="absolute right-1.5 top-1.5 sm:hidden">{statusLabel(p)}</Badge>
                             </div>
                             <div className="flex min-w-0 flex-1 flex-col">
                                 <div className="flex items-start justify-between gap-2">
                                     <p className="min-w-0 truncate text-[13.5px] font-bold">{p.ruangan?.nama ?? '—'}</p>
-                                    <Badge tone={toneFor(p.status_efektif)} className="shrink-0">{statusLabel(p)}</Badge>
+                                    <Badge tone={toneFor(p.status_efektif)} className="hidden shrink-0 sm:inline-flex">{statusLabel(p)}</Badge>
                                 </div>
                                 <div className="mt-1.5 space-y-1 text-[11.5px] text-sb-text2">
                                     <p className="flex items-center gap-1.5"><CalendarDays size={12.5} className="text-sb-muted" /> {tanggalHuman(p.tanggal)}</p>
                                     <p className="flex items-center gap-1.5"><Clock size={12.5} className="text-sb-muted" /> {hhmm(p.jam_mulai)} – {hhmm(p.jam_selesai)}</p>
                                     <p className="flex items-center gap-1.5"><Users size={12.5} className="text-sb-muted" /> {pesertaCount(p)} peserta</p>
                                 </div>
-                                <Button variant="outline" size="sm" className="mt-auto w-full justify-center" onClick={() => setDetail(p)}>
+                                <Button variant="outline" size="sm" className="mt-3 w-full justify-center sm:mt-auto" onClick={() => setDetail(p)}>
                                     Lihat Detail <ChevronRight size={13} />
                                 </Button>
                             </div>
@@ -818,21 +861,51 @@ function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
                                     </div>
                                 ))}
                             </dl>
-                            {detail.status === 'menunggu_penerimaan' && detail.pengganti_mulai && (
+                            {detail.status === 'menunggu_penerimaan' && (
                                 <div className="rounded-[10px] border border-sb-warn/40 bg-sb-warn-bg/50 p-3.5 text-[12.5px]">
-                                    <p className="font-bold">Waktu pengganti ditawarkan</p>
-                                    <p className="mt-0.5 font-mono">
-                                        {new Date(detail.pengganti_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                        {' – '}
-                                        {detail.pengganti_selesai ? new Date(detail.pengganti_selesai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '?'}
-                                    </p>
-                                    {detail.pengganti_catatan && <p className="mt-1 text-sb-text2">{detail.pengganti_catatan}</p>}
-                                    <Button size="sm" className="mt-3" loading={act.processing}
-                                        onClick={() => act.post(route('mahasiswa.ruangan.terima-pengganti', detail.id), {
-                                            onSuccess: () => setDetail(null),
-                                        })}>
-                                        Terima Waktu Pengganti
-                                    </Button>
+                                    <p className="font-bold">{detail.pengganti_mulai ? 'Waktu pengganti ditawarkan' : 'Tawaran prioritas dari petugas'}</p>
+                                    {detail.pengganti_mulai ? (
+                                        <p className="mt-0.5 font-mono">
+                                            {new Date(detail.pengganti_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                            {' – '}
+                                            {detail.pengganti_selesai ? new Date(detail.pengganti_selesai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }) : '?'}
+                                        </p>
+                                    ) : (
+                                        <p className="mt-0.5 text-sb-text2">Slot yang Anda minta belum bisa diberikan (ada prioritas lain). Konfirmasi bila masih berminat — pengajuan kembali ke antrean petugas.</p>
+                                    )}
+                                    {detail.pengganti_catatan && <p className="mt-1 text-sb-text2"><span className="font-semibold">Alasan petugas:</span> {detail.pengganti_catatan}</p>}
+                                    {!declineOpen ? (
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            <Button size="sm" loading={act.processing}
+                                                onClick={() => act.post(route('mahasiswa.ruangan.terima-pengganti', detail.id), {
+                                                    onSuccess: () => setDetail(null),
+                                                })}>
+                                                {detail.pengganti_mulai ? 'Terima Waktu Pengganti' : 'Masih Berminat — Antre Prioritas'}
+                                            </Button>
+                                            <Button size="sm" variant="outline" onClick={() => setDeclineOpen(true)}>
+                                                Tolak Tawaran
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="mt-3 space-y-2">
+                                            <textarea rows={2} value={declineAlasan} maxLength={500}
+                                                placeholder="Wajib — kenapa Anda tidak mengambil tawaran ini?"
+                                                className="w-full rounded-[8px] border border-sb-border bg-sb-surface px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-sb-primary/30"
+                                                onChange={(e) => setDeclineAlasan(e.target.value)} />
+                                            <div className="flex gap-2">
+                                                <Button size="sm" variant="danger" loading={act.processing}
+                                                    disabled={declineAlasan.trim().length < 3}
+                                                    onClick={() => router.post(route('mahasiswa.ruangan.tolak-pengganti', detail.id), { alasan: declineAlasan }, {
+                                                        onSuccess: () => setDetail(null),
+                                                    })}>
+                                                    Kirim Penolakan
+                                                </Button>
+                                                <Button size="sm" variant="ghost" onClick={() => { setDeclineOpen(false); setDeclineAlasan(''); }}>
+                                                    Batal
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             <div className="text-[12.5px]">

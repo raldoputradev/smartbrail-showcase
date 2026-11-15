@@ -13,7 +13,7 @@ return [
     /*
     | Peringatan sebelum logout otomatis (menit).
     */
-    'warn_before_minutes' => (int) env('SESSION_IDLE_WARN_MINUTES', 2),
+    'warn_before_minutes' => (int) env('SESSION_IDLE_WARN_MINUTES', 5),
 
     /*
     | Batas maksimal sesi sejak login (jam). 0 = nonaktif.

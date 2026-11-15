@@ -14,6 +14,8 @@
     @vite('resources/js/student/main.tsx')
     @inertiaHead
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ asset('js/webpush.js') }}" defer></script>
+    <script>try{if(localStorage.getItem('smartbrail_student_fs')==='besar')document.documentElement.style.zoom='1.12';}catch(e){}</script>
 </head>
 <body class="antialiased">
     {{-- Splash boot screen — muncul instan sebelum React mount, fade-out saat app siap. --}}

@@ -12,7 +12,7 @@ class TestEmail extends Command
 
     public function handle()
     {
-        $email = $this->argument('email') ?? 'aiotsimalass@gmail.com';
+        $email = $this->argument('email') ?? 'tujuan@example.test';
         $this->info("Mengirim test email ke: {$email}...");
 
         try {

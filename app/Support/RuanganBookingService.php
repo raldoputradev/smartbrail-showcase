@@ -393,7 +393,7 @@ class RuanganBookingService
     {
         DB::transaction(function () use ($p, $penyetuju, $alasan) {
             $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
-            if (!in_array($p->status, RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true)) {
+            if (!in_array($p->statusEfektif(), RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true)) {
                 throw ValidationException::withMessages(['status' => 'Pengajuan tidak lagi menunggu keputusan.']);
             }
             self::assertTidakKonflik($p);
@@ -510,14 +510,23 @@ class RuanganBookingService
     }
 
     /** Laboran menawarkan waktu pengganti; izin baru aktif setelah pengaju menerima. */
-    public static function tawarkanPengganti(RuanganPengajuan $p, User $penyetuju, Carbon $mulai, Carbon $selesai, ?string $catatan): void
+    /**
+     * Tawaran ke pengaju — dua bentuk:
+     *  - Jadwal pengganti konkret ($mulai/$selesai terisi) → terima = langsung disetujui.
+     *  - Tawaran prioritas (keduanya null) → terima = pengajuan kembali ke antrean
+     *    'diajukan' untuk diputus ulang saat slot prioritas tersedia.
+     * Catatan/alasan selalu wajib — mahasiswa harus tahu kenapa jadwalnya dialihkan.
+     */
+    public static function tawarkanPengganti(RuanganPengajuan $p, User $penyetuju, ?Carbon $mulai, ?Carbon $selesai, string $catatan): void
     {
         DB::transaction(function () use ($p, $penyetuju, $mulai, $selesai, $catatan) {
             $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
-            if (!in_array($p->status, RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true)) {
+            if (!in_array($p->statusEfektif(), RuanganPengajuan::STATUS_AKTIF_MENUNGGU, true)) {
                 throw ValidationException::withMessages(['status' => 'Pengajuan tidak lagi menunggu keputusan.']);
             }
-            self::assertSlotBebas($p->ruangan_id, $mulai, $selesai, $p->id);
+            if ($mulai && $selesai) {
+                self::assertSlotBebas($p->ruangan_id, $mulai, $selesai, $p->id);
+            }
             $p->update([
                 'status' => RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN,
                 'pengganti_mulai' => $mulai,
@@ -531,15 +540,42 @@ class RuanganBookingService
     }
 
     /** Pengaju menerima waktu pengganti — cek konflik ulang secara atomik. */
-    public static function terimaPengganti(RuanganPengajuan $p, User $pengaju): void
+    /**
+     * Terima tawaran. Return true bila ini tawaran prioritas (tanpa jadwal):
+     * pengajuan kembali ke 'diajukan' menunggu keputusan ulang petugas.
+     */
+    /**
+     * Otorisasi aksi atas nama pemohon: pemohon sendiri ATAU anggota tim PBL
+     * yang sama (pengajuan milik tim, bukan individu — anggota boleh
+     * membatalkan/menjawab tawaran atas nama tim).
+     */
+    private static function assertBolehAtasNamaPengaju(RuanganPengajuan $p, User $user): void
     {
-        if ((int) $p->pengaju_id !== (int) $pengaju->id) {
-            abort(403);
+        if ((int) $p->pengaju_id === (int) $user->id) {
+            return;
         }
-        DB::transaction(function () use ($p) {
+        if ($p->pbl_project_id) {
+            $project = PblProject::find($p->pbl_project_id);
+            if ($project && self::anggotaTim($project)->contains('id', $user->id)) {
+                return;
+            }
+        }
+        throw ValidationException::withMessages(['pengajuan' => 'Hanya pemohon atau anggota timnya yang dapat mengubah pengajuan ini.']);
+    }
+
+    public static function terimaPengganti(RuanganPengajuan $p, User $pengaju): bool
+    {
+        self::assertBolehAtasNamaPengaju($p, $pengaju);
+        $prioritas = false;
+        DB::transaction(function () use ($p, &$prioritas) {
             $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
-            if ($p->status !== RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN || !$p->pengganti_mulai) {
-                throw ValidationException::withMessages(['status' => 'Tidak ada waktu pengganti yang menunggu.']);
+            if ($p->statusEfektif() !== RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN) {
+                throw ValidationException::withMessages(['status' => 'Tidak ada tawaran yang menunggu.']);
+            }
+            if (!$p->pengganti_mulai) {
+                $prioritas = true;
+                $p->update(['status' => RuanganPengajuan::STATUS_DIAJUKAN, 'diputus_pada' => now()]);
+                return;
             }
             self::assertSlotBebas($p->ruangan_id, $p->pengganti_mulai, $p->pengganti_selesai, $p->id);
             $p->update([
@@ -552,29 +588,58 @@ class RuanganBookingService
             self::terbitkanIzin($p->fresh());
         });
         self::siarkan($p->fresh());
+
+        return $prioritas;
     }
 
-    public static function batalkan(RuanganPengajuan $p, User $pengaju): void
+    /** Pemohon menolak tawaran (jadwal pengganti maupun prioritas) — alasan wajib. */
+    public static function tolakPengganti(RuanganPengajuan $p, User $pengaju, string $alasan): void
     {
-        if ((int) $p->pengaju_id !== (int) $pengaju->id) {
-            abort(403);
-        }
-        DB::transaction(function () use ($p) {
+        self::assertBolehAtasNamaPengaju($p, $pengaju);
+        DB::transaction(function () use ($p, $pengaju, $alasan) {
             $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
-            if (!in_array($p->status, [RuanganPengajuan::STATUS_DIAJUKAN, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN, RuanganPengajuan::STATUS_DISETUJUI], true)) {
-                throw ValidationException::withMessages(['status' => 'Pengajuan tidak dapat dibatalkan.']);
+            if ($p->statusEfektif() !== RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN) {
+                throw ValidationException::withMessages(['status' => 'Tidak ada tawaran yang menunggu.']);
             }
-            $p->update(['status' => RuanganPengajuan::STATUS_DIBATALKAN]);
+            $p->update([
+                'status' => RuanganPengajuan::STATUS_DIBATALKAN,
+                'diputus_oleh' => $pengaju->id,
+                'diputus_pada' => now(),
+                'alasan_keputusan' => $alasan,
+            ]);
             self::cabutIzin($p);
         });
         self::siarkan($p->fresh());
     }
 
-    /** Pencabutan oleh laboran/admin. */
+    public static function batalkan(RuanganPengajuan $p, User $pengaju): void
+    {
+        self::assertBolehAtasNamaPengaju($p, $pengaju);
+        DB::transaction(function () use ($p, $pengaju) {
+            $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
+            if (!in_array($p->status, [RuanganPengajuan::STATUS_DIAJUKAN, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN, RuanganPengajuan::STATUS_DISETUJUI], true)) {
+                throw ValidationException::withMessages(['status' => 'Pengajuan tidak dapat dibatalkan.']);
+            }
+            // Catat pemohon sebagai pemutus terakhir — jangan sampai pembatalan
+            // pemohon terbaca sebagai "dicabut petugas" karena diputus_oleh lama.
+            $p->update([
+                'status' => RuanganPengajuan::STATUS_DIBATALKAN,
+                'diputus_oleh' => $pengaju->id,
+                'diputus_pada' => now(),
+            ]);
+            self::cabutIzin($p);
+        });
+        self::siarkan($p->fresh());
+    }
+
+    /** Pencabutan oleh laboran/admin — hanya untuk izin yang masih hidup. */
     public static function cabut(RuanganPengajuan $p, User $penyetuju, ?string $alasan): void
     {
         DB::transaction(function () use ($p, $penyetuju, $alasan) {
             $p = RuanganPengajuan::lockForUpdate()->findOrFail($p->id);
+            if ($p->statusEfektif() !== RuanganPengajuan::STATUS_DISETUJUI) {
+                throw ValidationException::withMessages(['status' => 'Pengajuan sudah berakhir — tidak ada izin aktif untuk dicabut.']);
+            }
             $p->update([
                 'status' => RuanganPengajuan::STATUS_DIBATALKAN,
                 'diputus_oleh' => $penyetuju->id,
@@ -602,6 +667,8 @@ class RuanganBookingService
                 ruangan: $p->ruangan?->nama ?? '',
                 penerima: $penerima,
                 deliveryId: (string) Str::uuid(),
+                ruanganId: (int) $p->ruangan_id,
+                tanggal: $p->tanggal?->toDateString() ?? '',
             ));
         } catch (\Throwable $e) {
             Log::warning('Broadcast pengajuan ruangan gagal', ['id' => $p->id, 'error' => $e->getMessage()]);
@@ -612,6 +679,9 @@ class RuanganBookingService
                 RuanganPengajuan::STATUS_DISETUJUI => ['Pengajuan ruangan disetujui', ($p->ruangan?->nama ?? 'Ruangan') . ' · ' . $p->tanggal?->format('d M Y') . ' ' . substr((string) $p->jam_mulai, 0, 5) . '–' . substr((string) $p->jam_selesai, 0, 5) . ' — sudah bisa dipakai.'],
                 RuanganPengajuan::STATUS_DITOLAK => ['Pengajuan ruangan ditolak', ($p->ruangan?->nama ?? 'Ruangan') . ($p->alasan_keputusan ? ' — ' . Str::limit($p->alasan_keputusan, 80) : '')],
                 RuanganPengajuan::STATUS_DIBATALKAN => ['Persetujuan ruangan dicabut', ($p->ruangan?->nama ?? 'Ruangan') . ($p->alasan_keputusan ? ' — ' . Str::limit($p->alasan_keputusan, 80) : '')],
+                RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN => $p->pengganti_mulai
+                    ? ['Tawaran jadwal pengganti', ($p->ruangan?->nama ?? 'Ruangan') . ' · ' . $p->pengganti_mulai->format('d M Y H:i') . ' — terima atau tolak dari halaman pengajuan.']
+                    : ['Tawaran prioritas dari petugas', ($p->ruangan?->nama ?? 'Ruangan') . ' — konfirmasi masih berminat untuk kembali ke antrean prioritas.'],
                 default => ['Pengajuan ruangan diperbarui', ($p->ruangan?->nama ?? 'Ruangan') . ' — status: ' . $p->status],
             };
             app(\App\Services\WebPushService::class)->sendToUsers($penerima, [
@@ -619,7 +689,7 @@ class RuanganBookingService
                 'body' => $isi,
                 'url' => '/mahasiswa/ruangan',
                 'tag' => 'ruangan-' . $p->id,
-            ]);
+            ], 'pengajuan');
 
             // Pengajuan baru → kabari staf (laboran + admin) agar cepat ditinjau.
             if ($p->status === RuanganPengajuan::STATUS_DIAJUKAN) {
@@ -632,7 +702,7 @@ class RuanganBookingService
                     'body' => ($p->pengaju?->nama_lengkap ?? 'Pemohon') . ' mengajukan ' . ($p->ruangan?->nama ?? 'ruangan') . ' · ' . $p->tanggal?->format('d M Y'),
                     'url' => route('admin.pengajuan.index'),
                     'tag' => 'pengajuan-baru-' . $p->id,
-                ]);
+                ], 'pengajuan');
             }
         } catch (\Throwable $e) {
             Log::warning('WebPush pengajuan ruangan gagal', ['id' => $p->id, 'error' => $e->getMessage()]);

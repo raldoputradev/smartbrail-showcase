@@ -5,7 +5,7 @@ import {
     Download, FileSpreadsheet, FileText, Filter, Printer, RotateCcw, Search, Users, XCircle,
 } from 'lucide-react';
 import { AdminShell } from '@admin/components/AdminShell';
-import { LineChart, DonutChart } from '@admin/components/Charts';
+import { LineChart, DonutChart, GroupedBarChart } from '@admin/components/Charts';
 import type { LaporanPeriodikProps } from '@admin/types';
 
 const PERIODE_OPTS = [
@@ -14,6 +14,7 @@ const PERIODE_OPTS = [
     { key: 'bulan_ini', label: 'Bulan ini' },
     { key: 'bulan_lalu', label: 'Bulan lalu' },
     { key: 'tahun_bulan', label: 'Tahun-bulan' },
+    { key: 'semester', label: 'Periode akademik (semester)' },
     { key: 'custom', label: 'Rentang kustom' },
 ];
 
@@ -32,7 +33,11 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
     const [draft, setDraft] = useState({
         periode: f.periode, bulan: f.bulan, tanggal_mulai: f.tanggal_mulai,
         tanggal_akhir: f.tanggal_akhir, kelas: f.kelas, tim: f.tim,
+        periode_id: f.periode_id ? String(f.periode_id) : '',
+        semester: f.semester ?? '', semester_type: f.semester_type ?? '',
     });
+    const span = daySpan(f.tanggal_mulai, f.tanggal_akhir);
+    const [resolusi, setResolusi] = useState<'harian' | 'mingguan'>(span > 45 ? 'mingguan' : 'harian');
     const [q, setQ] = useState('');
     const [page, setPage] = useState(1);
     const [view, setView] = useState<'grafik' | 'tabel'>('grafik');
@@ -50,8 +55,12 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
     }, [dlOpen]);
 
     const apply = () => {
-        const params: Record<string, string> = { periode: draft.periode, kelas: draft.kelas, tim: draft.tim };
+        const params: Record<string, string> = {
+            periode: draft.periode, kelas: draft.kelas, tim: draft.tim,
+            semester: draft.semester, semester_type: draft.semester_type,
+        };
         if (draft.periode === 'tahun_bulan') params.bulan = draft.bulan;
+        if (draft.periode === 'semester' && draft.periode_id) params.periode_id = draft.periode_id;
         if (draft.periode === 'custom') {
             params.tanggal_mulai = draft.tanggal_mulai;
             params.tanggal_akhir = draft.tanggal_akhir;
@@ -61,8 +70,12 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
     const reset = () => router.get(props.urls.index, { periode: 'bulan_ini' }, { preserveState: false });
 
     const exportQuery = () => {
-        const p = new URLSearchParams({ periode: f.periode, kelas: f.kelas, tim: f.tim });
+        const p = new URLSearchParams({
+            periode: f.periode, kelas: f.kelas, tim: f.tim,
+            semester: f.semester ?? '', semester_type: f.semester_type ?? '',
+        });
         if (f.periode === 'tahun_bulan') p.set('bulan', f.bulan);
+        if (f.periode === 'semester' && f.periode_id) p.set('periode_id', String(f.periode_id));
         if (f.periode === 'custom') {
             p.set('tanggal_mulai', f.tanggal_mulai);
             p.set('tanggal_akhir', f.tanggal_akhir);
@@ -83,14 +96,34 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
         { icon: XCircle, label: 'Alfa', value: s.alfa, sub: pctOf(s.alfa), cls: 'lpr-kpi--red' },
     ];
 
-    const lineData = useMemo(() => ({
-        labels: r.chart.labels.map((l) => (l.includes('-') ? `${l.slice(8, 10)}/${l.slice(5, 7)}` : l)),
+    const lineData = useMemo(() => {
+        const src = (resolusi === 'mingguan' && r.chart_weekly) ? r.chart_weekly : r.chart;
+        const weekly = resolusi === 'mingguan' && !!r.chart_weekly;
+        return {
+            labels: src.labels.map((l) => (l.includes('-')
+                ? (weekly ? `Mg ${l.slice(8, 10)}/${l.slice(5, 7)}` : `${l.slice(8, 10)}/${l.slice(5, 7)}`)
+                : l)),
+            series: [
+                { key: 'hadir', label: 'Hadir', data: src.hadir, color: '#34d399' },
+                { key: 'tl', label: 'Tidak Lengkap', data: src.tidak_lengkap, color: '#fbbf24' },
+                { key: 'alfa', label: 'Alfa', data: src.alfa, color: '#fb7185' },
+            ],
+        };
+    }, [r.chart, r.chart_weekly, resolusi]);
+
+    const kelasChartData = useMemo(() => ({
+        labels: r.kelas_chart.map((k) => k.kelas),
+        series: [{ key: 'rate', label: 'Rate hadir', data: r.kelas_chart.map((k) => k.rate), color: '#60a5fa' }],
+    }), [r.kelas_chart]);
+
+    const weekdayChartData = useMemo(() => ({
+        labels: r.weekday_chart.labels,
         series: [
-            { key: 'hadir', label: 'Hadir', data: r.chart.hadir, color: '#34d399' },
-            { key: 'tl', label: 'Tidak Lengkap', data: r.chart.tidak_lengkap, color: '#fbbf24' },
-            { key: 'alfa', label: 'Alfa', data: r.chart.alfa, color: '#fb7185' },
+            { key: 'hadir', label: 'Hadir', data: r.weekday_chart.hadir, color: '#34d399' },
+            { key: 'tl', label: 'Tdk Lengkap', data: r.weekday_chart.tidak_lengkap, color: '#fbbf24' },
+            { key: 'alfa', label: 'Alfa', data: r.weekday_chart.alfa, color: '#fb7185' },
         ],
-    }), [r.chart]);
+    }), [r.weekday_chart]);
 
     const donut = {
         labels: ['Hadir', 'Tidak Lengkap', 'Alfa'],
@@ -124,6 +157,9 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
                         <span className="lpr-hero__info-label"><CalendarRange size={15} /> Periode Laporan</span>
                         <strong>{fmtDate(f.tanggal_mulai)} – {fmtDate(f.tanggal_akhir)}</strong>
                         <small>⏱ Durasi: {daySpan(f.tanggal_mulai, f.tanggal_akhir)} hari · {r.activity_label}</small>
+                        {r.semester_aktif && (
+                            <small>📚 Semester aktif: <b>{r.semester_aktif.label}</b> ({r.semester_aktif.jenis})</small>
+                        )}
                     </div>
                 </div>
 
@@ -143,12 +179,40 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
                                 <input type="month" value={draft.bulan} onChange={(e) => setDraft({ ...draft, bulan: e.target.value })} />
                             </label>
                         )}
+                        {draft.periode === 'semester' && (
+                            <label>
+                                <span>Semester</span>
+                                <select value={draft.periode_id} onChange={(e) => setDraft({ ...draft, periode_id: e.target.value })}>
+                                    {r.periode_options.length === 0 && <option value="">Belum ada periode</option>}
+                                    {r.periode_options.map((p) => (
+                                        <option key={p.id} value={String(p.id)}>
+                                            {p.label}{p.is_active ? ' ●' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
                         {draft.periode === 'custom' && (
                             <>
                                 <label><span>Dari</span><input type="date" value={draft.tanggal_mulai} onChange={(e) => setDraft({ ...draft, tanggal_mulai: e.target.value })} /></label>
                                 <label><span>Sampai</span><input type="date" value={draft.tanggal_akhir} onChange={(e) => setDraft({ ...draft, tanggal_akhir: e.target.value })} /></label>
                             </>
                         )}
+                        <label>
+                            <span>Semester ke-</span>
+                            <select value={draft.semester} onChange={(e) => setDraft({ ...draft, semester: e.target.value })}>
+                                <option value="">Semua</option>
+                                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={String(n)}>{n}</option>)}
+                            </select>
+                        </label>
+                        <label>
+                            <span>Periode akademik</span>
+                            <select value={draft.semester_type} onChange={(e) => setDraft({ ...draft, semester_type: e.target.value })}>
+                                <option value="">Semua</option>
+                                <option value="ganjil">Ganjil</option>
+                                <option value="genap">Genap</option>
+                            </select>
+                        </label>
                         <label>
                             <span>Kelas</span>
                             <select value={draft.kelas} onChange={(e) => setDraft({ ...draft, kelas: e.target.value })}>
@@ -187,10 +251,16 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
                     <div className="lpr-card">
                         <div className="lpr-card__head">
                             <div>
-                                <strong><BarChart3 size={15} style={{ verticalAlign: -2 }} /> Tren Kehadiran Harian</strong>
+                                <strong><BarChart3 size={15} style={{ verticalAlign: -2 }} /> Tren Kehadiran {resolusi === 'mingguan' ? 'Mingguan' : 'Harian'}</strong>
                                 <small>Perkembangan jumlah sesi kehadiran, tidak lengkap, dan alfa selama periode.</small>
                             </div>
                             <div className="lpr-seg">
+                                {r.chart_weekly && (
+                                    <>
+                                        <button type="button" className={resolusi === 'harian' ? 'is-active' : ''} onClick={() => setResolusi('harian')}>Harian</button>
+                                        <button type="button" className={resolusi === 'mingguan' ? 'is-active' : ''} onClick={() => setResolusi('mingguan')}>Mingguan</button>
+                                    </>
+                                )}
                                 <button type="button" className={view === 'grafik' ? 'is-active' : ''} onClick={() => setView('grafik')}>
                                     <BarChart3 size={13} /> Grafik
                                 </button>
@@ -255,6 +325,57 @@ export default function LaporanPeriodik(props: LaporanPeriodikProps) {
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* ── Analisis lanjutan: kelas, pola hari, berisiko ── */}
+                <div className="lpr-charts">
+                    <div className="lpr-card">
+                        <div className="lpr-card__head">
+                            <div>
+                                <strong><BarChart3 size={15} style={{ verticalAlign: -2 }} /> Rate Hadir per Kelas</strong>
+                                <small>Persentase sesi hadir dari total sesi tiap kelas dalam cakupan filter.</small>
+                            </div>
+                        </div>
+                        {r.kelas_chart.length > 0 ? (
+                            <GroupedBarChart data={kelasChartData} height={240} pct />
+                        ) : (
+                            <div className="ad-empty">Tidak ada data kelas pada periode ini.</div>
+                        )}
+                    </div>
+                    <div className="lpr-card">
+                        <div className="lpr-card__head">
+                            <div>
+                                <strong><CalendarRange size={15} style={{ verticalAlign: -2 }} /> Pola Hari</strong>
+                                <small>Total sesi per hari dalam minggu — hari rawan alfa terlihat jelas.</small>
+                            </div>
+                        </div>
+                        <GroupedBarChart data={weekdayChartData} height={240} />
+                    </div>
+                    {r.at_risk.length > 0 && (
+                        <div className="lpr-card">
+                            <div className="lpr-card__head">
+                                <div>
+                                    <strong><XCircle size={15} style={{ verticalAlign: -2 }} /> Mahasiswa Berisiko</strong>
+                                    <small>Alfa terbanyak / rate hadir terendah (min. 3 sesi) — prioritas tindak lanjut.</small>
+                                </div>
+                            </div>
+                            <div className="lpr-tablewrap">
+                                <table className="lpr-table">
+                                    <thead><tr><th>Mahasiswa</th><th>Kelas</th><th>Alfa</th><th>Rate Hadir</th></tr></thead>
+                                    <tbody>
+                                        {r.at_risk.map((m) => (
+                                            <tr key={`${m.nim}-${m.nama}`}>
+                                                <td><b>{m.nama}</b><br /><small style={{ color: 'var(--ad-muted)' }}>{m.nim ?? '—'}</small></td>
+                                                <td>{m.kelas}</td>
+                                                <td><b style={{ color: '#fb7185' }}>{m.alfa}</b> / {m.total}</td>
+                                                <td>{m.rate.toLocaleString('id-ID')}%</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Rekap per mahasiswa ── */}

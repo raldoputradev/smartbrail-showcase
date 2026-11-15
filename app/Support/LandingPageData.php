@@ -50,7 +50,7 @@ class LandingPageData
 
     public static function teamPhotoUrl(string $slug): ?string
     {
-        foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
+        foreach (['webp', 'jpg', 'jpeg', 'png'] as $ext) {
             $relative = "images/team/{$slug}.{$ext}";
             if (File::exists(public_path($relative))) {
                 return asset($relative);

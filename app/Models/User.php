@@ -37,6 +37,7 @@ class User extends Authenticatable
         'angkatan',
         'semester',
         'semester_type',
+        'academic_status',
         'profile_completed_at',
         'finger_id',
         'finger_template',
@@ -93,7 +94,28 @@ class User extends Authenticatable
             'login_requires_admin_unlock' => 'boolean',
             'failed_login_attempts' => 'integer',
             'last_seen_at' => 'datetime',
+            'preferences' => 'array',
         ];
+    }
+
+    /** Preferensi tampilan & notifikasi per pengguna (kolom preferences JSON). */
+    public function pref(string $key, mixed $default = null): mixed
+    {
+        return data_get($this->preferences ?? [], $key, $default);
+    }
+
+    /** Apakah pengguna mau menerima Web Push untuk kategori tertentu (default: ya). */
+    public function wantsPushKategori(string $kategori): bool
+    {
+        return (bool) $this->pref("push_kategori.{$kategori}", true);
+    }
+
+    /** Format tanggal 'angka' (16/11/2026) vs 'teks' (16 Nov 2026, default). */
+    public function dfmt(\DateTimeInterface $c, string $polaTeks, string $polaAngka): string
+    {
+        return \Carbon\Carbon::instance($c)->translatedFormat(
+            $this->pref('format_tanggal', 'teks') === 'angka' ? $polaAngka : $polaTeks
+        );
     }
 
     public function isLoginTemporarilyLocked(): bool

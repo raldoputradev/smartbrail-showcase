@@ -198,6 +198,16 @@ trait AdminShellProps
                                 'badge' => null,
                             ]
                             : null,
+                        \App\Support\PermissionRegistry::canCurrent('users')
+                            ? [
+                                'kind' => 'link',
+                                'label' => 'Akademik',
+                                'icon' => 'graduation-cap',
+                                'url' => route('admin.akademik'),
+                                'active' => request()->routeIs('admin.akademik*'),
+                                'badge' => null,
+                            ]
+                            : null,
                         ($user->isAdmin() && \App\Support\PermissionRegistry::canCurrent('users', 'create'))
                             ? [
                                 'kind' => 'link',
@@ -254,6 +264,7 @@ trait AdminShellProps
                 $group('laporan-audit', 'Laporan & Audit', 'file-text', [
                     $link('attendance', 'Rekap Harian', 'clipboard-check', 'admin.attendance', [], null, ['admin.attendance', 'admin.absensi.alfa', 'admin.absensi.tidak-lengkap*']),
                     $link('reports', 'Laporan Periodik', 'bar-chart-3', 'admin.reports', [], null, 'admin.reports*'),
+                    $link('reports', 'Jejak Aktivitas', 'history', 'admin.jejak-aktivitas', [], null, 'admin.jejak-aktivitas*'),
                 ]),
             ])),
         ];

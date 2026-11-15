@@ -346,7 +346,11 @@ class StudentPortalTest extends TestCase
                 ->has('calendar.days')
                 ->has('scheduleMeta')
             );
-        $this->actingAs($this->student)->get('/mahasiswa/panduan')->assertOk()->assertSee('Arti status absensi');
+        // Panduan kini halaman React — konten "Arti Status Absensi" ada di komponennya.
+        $this->actingAs($this->student)->get('/mahasiswa/panduan')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('Student/Guide', false));
+        $this->assertStringContainsString('Arti Status Absensi',
+            (string) file_get_contents(resource_path('js/student/pages/Student/Guide.tsx')));
     }
 
     public function test_absensi_dan_filter_hanya_memakai_data_mahasiswa_sendiri(): void
@@ -834,14 +838,24 @@ class StudentPortalTest extends TestCase
         $this->assertTrue($pulangJumat['data']['pulang_lembur']);
 
         // Verifikasi tampilan Absensi Saya memisahkan Kelengkapan ("Lengkap") dengan Ketepatan Waktu ("Terlambat 30 menit", "Pulang lebih awal 180 menit", "Melewati jam jadwal") dan tidak memakai istilah "Lembur"
+        // Halaman kini Inertia — label kelengkapan/ketepatan diverifikasi lewat props rows.
         $page = $this->actingAs($this->student)->get('/mahasiswa/absensi');
         $page->assertOk()
-            ->assertSee('Lengkap')
-            ->assertSee('Terlambat 30 menit')
-            ->assertSee('Pulang lebih awal 180 menit')
-            ->assertSee('Datang lebih awal')
-            ->assertSee('Melewati jam jadwal')
-            ->assertDontSee('Lembur');
+            ->assertInertia(fn (Assert $p) => $p->component('Student/Attendance', false));
+        $rows = $page->inertiaProps()['rows'] ?? [];
+        $labels = collect($rows)->flatMap(fn ($r) => [
+            $r['kelengkapan_label'] ?? '',
+            $r['ketepatan_masuk_label'] ?? '',
+            $r['ketepatan_pulang_label'] ?? '',
+        ])->filter()->all();
+        $this->assertContains('Lengkap', $labels);
+        $this->assertContains('Terlambat 30 menit', $labels);
+        $this->assertContains('Pulang lebih awal 3 jam', $labels);
+        $this->assertContains('Datang lebih awal', $labels);
+        // Label "melewati jadwal" kini menyertakan durasi, mis. "Melewati jadwal 2 jam".
+        $this->assertTrue(collect($labels)->contains(fn ($l) => str_starts_with($l, 'Melewati jadwal')),
+            'Tidak ada label Melewati jadwal di: ' . json_encode($labels));
+        $this->assertStringNotContainsString('Lembur', json_encode($rows));
     }
 
     public function test_pengecualian_libur_perubahan_jam_dan_agenda_ujian_informasi_tetap_wajib(): void
@@ -1163,9 +1177,11 @@ class StudentPortalTest extends TestCase
             ->assertRedirect('/admin/dashboard');
         $this->assertAuthenticatedAs($laboran);
 
-        // Laboran boleh masuk area admin (role:laboran,admin) tetapi route
-        // admin.only (manajemen user) tetap tertutup untuknya.
-        $this->get('/admin/users')->assertForbidden();
+        // Laboran boleh masuk area admin (role:laboran,admin) dan membaca daftar
+        // user (perm users.view), tetapi mutasi akun tetap admin.only → tertolak.
+        $this->get('/admin/users')->assertOk();
+        $this->post('/admin/users', ['nama_lengkap' => 'X', 'nitk_nidn' => 'X-1', 'role' => 'mahasiswa'])
+            ->assertForbidden();
         $this->post('/logout');
 
         // Admin murni tidak bisa masuk lewat opsi "Laboran" — pilihan harus persis.

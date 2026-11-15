@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\AdminShellProps;
 use App\Models\MesinIot;
+use App\Support\AdminAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -323,6 +324,8 @@ class MesinIotController extends Controller
             'is_active' => $request->boolean('is_active', true),
         ]);
 
+        AdminAudit::catat('mesin.buat', $validated['id_mesin'], "tipe: {$type}");
+
         return redirect()->route('admin.mesin.index')
             ->with('mesin_plain_key', $plainKey)
             ->with('mesin_plain_id', $validated['id_mesin'])
@@ -361,6 +364,7 @@ class MesinIotController extends Controller
         }
 
         $mesin->update($payload);
+        AdminAudit::catat('mesin.ubah', $mesin->id_mesin);
 
         return back()->with('success', "Mesin {$mesin->id_mesin} berhasil diperbarui.");
     }
@@ -370,6 +374,7 @@ class MesinIotController extends Controller
         $mesin->update(['is_active' => !$mesin->is_active]);
 
         $status = $mesin->is_active ? 'diaktifkan' : 'dinonaktifkan';
+        AdminAudit::catat('mesin.toggle', $mesin->id_mesin, $status);
         return back()->with('success', "Mesin {$mesin->id_mesin} berhasil {$status}.");
     }
 
@@ -380,6 +385,7 @@ class MesinIotController extends Controller
         $mesin->update([
             'api_key' => Hash::make($plainKey),
         ]);
+        AdminAudit::catat('mesin.regenerate', $mesin->id_mesin, 'API key di-generate ulang');
 
         return redirect()->route('admin.mesin.index')
             ->with('mesin_plain_key', $plainKey)
@@ -394,6 +400,7 @@ class MesinIotController extends Controller
     {
         $idMesin = $mesin->id_mesin;
         $mesin->delete();
+        AdminAudit::catat('mesin.hapus', $idMesin);
 
         return back()->with('success', "Mesin {$idMesin} berhasil dihapus.");
     }

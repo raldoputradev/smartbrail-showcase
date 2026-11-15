@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AccountImportController;
 use App\Http\Controllers\Admin\AdminAiController;
 use App\Http\Controllers\Admin\PblProjectController;
 use App\Http\Controllers\Admin\SuggestionController;
+use App\Http\Controllers\AdminAkademikController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminLogController;
 use App\Http\Controllers\AdminRuanganController;
@@ -31,6 +32,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', [LandingController::class, 'index'])->name('beranda');
 Route::get('/online', [LandingController::class, 'online'])->middleware('throttle:120,1')->name('beranda.online');
 Route::get('/beranda', fn () => redirect('/', 301));
+Route::view('/kebijakan-privasi', 'kebijakan-privasi')->name('kebijakan.privasi');
 Route::view('/mobile/recaptcha', 'mobile.recaptcha')->name('mobile.recaptcha');
 Route::get('/download', [DownloadController::class, 'index'])->name('download');
 Route::get('/download/apk', [DownloadController::class, 'apk'])->name('download.apk');
@@ -163,6 +165,20 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
         Route::put('/users/{user}', [AdminController::class, 'updateUser'])->middleware(['perm:users,update', 'admin.only'])->name('admin.users.update');
         Route::delete('/users/{user}', [AdminController::class, 'destroyUser'])->middleware(['perm:users,delete', 'admin.only'])->name('admin.users.destroy');
 
+        // Akademik: periode semester + kenaikan semester (tandai cuti dulu).
+        Route::get('/akademik', [AdminAkademikController::class, 'index'])
+            ->middleware(['perm:users,view'])->name('admin.akademik');
+        Route::post('/akademik/periode', [AdminAkademikController::class, 'storePeriod'])
+            ->middleware(['perm:users,update', 'admin.only'])->name('admin.akademik.periode.store');
+        Route::put('/akademik/periode/{period}', [AdminAkademikController::class, 'updatePeriod'])
+            ->middleware(['perm:users,update', 'admin.only'])->name('admin.akademik.periode.update');
+        Route::delete('/akademik/periode/{period}', [AdminAkademikController::class, 'destroyPeriod'])
+            ->middleware(['perm:users,update', 'admin.only'])->name('admin.akademik.periode.destroy');
+        Route::post('/akademik/periode/{period}/activate', [AdminAkademikController::class, 'activatePeriod'])
+            ->middleware(['perm:users,update', 'admin.only'])->name('admin.akademik.periode.activate');
+        Route::post('/akademik/kenaikan', [AdminAkademikController::class, 'applyKenaikan'])
+            ->middleware(['perm:users,update', 'admin.only'])->name('admin.akademik.kenaikan');
+
         // Import akun (hak = Tambah User). Kode aktivasi hanya di kartu sekali unduh.
         Route::middleware(['perm:users,create', 'admin.only'])->prefix('users/import')->group(function () {
             Route::get('/', [AccountImportController::class, 'index'])->name('admin.users.import');
@@ -255,6 +271,7 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
 
         // SMART BRAIL — BMS ruangan
         Route::get('/ruangan', [AdminRuanganController::class, 'index'])->middleware('perm:ruangan,view')->name('admin.ruangan.index');
+        Route::get('/ruangan/{ruangan}/aktivitas', [AdminRuanganController::class, 'aktivitas'])->middleware('perm:ruangan,view')->name('admin.ruangan.aktivitas');
         Route::post('/ruangan', [AdminRuanganController::class, 'store'])->middleware('perm:ruangan,create')->name('admin.ruangan.store');
         Route::put('/ruangan/{ruangan}', [AdminRuanganController::class, 'update'])->middleware('perm:ruangan,update')->name('admin.ruangan.update');
         Route::get('/pengajuan', [RuanganPengajuanController::class, 'indexLaboran'])->middleware('perm:ruangan_persetujuan,view')->name('admin.pengajuan.index');
@@ -268,6 +285,8 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
 
         Route::get('/log/absensi', [AdminLogController::class, 'absensi'])->middleware('perm:log_absensi,view')->name('admin.log.absensi');
         Route::get('/log/absensi/snapshot', [AdminLogController::class, 'snapshot'])->middleware('perm:log_absensi,view')->name('admin.log.absensi.snapshot');
+        Route::get('/jejak-aktivitas', [AdminLogController::class, 'jejakAktivitas'])->middleware('perm:reports,view')->name('admin.jejak-aktivitas');
+        Route::get('/jejak-aktivitas/export', [AdminLogController::class, 'jejakAktivitasExport'])->middleware('perm:reports,view')->name('admin.jejak-aktivitas.export');
         Route::get('/announcements/{announcement}/json', [AnnouncementController::class, 'showJson'])->middleware('perm:announcements,view')->name('admin.announcements.json');
         Route::get('/announcements', [AnnouncementController::class, 'index'])->middleware('perm:announcements,view')->name('admin.announcements.index');
         Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('perm:announcements,create')->name('admin.announcements.store');
@@ -383,6 +402,7 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
         Route::get('/segera-hadir', [StudentPortalController::class, 'comingSoon'])->name('mahasiswa.coming-soon');
         Route::get('/profil', [StudentPortalController::class, 'profile'])->name('mahasiswa.profile');
         Route::post('/profil/kontak', [StudentPortalController::class, 'updateContact'])->middleware('throttle:10,1')->name('mahasiswa.profile.contact');
+        Route::post('/preferensi', [StudentPortalController::class, 'updatePreferences'])->middleware('throttle:15,1')->name('mahasiswa.preferensi.update');
         Route::post('/profil/email/kirim-otp', [StudentPortalController::class, 'resendEmailOtp'])->middleware('throttle:5,1')->name('mahasiswa.profile.email.resend');
         Route::post('/profil/email/verifikasi', [StudentPortalController::class, 'verifyEmailOtp'])->middleware('throttle:10,1')->name('mahasiswa.profile.email.verify');
         Route::get('/tim', [StudentPortalController::class, 'team'])->name('mahasiswa.team');
@@ -398,6 +418,7 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
         Route::get('/ruangan/ketersediaan', [RuanganPengajuanController::class, 'ketersediaanMahasiswa'])->middleware('throttle:30,1')->name('mahasiswa.ruangan.ketersediaan');
         Route::post('/ruangan', [RuanganPengajuanController::class, 'storeMahasiswa'])->middleware('throttle:12,1')->name('mahasiswa.ruangan.store');
         Route::post('/ruangan/{pengajuan}/terima-pengganti', [RuanganPengajuanController::class, 'terimaPengganti'])->name('mahasiswa.ruangan.terima-pengganti');
+        Route::post('/ruangan/{pengajuan}/tolak-pengganti', [RuanganPengajuanController::class, 'tolakPengganti'])->name('mahasiswa.ruangan.tolak-pengganti');
         Route::post('/ruangan/{pengajuan}/batal', [RuanganPengajuanController::class, 'batalkan'])->name('mahasiswa.ruangan.batal');
         Route::post('/bantuan/ai', [StudentPortalController::class, 'helpAi'])->middleware(['throttle:20,1', 'throttle:120,1440'])->name('mahasiswa.help.ai');
         Route::get('/bantuan/konteks', [StudentPortalController::class, 'helpContext'])->middleware('throttle:30,1')->name('mahasiswa.help.context');

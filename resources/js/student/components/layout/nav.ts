@@ -20,6 +20,8 @@ export interface NavItem {
     badge?: 'replies';
     /** Kunci FeatureBadge (shared prop `features`) — label BARU/SOON dari admin */
     feature?: string;
+    /** Kunci data-tour untuk sorotan panduan penggunaan */
+    tour?: string;
 }
 
 export interface NavGroup {
@@ -34,11 +36,11 @@ const isRiwayat = (url: string) => url.includes('tab=riwayat');
 export const navTop: NavItem[] = [
     {
         label: 'Beranda', href: route('mahasiswa.beranda'), icon: Home,
-        active: (u) => u.startsWith('/mahasiswa/beranda'),
+        active: (u) => u.startsWith('/mahasiswa/beranda'), tour: 'beranda',
     },
     {
         label: 'Absensi', href: route('mahasiswa.absensi'), icon: History, hint: 'Riwayat',
-        active: (u) => u.startsWith('/mahasiswa/absensi'),
+        active: (u) => u.startsWith('/mahasiswa/absensi'), tour: 'absensi',
     },
 ];
 
@@ -48,7 +50,7 @@ export const navRuangan: NavGroup = {
         {
             label: 'Ajukan Ruangan', href: route('mahasiswa.ruangan'), icon: DoorOpen,
             active: (u) => u.startsWith('/mahasiswa/ruangan') && !isRiwayat(u),
-            feature: 'pengajuan-ruangan',
+            feature: 'pengajuan-ruangan', tour: 'ajukan-ruangan',
         },
         {
             label: 'Riwayat Pengajuan', href: route('mahasiswa.ruangan', { tab: 'riwayat' }), icon: LayoutList,
@@ -60,11 +62,11 @@ export const navRuangan: NavGroup = {
 export const navMid: NavItem[] = [
     {
         label: 'Kalender', href: route('mahasiswa.calendar'), icon: CalendarDays,
-        active: (u) => u.startsWith('/mahasiswa/kalender'),
+        active: (u) => u.startsWith('/mahasiswa/kalender'), tour: 'kalender',
     },
     {
         label: 'Tim PBL', href: route('mahasiswa.team'), icon: Users,
-        active: (u) => u.startsWith('/mahasiswa/tim'), feature: 'pbl-tim',
+        active: (u) => u.startsWith('/mahasiswa/tim'), feature: 'pbl-tim', tour: 'tim-pbl',
     },
 ];
 
@@ -73,11 +75,11 @@ export const navBantuan: NavGroup = {
     items: [
         {
             label: 'Riwayat Laporan', href: route('mahasiswa.suggestions'), icon: Ticket,
-            active: (u) => u.startsWith('/mahasiswa/saran'), badge: 'replies',
+            active: (u) => u.startsWith('/mahasiswa/saran'), badge: 'replies', tour: 'laporan',
         },
         {
             label: 'Panduan Penggunaan', href: route('mahasiswa.guide'), icon: BookOpen,
-            active: (u) => u.startsWith('/mahasiswa/panduan'),
+            active: (u) => u.startsWith('/mahasiswa/panduan'), tour: 'panduan',
         },
     ],
 };

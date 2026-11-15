@@ -19,7 +19,7 @@ export default function Team({ team }) {
               <div className="rounded-2xl border border-slate-200/80 bg-[#f6f8fb] p-5 dark:border-white/10 dark:bg-[#1c2540]">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-teal-500 text-sm font-bold text-white">
                   {m.photo ? (
-                    <img src={m.photo} alt={m.nama} className="h-full w-full object-cover" />
+                    <img src={m.photo} alt={m.nama} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     m.inisial
                   )}

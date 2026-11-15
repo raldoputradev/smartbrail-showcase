@@ -15,6 +15,6 @@
                 'absoluteExpiresAt' => $absolute?->toIso8601String(),
             ], JSON_UNESCAPED_SLASHES) !!}
         </script>
-        <script src="{{ asset('js/session-idle-guard.js') }}?v=2" defer></script>
+        <script src="{{ asset('js/session-idle-guard.js') }}?v=3" defer></script>
     @endif
 @endauth

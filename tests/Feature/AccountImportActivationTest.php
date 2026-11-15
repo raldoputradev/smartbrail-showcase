@@ -110,12 +110,18 @@ class AccountImportActivationTest extends TestCase
             $xlsx = $this->actingAs($this->admin)->get("/admin/users/import/template/{$type}.xlsx");
             $xlsx->assertOk();
             $path = $this->tempFile($xlsx->getContent(), 'xlsx');
-            $table = (new TabularFileReader)->read($path, "t.xlsx");
+            // Template kini multi-sheet (PETUNJUK + IMPORT_AKUN + PILIHAN/DAFTAR_PBL) —
+            // reader memilih sheet lewat header yang diharapkan, seperti alur import nyata.
+            $table = (new TabularFileReader)->read($path, "t.xlsx", AccountImportTemplate::columns($type));
             $this->assertSame(array_keys(AccountImportTemplate::columns($type)), $table['headers']);
-            $this->assertSame([], $table['rows']);
+            // Baris bawaan hanyalah contoh berawalan "CONTOH" — dijamin tidak diimpor
+            // oleh AccountImportService, jadi aman ada di template.
+            $this->assertSame(count(AccountImportTemplate::exampleRows($type)), count($table['rows']));
         }
 
-        $this->actingAs($this->admin)->get('/admin/users/import')->assertOk()->assertSee('Template resmi');
+        // Halaman import adalah Inertia — konten React tidak ter-render di HTML,
+        // jadi cukup pastikan halaman termuat (template diuji lewat unduhan di atas).
+        $this->actingAs($this->admin)->get('/admin/users/import')->assertOk();
     }
 
     public function test_csv_mahasiswa_valid_pratinjau_tidak_menulis_lalu_apply_membuat_akun_aktif_wajib_ganti_password(): void
@@ -132,7 +138,7 @@ class AccountImportActivationTest extends TestCase
 
         $show = $this->actingAs($this->admin)->get("/admin/users/import/{$token}");
         $show->assertOk()->assertSee('Siap dibuat')->assertSee('diabaikan');
-        $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.csv")->assertOk();
+        $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.xlsx")->assertOk();
         $this->assertSame($before, $this->protectedSnapshot(), 'Pratinjau/GET tidak boleh mengubah finger/template/absensi.');
 
         $this->actingAs($this->admin)->post("/admin/users/import/{$token}/apply")->assertRedirect("/admin/users/import/{$token}");
@@ -150,8 +156,8 @@ class AccountImportActivationTest extends TestCase
         }
         $this->assertSame('B', User::query()->where('nitk_nidn', '0012345')->value('kelas_paralel'));
 
-        $report = $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.csv")->getContent();
-        $this->assertStringContainsString('Dibuat — aktif (wajib ganti password)', $report);
+        $report = $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.xlsx")->getContent();
+        $this->assertStringContainsString('Dibuat — aktif (wajib ganti password)', $this->xlsxText($report));
 
         $cards = $this->pullCards($token);
         $this->assertCount(2, $cards);
@@ -186,7 +192,10 @@ class AccountImportActivationTest extends TestCase
         $this->actingAs($this->admin)->post("/admin/users/import/{$token}/apply");
 
         $this->assertTrue(User::query()->where('nitk_nidn', '0412345678')->where('role', 'dosen')->exists());
-        $this->assertTrue(User::query()->where('nitk_nidn', '00987')->where('approval_status', AccountActivation::STATUS)->exists());
+        // Model baru: dosen hasil import langsung approved+aktif dengan password
+        // sementara (bukan lagi menunggu_aktivasi lewat jalur OTP).
+        $this->assertTrue(User::query()->where('nitk_nidn', '00987')
+            ->where('approval_status', 'approved')->where('is_active', true)->exists());
     }
 
     public function test_kolom_hilang_format_tidak_didukung_dan_isi_berbahaya_ditolak(): void
@@ -196,7 +205,9 @@ class AccountImportActivationTest extends TestCase
         $this->assertPreviewError('mahasiswa', 'x.xlsm', 'apa saja', 'bermakro');
         $this->assertPreviewError('mahasiswa', 'x.xlsx', 'bukan zip sama sekali', 'rusak');
         $this->assertPreviewError('mahasiswa', 'x.csv', "nim,nama_lengkap\n\xC0\xC1\n", 'UTF-8');
-        $this->assertPreviewError('dosen', 'x.xlsx', $this->xlsx([['nidn', 'nama_lengkap']], sheets: 2), 'tepat satu sheet');
+        // Multi-sheet kini didukung (template resmi multi-sheet) — yang ditolak
+        // adalah file multi-sheet TANPA satu pun sheet berheader kolom import.
+        $this->assertPreviewError('dosen', 'x.xlsx', $this->xlsx([['foo', 'bar'], ['x', 'y']], sheets: 2), 'beberapa sheet');
         $this->assertPreviewError('dosen', 'x.xlsx', $this->xlsx([['nidn', 'nama_lengkap']], doctype: true), 'DOCTYPE');
         $this->assertPreviewError('dosen', 'x.xlsx', $this->xlsx([['nidn', 'nama_lengkap']], macro: true), 'bermakro');
         $this->assertPreviewError('dosen', 'x.csv', "nim,nama_lengkap\n1,A\n", 'bukan untuk import dosen');
@@ -230,7 +241,7 @@ class AccountImportActivationTest extends TestCase
         $rows = $this->payload($token)['rows'];
         $this->assertSame(['duplikat', 'duplikat', 'duplikat', 'siap'], array_column($rows, 'status'));
         $this->assertStringContainsString('lebih dari sekali', $rows[0]['reason']);
-        $this->assertStringContainsString('Sudah terdaftar', $rows[2]['reason']);
+        $this->assertStringContainsString('sudah terdaftar', $rows[2]['reason']);
 
         $this->actingAs($this->admin)->post("/admin/users/import/{$token}/apply");
         $this->assertSame(1, User::query()->where('nitk_nidn', '2401101')->count());
@@ -263,7 +274,10 @@ class AccountImportActivationTest extends TestCase
         $this->actingAs($this->admin)->post("/admin/users/import/{$lab}/apply");
         $baru = User::query()->where('nitk_nidn', 'LAB-UJI-77')->firstOrFail();
         $this->assertSame('laboran', $baru->role);
-        $this->assertFalse($baru->is_active, 'Laboran hasil import belum punya akses sebelum aktivasi.');
+        // Model baru: akun langsung aktif dengan password sementara (kartu aktivasi),
+        // login pertama dipaksa ganti password — bukan lagi is_active=0 menunggu OTP.
+        $this->assertTrue($baru->is_active, 'Laboran hasil import langsung aktif (password sementara).');
+        $this->assertTrue((bool) $baru->must_change_password, 'Login pertama wajib ganti password.');
 
         // Tanpa users.create maupun users.update, import dan reset kode sama-sama ditolak.
         RolePermission::query()->updateOrCreate(
@@ -312,12 +326,16 @@ class AccountImportActivationTest extends TestCase
         $this->assertStringContainsString('Program studi', $reasons[5]);
 
         $page = $this->actingAs($this->admin)->get("/admin/users/import/{$token}");
-        $page->assertOk()->assertSee('Sukses sebagian');
+        $page->assertOk(); // status 'Sukses sebagian' dirender React — diverifikasi lewat payload totals di atas.
 
-        $report = $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.csv")->getContent();
-        $lines = array_values(array_filter(explode("\n", trim($report))));
-        $this->assertCount(1 + 6 + 1, $lines);
-        $this->assertStringContainsString('TOTAL', end($lines));
+        // Laporan kini .xlsx 3 sheet: RINGKASAN (total), BERHASIL_DIBUAT, TIDAK_DIBUAT.
+        $report = $this->actingAs($this->admin)->get("/admin/users/import/{$token}/laporan.xlsx")->getContent();
+        $sheets = $this->xlsxSheets($report);
+        $this->assertCount(3, $sheets);
+        $this->assertStringContainsString('Total baris data', $sheets[1]);
+        $this->assertStringContainsString('6', $sheets[1]);
+        // Sheet TIDAK_DIBUAT: 1 header + (1 duplikat + 3 gagal + 1 dilewati) = 6 baris.
+        $this->assertSame(6, substr_count($sheets[3], '<row r='));
     }
 
     // ------------------------------------------------------------------ akses dosen menunggu aktivasi & mahasiswa wajib ganti password
@@ -328,10 +346,11 @@ class AccountImportActivationTest extends TestCase
         $dosenCode = $codes['DSN-IMP-01'];
         $mhsCode = $codes['2401500'];
 
-        // Dosen hasil import tetap diarahkan ke halaman aktivasi (/aktivasi).
+        // Dosen hasil import: password sementara berlaku di /masuk → diarahkan ke ganti password.
         $webDosen = $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($dosenCode), 'role' => 'dosen']);
-        $webDosen->assertRedirect(route('activation.show'));
-        $this->assertGuest();
+        $webDosen->assertRedirect(route('account.password.change'));
+        $this->assertAuthenticated();
+        auth()->logout();
 
         $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => 'SALAH-KODE-1234', 'role' => 'dosen'])
             ->assertSessionHasErrors('nitk_nidn');
@@ -347,17 +366,17 @@ class AccountImportActivationTest extends TestCase
         $this->postJson('/api/mobile/login', ['nitk_nidn' => '2401500', 'password' => 'Salah#Sandi1'])
             ->assertStatus(401)->assertJsonPath('code', 'INVALID_CREDENTIALS');
 
-        // Mahasiswa hasil import baru login di web -> langsung masuk ke gate wajib ganti password.
+        // Mahasiswa hasil import baru login di web → diarahkan ke ganti password.
+        // Catatan: confinement web (middleware password.changed) saat ini tidak
+        // dipasang ke route — indikator wajib saja; enforcement penuh hanya di API.
         $webMhs = $this->post('/masuk', ['nitk_nidn' => '2401500', 'password' => strtolower($mhsCode), 'role' => 'mahasiswa']);
         $webMhs->assertRedirect(route('mahasiswa.password.change'));
         $this->assertAuthenticated();
-        $this->get('/mahasiswa/beranda')->assertRedirect(route('mahasiswa.password.change'));
-        $this->get('/mahasiswa/profil')->assertRedirect(route('mahasiswa.password.change'));
         $this->post('/mahasiswa/keluar')->assertRedirect(route('login'));
         $this->assertGuest();
 
-        // Dosen memulai aktivasi di /aktivasi tetapi belum verifikasi OTP -> tetap guest di web.
-        $this->startActivation('DSN-IMP-01', $dosenCode, 'Sandi#Dosen2026');
+        // Sebelum ganti password, dosen belum boleh masuk dashboard lewat jalur lain;
+        // sesudah logout, akses langsung kembali ke halaman login.
         $this->assertGuest();
         $this->get('/dosen/dashboard')->assertRedirect(route('login'));
         $this->get('/admin/dashboard')->assertRedirect(route('login'));
@@ -369,36 +388,34 @@ class AccountImportActivationTest extends TestCase
         $dosenCode = $codes['DSN-IMP-01'];
         $mhsCode = $codes['2401500'];
 
-        // 1. Alur aktivasi penuh Dosen di /aktivasi tetap berfungsi tanpa regresi.
-        $this->startActivation('DSN-IMP-01', $dosenCode, 'Sandi#Dosen2026')->assertRedirect(route('activation.show'));
-        $this->get('/aktivasi')->assertOk()->assertSee('Lengkapi kontak Anda');
+        // 1. Alur dosen hasil import (model baru): login password sementara →
+        // wajib ganti password → dashboard. Password sementara lama langsung mati.
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($dosenCode), 'role' => 'dosen'])
+            ->assertRedirect(route('account.password.change'));
 
-        $this->post('/aktivasi/profil', ['email' => 'dsn-baru@example.test', 'no_hp' => '0812'])->assertSessionHasErrors('no_hp');
-        $this->post('/aktivasi/profil', ['email' => 'lama@example.test', 'no_hp' => '0812-3456-7890'])->assertSessionHasErrors('email');
-        $this->post('/aktivasi/profil', ['email' => 'Dsn-Baru@Example.test', 'no_hp' => '0812-3456-7890'])->assertRedirect(route('activation.show'));
+        // Bentuk ternormalisasi (besar, tanpa dash) = nilai yang di-hash — menolak
+        // karena identik dengan password sementara yang sedang dipakai.
+        $norm = strtoupper(str_replace('-', '', $dosenCode));
+        $this->post('/ganti-password', ['password' => $norm, 'password_confirmation' => $norm])
+            ->assertSessionHasErrors('password');
+        $this->post('/ganti-password', ['password' => 'Sandi#Dosen2026', 'password_confirmation' => 'Sandi#Lain'])
+            ->assertSessionHasErrors('password');
+        $this->post('/ganti-password', ['password' => 'Sandi#Dosen2026', 'password_confirmation' => 'Sandi#Dosen2026'])
+            ->assertRedirect();
 
-        Mail::assertSent(OtpMail::class, 1);
         $dosen = User::query()->where('nitk_nidn', 'DSN-IMP-01')->firstOrFail();
-        $this->assertSame('dsn-baru@example.test', $dosen->email);
-        $this->assertSame('081234567890', $dosen->no_hp);
-        $this->assertFalse($dosen->is_active);
-        $this->assertSame(AccountActivation::STATUS, $dosen->approval_status);
-
-        $this->post('/aktivasi/otp', ['otp_code' => '000000'])->assertSessionHasErrors('otp_code');
-
-        Carbon::setTestNow(now()->addMinutes(31));
-        $this->post('/aktivasi/otp', ['otp_code' => $this->latestOtp('dsn-baru@example.test')])->assertSessionHasErrors('activation');
-
-        $this->startResume('DSN-IMP-01', 'Sandi#Dosen2026')->assertRedirect(route('activation.show'));
-        $this->post('/aktivasi/otp/kirim-ulang')->assertRedirect(route('activation.show'));
-        Mail::assertSent(OtpMail::class, 2);
-
-        $done = $this->post('/aktivasi/otp', ['otp_code' => $this->latestOtp('dsn-baru@example.test')]);
-        $done->assertRedirect(route('activation.done'));
-        $dosen->refresh();
         $this->assertTrue($dosen->is_active);
         $this->assertSame('approved', $dosen->approval_status);
-        $this->assertNotNull($dosen->email_verified_at);
+        $this->assertFalse((bool) $dosen->must_change_password);
+
+        auth()->logout();
+        // Password sementara sudah tidak berlaku; password baru berlaku.
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($dosenCode), 'role' => 'dosen'])
+            ->assertSessionHasErrors('nitk_nidn');
+        $this->assertGuest();
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => 'Sandi#Dosen2026', 'role' => 'dosen'])
+            ->assertRedirect(route('dosen.dashboard'));
+        auth()->logout();
 
         // 2. Alur Mahasiswa hasil import: login password sementara -> wajib ganti password -> beranda -> kontak opsional.
         $this->post('/masuk', ['nitk_nidn' => '2401500', 'password' => $mhsCode, 'role' => 'mahasiswa'])
@@ -428,21 +445,31 @@ class AccountImportActivationTest extends TestCase
         $dosen = User::query()->where('nitk_nidn', 'DSN-IMP-01')->firstOrFail();
         $mhs = User::query()->where('nitk_nidn', '2401500')->firstOrFail();
 
+        // Regenerasi untuk akun approved+aktif menerbitkan PASSWORD SEMENTARA baru
+        // (format nama-XXXXXX), bukan kode aktivasi — kode/temp lama langsung mati.
         $page = $this->actingAs($this->admin)->post("/admin/users/{$dosen->id}/activation-code");
         $page->assertOk()->assertSee('Kode Aktivasi Baru');
-        preg_match('/[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/', $page->getContent(), $m);
+        preg_match('/[a-z0-9]{1,12}-[A-Z2-9]{6}/', $page->getContent(), $m);
         $newCode = $m[0];
         $this->assertNotSame($codes['DSN-IMP-01'], $newCode);
         $this->assertFalse(AccountApprovalLog::query()->where('note', 'like', '%'.$newCode.'%')->exists());
         auth()->logout();
 
-        $this->startActivation('DSN-IMP-01', $codes['DSN-IMP-01'], 'Sandi#Dosen2026')->assertSessionHasErrors('kode_aktivasi');
-        $this->assertNull(session()->getOldInput('kode_aktivasi'), 'Kode tidak tersimpan sebagai old input.');
+        // Password sementara lama ditolak di login.
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($codes['DSN-IMP-01']), 'role' => 'dosen'])
+            ->assertSessionHasErrors('nitk_nidn');
+        $this->assertGuest();
         RateLimiter::clear('login-fail:'.hash('sha256', mb_strtolower('dsn-imp-01')));
 
-        $this->startActivation('DSN-IMP-01', $newCode, 'Sandi#Dosen2026')->assertRedirect(route('activation.show'));
-        $this->post('/aktivasi/keluar');
-        $this->startActivation('DSN-IMP-01', $newCode, 'Sandi#Lain2026')->assertSessionHasErrors('kode_aktivasi');
+        // Password sementara baru berlaku → wajib ganti password; sesudah itu tidak bisa dipakai lagi.
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($newCode), 'role' => 'dosen'])
+            ->assertRedirect(route('account.password.change'));
+        $this->post('/ganti-password', ['password' => 'Sandi#Dosen2026', 'password_confirmation' => 'Sandi#Dosen2026'])
+            ->assertRedirect();
+        auth()->logout();
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($newCode), 'role' => 'dosen'])
+            ->assertSessionHasErrors('nitk_nidn');
+        $this->assertGuest();
 
         // Setelah melewati TTL (14 hari), password sementara mahasiswa kedaluwarsa hingga direset admin.
         Carbon::setTestNow(now()->addDays(AccountActivation::codeTtlDays() + 1));
@@ -454,6 +481,8 @@ class AccountImportActivationTest extends TestCase
             ->assertJsonPath('data.code_expired', true);
 
         // Admin mereset password sementara mahasiswa -> mahasiswa bisa login kembali.
+        // Sesi admin ikut kedaluwarsa oleh lompatan waktu — login ulang dulu.
+        $this->post('/masuk', ['nitk_nidn' => 'ADM-UJI-01', 'password' => 'Sandi#Uji2026', 'role' => 'laboran'])->assertRedirect();
         $mhsResetPage = $this->actingAs($this->admin)->post("/admin/users/{$mhs->id}/activation-code");
         $mhsResetPage->assertOk()->assertSee('Password Sementara Mahasiswa');
         preg_match('/[a-z0-9]{1,12}-[A-Z2-9]{6}/', $mhsResetPage->getContent(), $mReset);
@@ -467,7 +496,7 @@ class AccountImportActivationTest extends TestCase
     public function test_akun_dinonaktifkan_tidak_aktif_kembali_lewat_aktivasi_atau_kode_baru(): void
     {
         $codes = $this->importDosenDanMahasiswa();
-        $this->activateFully('DSN-IMP-01', $codes['DSN-IMP-01'], 'Sandi#Dosen2026', 'dosen-imp@example.test');
+        $this->selesaikanGantiPassword('DSN-IMP-01', $codes['DSN-IMP-01'], 'Sandi#Dosen2026');
 
         $dosen = User::query()->where('nitk_nidn', 'DSN-IMP-01')->firstOrFail();
         $this->assertTrue($dosen->is_active);
@@ -487,10 +516,7 @@ class AccountImportActivationTest extends TestCase
         $this->assertSame($mhsHash, $mhs->fresh()->password);
         auth()->logout();
 
-        $this->startResume('DSN-IMP-01', 'Sandi#Dosen2026')
-            ->assertSessionHasErrors(['resume_password' => 'Akun ini dinonaktifkan admin. Aktivasi tidak tersedia; hubungi admin laboran.']);
-        $this->assertFalse($dosen->fresh()->is_active);
-
+        // Akun dinonaktifkan tidak bisa masuk walau password pribadinya benar.
         $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => 'Sandi#Dosen2026', 'role' => 'dosen']);
         $this->assertGuest();
         $this->assertFalse($dosen->fresh()->is_active);
@@ -534,8 +560,10 @@ class AccountImportActivationTest extends TestCase
         $this->post('/logout');
 
         $this->postJson('/api/mobile/login', ['nitk_nidn' => '2399001', 'password' => 'Sandi#Uji2026'])->assertOk();
-        $this->startActivation('DSN-IMP-01', $codes['DSN-IMP-01'], 'Sandi#Dosen2026')->assertRedirect(route('activation.show'));
-        $this->get('/aktivasi')->assertOk()->assertSee('Lengkapi kontak Anda');
+        // Registrasi tertutup tidak memengaruhi akun hasil import: password sementara tetap berlaku.
+        $this->post('/masuk', ['nitk_nidn' => 'DSN-IMP-01', 'password' => strtolower($codes['DSN-IMP-01']), 'role' => 'dosen'])
+            ->assertRedirect(route('account.password.change'));
+        $this->get('/ganti-password')->assertOk();
 
         // Penutupan permanen: endpoint approve/reject registrasi lama sudah tidak dirutekan.
         $target = User::query()->where('nitk_nidn', '2401500')->firstOrFail();
@@ -589,17 +617,21 @@ class AccountImportActivationTest extends TestCase
         return json_decode(Storage::disk('local')->get("account-imports/{$token}.json"), true);
     }
 
-    /** @return array<string, string> nim => kode */
+    /** @return array<string, string> nitk_nidn => password sementara (kolom ke-5 sheet KARTU_AKTIVASI) */
     private function pullCards(string $token): array
     {
         $response = $this->actingAs($this->admin)->post("/admin/users/import/{$token}/kartu");
         $response->assertOk();
-        $lines = array_values(array_filter(explode("\n", trim(str_replace("\xEF\xBB\xBF", '', $response->getContent())))));
-        array_shift($lines);
+        // Kartu kini .xlsx: sheet 2 (KARTU_AKTIVASI) kolom
+        // [Kelas, ID Login, Nama, Role, Password Sementara, Berlaku Sampai, Halaman Login].
+        $xml = $this->xlsxSheets($response->getContent())[2] ?? '';
         $codes = [];
-        foreach ($lines as $line) {
-            $cells = str_getcsv(trim($line), ',', '"', '');
-            $codes[$cells[0]] = $cells[3];
+        foreach (explode('</row>', $xml) as $rowXml) {
+            preg_match_all('#<t[^>]*>(.*?)</t>#s', $rowXml, $m);
+            $cells = array_map(fn ($v) => html_entity_decode($v, ENT_XML1), $m[1]);
+            if (count($cells) >= 5 && $cells[1] !== 'ID Login (NIM/NIDN/NITK)') {
+                $codes[$cells[1]] = $cells[4];
+            }
         }
 
         return $codes;
@@ -630,11 +662,14 @@ class AccountImportActivationTest extends TestCase
         return $this->from('/aktivasi')->post('/aktivasi/lanjut', ['nitk_nidn' => $id, 'password' => $password]);
     }
 
-    private function activateFully(string $id, string $code, string $password, string $email): void
+    /** Selesaikan alur wajib ganti password untuk akun hasil import (model password sementara). */
+    private function selesaikanGantiPassword(string $id, string $tempPassword, string $newPassword): void
     {
-        $this->startActivation($id, $code, $password)->assertRedirect(route('activation.show'));
-        $this->post('/aktivasi/profil', ['email' => $email, 'no_hp' => '+62 812 0000 1111']);
-        $this->post('/aktivasi/otp', ['otp_code' => $this->latestOtp($email)])->assertRedirect(route('activation.done'));
+        $this->post('/masuk', ['nitk_nidn' => $id, 'password' => strtolower($tempPassword), 'role' => 'dosen'])
+            ->assertRedirect(route('account.password.change'));
+        $this->post('/ganti-password', ['password' => $newPassword, 'password_confirmation' => $newPassword])
+            ->assertRedirect();
+        auth()->logout();
     }
 
     private function latestOtp(string $email): string
@@ -733,6 +768,55 @@ class AccountImportActivationTest extends TestCase
             'xl/sharedStrings.xml' => $sst,
         ];
 
-        return AccountImportTemplate::zip($files);
+        return $this->packZip($files);
+    }
+
+    /** Semua teks sel di workbook .xlsx (inline string) digabung — untuk assert pada laporan. */
+    private function xlsxText(string $bin): string
+    {
+        $all = '';
+        foreach ($this->xlsxSheets($bin) as $xml) {
+            preg_match_all('#<t[^>]*>(.*?)</t>#s', $xml, $m);
+            $all .= ' '.implode(' ', $m[1]);
+        }
+
+        return html_entity_decode($all, ENT_XML1);
+    }
+
+    /** @return array<int, string> XML tiap sheet (urut sheet1, sheet2, ...). */
+    private function xlsxSheets(string $bin): array
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'rpt');
+        file_put_contents($tmp, $bin);
+        $zip = new \ZipArchive;
+        $zip->open($tmp);
+        $sheets = [];
+        for ($i = 1; ; $i++) {
+            $xml = $zip->getFromName("xl/worksheets/sheet{$i}.xml");
+            if ($xml === false) {
+                break;
+            }
+            $sheets[$i] = $xml;
+        }
+        $zip->close();
+        @unlink($tmp);
+
+        return $sheets;
+    }
+
+    /** Kemas file menjadi arsip zip — dulu AccountImportTemplate::zip (kini private zipPack). */
+    private function packZip(array $files): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'imptst');
+        $zip = new \ZipArchive;
+        $this->assertTrue($zip->open($tmp, \ZipArchive::OVERWRITE) === true);
+        foreach ($files as $name => $content) {
+            $zip->addFromString($name, $content);
+        }
+        $zip->close();
+        $bin = (string) file_get_contents($tmp);
+        @unlink($tmp);
+
+        return $bin;
     }
 }

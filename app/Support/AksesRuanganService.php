@@ -97,7 +97,10 @@ class AksesRuanganService
         return [
             'diizinkan' => false,
             'izin' => null,
-            'alasan' => $ada ? 'izin_'.$ada->status : 'tidak_ada_izin',
+            // Status DB 'aktif' tetapi mulai di masa depan → bedakan dari izin kedaluwarsa.
+            'alasan' => $ada
+                ? ($ada->status === RuanganIzin::STATUS_AKTIF && $ada->mulai > $waktu ? 'izin_belum_mulai' : 'izin_' . $ada->status)
+                : 'tidak_ada_izin',
         ];
     }
 
@@ -126,7 +129,7 @@ class AksesRuanganService
 
     public static function catatEvent(int $mesinId, int $ruanganId, string $jenis, array $data = []): RuanganAccessEvent
     {
-        return RuanganAccessEvent::create([
+        $event = RuanganAccessEvent::create([
             'mesin_iot_id' => $mesinId,
             'ruangan_id' => $ruanganId,           // selalu dari mesin terikat, bukan payload klien
             'user_id' => $data['user_id'] ?? null,
@@ -137,5 +140,21 @@ class AksesRuanganService
             'meta' => $data['meta'] ?? null,
             'terjadi_pada' => $data['terjadi_pada'] ?? now(),
         ]);
+
+        try {
+            event(new \App\Events\RuanganAksesTercatat([
+                'id' => $event->id,
+                'ruangan_id' => $event->ruangan_id,
+                'jenis' => $event->jenis,
+                'hasil' => $event->hasil,
+                'user_id' => $event->user_id,
+                'petugas_id' => $event->petugas_id,
+                'terjadi_pada' => $event->terjadi_pada?->toIso8601String(),
+            ], (string) \Illuminate\Support\Str::uuid()));
+        } catch (\Throwable) {
+            // Broadcast gagal tidak boleh menggagalkan pencatatan akses.
+        }
+
+        return $event;
     }
 }

@@ -1,16 +1,18 @@
+import { Suspense, lazy } from 'react';
 import TickerBand from '../components/TickerBand';
 import Navbar from '../components/Navbar';
 import Hero from '../components/Hero';
-import About from '../components/About';
-import HowItWorks from '../components/HowItWorks';
-import Features from '../components/Features';
-import Faq from '../components/Faq';
-import Contact from '../components/Contact';
-import CtaBanner from '../components/CtaBanner';
-import Footer from '../components/Footer';
-import SocialContact from '../components/SocialContact';
-import ChatWidget from '../components/ChatWidget';
 import ScrollToTop from '../components/ScrollToTop';
+
+const About = lazy(() => import('../components/About'));
+const HowItWorks = lazy(() => import('../components/HowItWorks'));
+const Features = lazy(() => import('../components/Features'));
+const Faq = lazy(() => import('../components/Faq'));
+const Contact = lazy(() => import('../components/Contact'));
+const CtaBanner = lazy(() => import('../components/CtaBanner'));
+const SocialContact = lazy(() => import('../components/SocialContact'));
+const Footer = lazy(() => import('../components/Footer'));
+const ChatWidget = lazy(() => import('../components/ChatWidget'));
 
 export default function LandingPage({
   stats,
@@ -25,17 +27,21 @@ export default function LandingPage({
       <main>
         <Hero urls={urls} stats={stats} appVersion={appVersion} apkAvailable={apkAvailable} />
         <TickerBand />
-        <About />
-        <HowItWorks />
-        <Features />
-        <Faq />
-        <Contact map={map} />
-        <CtaBanner urls={urls} apkAvailable={apkAvailable} />
+        <Suspense fallback={null}>
+          <About />
+          <HowItWorks />
+          <Features />
+          <Faq />
+          <Contact map={map} />
+          <CtaBanner urls={urls} apkAvailable={apkAvailable} />
+        </Suspense>
       </main>
-      <SocialContact />
-      <Footer urls={urls} apkAvailable={apkAvailable} />
+      <Suspense fallback={null}>
+        <SocialContact />
+        <Footer urls={urls} apkAvailable={apkAvailable} />
+        <ChatWidget urls={urls} />
+      </Suspense>
       <ScrollToTop />
-      <ChatWidget urls={urls} />
     </>
   );
 }

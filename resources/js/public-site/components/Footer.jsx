@@ -9,8 +9,10 @@ export default function Footer({ urls, apkAvailable = true }) {
             <div className="sm:col-span-2 lg:col-span-1">
               <div className="mb-4 flex items-center gap-2.5">
                 <img
-                  src={urls?.logoLockup || `${import.meta.env.BASE_URL}branding/app-logo.png`}
+                  src={urls?.logoLockup || `${import.meta.env.BASE_URL}branding/app-logo.webp`}
                   alt="SmartBrail"
+                  loading="lazy"
+                  decoding="async"
                   className="h-12 w-12 object-contain"
                 />
                 <span className="inline-block bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text pb-1 pr-1.5 text-2xl font-extrabold italic leading-snug tracking-tight text-transparent">
@@ -101,7 +103,18 @@ export default function Footer({ urls, apkAvailable = true }) {
               Situs resmi & terenkripsi HTTPS
             </p>
             <p className="text-xs text-slate-500">
-              © {year} SmartBrail · Politeknik Negeri Batam
+              © {year} SmartBrail · BRAIL Politeknik Negeri Batam
+              {' · '}
+              <a href="/kebijakan-privasi" className="underline decoration-slate-300 underline-offset-2 hover:text-slate-700">
+                Kebijakan Privasi
+              </a>
+            </p>
+            <p className="text-xs text-slate-500">
+              Dikembangkan oleh{' '}
+              <a href="https://github.com/raldoputradev" target="_blank" rel="noopener noreferrer"
+                className="font-semibold underline decoration-slate-300 underline-offset-2 hover:text-slate-700">
+                Rayendra Aldo Putra
+              </a>
             </p>
           </div>
         </div>

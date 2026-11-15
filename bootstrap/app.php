@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('absensi:close-sessions')->everyFifteenMinutes();
         // Cadangan: tutup hari kemarin jika ada sesi terlewat
         $schedule->command('absensi:generate-alfa')->dailyAt('00:30');
+        $schedule->command('notifikasi:digest-harian')->dailyAt('17:20')->withoutOverlapping();
         $schedule->command('fingerprint:prune-sync-logs --days=30')->weeklyOn(0, '03:00');
     })
     ->withMiddleware(function (Middleware $middleware): void {

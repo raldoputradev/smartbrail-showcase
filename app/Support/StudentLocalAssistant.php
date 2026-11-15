@@ -87,6 +87,7 @@ class StudentLocalAssistant
         ],
         'issue' => [
             'kendala' => 4, 'keluhan' => 4, 'rusak' => 4, 'bermasalah' => 4, 'gagal' => 3,
+            'masalah' => 7, 'masaalah' => 7, 'msalah' => 7, 'permasalahan' => 7,
             'error' => 4, 'eror' => 4, 'tidak bisa' => 4, 'tidak tercatat' => 6,
             'belum tercatat' => 6, 'salah status' => 6, 'koreksi' => 4,
             'tidak terbaca' => 5, 'tidak kebaca' => 5,
@@ -162,7 +163,7 @@ class StudentLocalAssistant
             'smartbrail' => 6, 'simalas' => 6, 'apa itu' => 3, 'tentang' => 2,
         ],
         'capabilities' => [
-            'bisa apa' => 7, 'bisa bantu' => 6, 'siapa kamu' => 7, 'kamu siapa' => 7,
+            'bisa apa' => 7, 'bisa bantu' => 3, 'siapa kamu' => 7, 'kamu siapa' => 7,
             'fitur apa' => 6, 'bantuan apa' => 6, 'kemampuan' => 4, 'ngapain' => 4,
         ],
         'frustration' => [

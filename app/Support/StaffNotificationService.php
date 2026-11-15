@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\MesinIot;
+use App\Models\RuanganAccessEvent;
 use App\Models\RuanganPengajuan;
 use App\Models\StaffOpsDismissal;
 use App\Models\Suggestion;
@@ -14,11 +15,15 @@ use Illuminate\Support\Collection;
 class StaffNotificationService
 {
     /**
-     * @param  array{id: string, count?: int}  $item
+     * Fingerprint konteks item — memakai `sig` (id entitas terbaru) bila ada,
+     * sehingga entri BARU pada jumlah yang sama tetap muncul kembali setelah
+     * dismissal sebelumnya (dismissal tidak lagi permanen per angka).
+     *
+     * @param  array{id: string, count?: int, sig?: string|null}  $item
      */
     public static function fingerprint(array $item): string
     {
-        return $item['id'] . ':' . (int) ($item['count'] ?? 0);
+        return $item['id'] . ':' . ($item['sig'] ?? (string) (int) ($item['count'] ?? 0));
     }
 
     /**
@@ -57,17 +62,32 @@ class StaffNotificationService
         return self::operationalItems($user)->count();
     }
 
+    /**
+     * Item dianggap sudah dibaca bila sig-nya (id entitas terbaru) tidak lebih baru
+     * dari yang terakhir di-dismiss — jadi centang = sembunyikan permanen, dan item
+     * hanya muncul kembali bila ada entri yang benar-benar baru.
+     */
     public static function isDismissed(User $user, array $item): bool
     {
         if (self::isPersistentOpsKey($item['id'])) {
             return false;
         }
 
-        return StaffOpsDismissal::query()
+        $dismissal = StaffOpsDismissal::query()
             ->where('user_id', $user->id)
             ->where('ops_key', $item['id'])
-            ->where('context_fingerprint', self::fingerprint($item))
-            ->exists();
+            ->latest('dismissed_at')
+            ->first();
+        if (!$dismissal) {
+            return false;
+        }
+
+        if (isset($item['sig']) && $item['sig'] !== null && $item['sig'] !== '') {
+            $storedSig = (int) substr((string) strrchr($dismissal->context_fingerprint, ':'), 1);
+            return (int) $item['sig'] <= $storedSig;
+        }
+
+        return $dismissal->context_fingerprint === self::fingerprint($item);
     }
 
     public static function dismiss(User $user, string $opsKey, string $fingerprint): void
@@ -119,7 +139,8 @@ class StaffNotificationService
                     PendingEmailVerification::notificationBody(),
                     route('admin.users', ['verify_status' => 'otp_pending']),
                     'info',
-                    $otpPending
+                    $otpPending,
+                    (string) PendingEmailVerification::query()->max('id')
                 ));
             }
 
@@ -131,13 +152,14 @@ class StaffNotificationService
                     PendingAccountApproval::notificationBody(),
                     route('admin.users', ['verify_status' => 'ready_approve']),
                     'warning',
-                    $pendingUsers
+                    $pendingUsers,
+                    (string) PendingAccountApproval::query()->max('id')
                 ));
             }
 
-            $pendingPengajuan = RuanganPengajuan::query()
-                ->whereIn('status', RuanganPengajuan::STATUS_AKTIF_MENUNGGU)
-                ->count();
+            $pengajuanQ = RuanganPengajuan::query()
+                ->whereIn('status', RuanganPengajuan::STATUS_AKTIF_MENUNGGU);
+            $pendingPengajuan = $pengajuanQ->count();
             if ($pendingPengajuan > 0) {
                 $items->push(self::item(
                     'ops-pengajuan',
@@ -145,11 +167,13 @@ class StaffNotificationService
                     'Tinjau pemohon, jadwal, dan konflik — keputusan dicatat atas nama akun Anda.',
                     route('admin.pengajuan.index'),
                     'warning',
-                    $pendingPengajuan
+                    $pendingPengajuan,
+                    (string) $pengajuanQ->max('id')
                 ));
             }
 
-            $newSuggest = Suggestion::query()->where('status', 'baru')->count();
+            $suggestQ = Suggestion::query()->where('status', 'baru');
+            $newSuggest = $suggestQ->count();
             if ($newSuggest > 0) {
                 $items->push(self::item(
                     'ops-suggest',
@@ -157,7 +181,8 @@ class StaffNotificationService
                     'Masuk dari landing, dosen, atau mahasiswa — buka menu Saran & Masukan.',
                     route('admin.suggestions.index', ['status' => 'baru']),
                     'info',
-                    $newSuggest
+                    $newSuggest,
+                    (string) $suggestQ->max('id')
                 ));
             }
 
@@ -169,16 +194,43 @@ class StaffNotificationService
                     PendingLoginUnlock::notificationBody(),
                     route('admin.users', ['login_lock' => 'locked']),
                     'danger',
-                    $loginLocked
+                    $loginLocked,
+                    (string) PendingLoginUnlock::query()->max('id')
                 ));
             }
 
-            $enrollBelum = User::query()
+            // Keamanan pintu: terbuka paksa / menganga / buka manual — 2 jam
+            // terakhir. sig=max(id) → kejadian baru memunculkan notif lagi
+            // walau yang lama sudah di-dismiss.
+            $secQ = RuanganAccessEvent::query()
+                ->where('terjadi_pada', '>=', now()->subHours(2))
+                ->where(function ($q) {
+                    $q->where(fn ($w) => $w->where('jenis', 'tolak')->where('meta->alasan', 'pintu_paksa'))
+                        ->orWhere(fn ($w) => $w->where('jenis', 'buka')->where('meta->sumber', 'tombol_manual'))
+                        ->orWhere(fn ($w) => $w->where('jenis', 'telemetri')
+                            ->where(fn ($m) => $m->where('meta->paksa', true)->orWhere('meta->ajar', true)));
+                });
+            $secCount = (clone $secQ)->count();
+            if ($secCount > 0) {
+                $secLast = (clone $secQ)->with('ruangan:id,nama')->latest('terjadi_pada')->first();
+                $items->push(self::item(
+                    'ops-pintu-keamanan',
+                    "{$secCount} kejadian keamanan pintu (2 jam terakhir)",
+                    'Terakhir: '.($secLast?->ruangan?->nama ?? 'ruangan').' — '
+                        .($secLast?->terjadi_pada?->diffForHumans() ?? '').'. Periksa segera.',
+                    $secLast?->ruangan_id ? route('admin.ruangan.aktivitas', $secLast->ruangan_id) : route('admin.monitoring'),
+                    'danger',
+                    $secCount,
+                    (string) $secQ->max('id')
+                ));
+            }
+
+            $enrollBelumUsers = User::query()
                 ->where('role', 'mahasiswa')
                 ->where('is_active', true)
                 ->get()
-                ->filter(fn (User $u) => ! $u->hasFingerprintEnrolled())
-                ->count();
+                ->filter(fn (User $u) => ! $u->hasFingerprintEnrolled());
+            $enrollBelum = $enrollBelumUsers->count();
             if ($enrollBelum > 0) {
                 $items->push(self::item(
                     'ops-enroll',
@@ -186,18 +238,19 @@ class StaffNotificationService
                     'Mahasiswa aktif tanpa template sidik jari valid — arahkan ke mesin absensi atau halaman Fingerprint.',
                     route('admin.fingerprint', ['status' => 'pending_enroll']),
                     'warning',
-                    $enrollBelum
+                    $enrollBelum,
+                    (string) $enrollBelumUsers->max('id')
                 ));
             }
 
             $threshold = MesinIot::ONLINE_THRESHOLD_MINUTES;
-            $offline = MesinIot::query()
+            $mesinQ = MesinIot::query()
                 ->where('is_active', true)
                 ->where(function ($q) use ($threshold) {
                     $q->whereNull('last_seen_at')
                         ->orWhere('last_seen_at', '<', now()->subMinutes($threshold));
-                })
-                ->count();
+                });
+            $offline = $mesinQ->count();
             if ($offline > 0) {
                 $items->push(self::item(
                     'ops-mesin',
@@ -205,7 +258,8 @@ class StaffNotificationService
                     'Periksa Monitoring / heartbeat mesin.',
                     route('admin.monitoring'),
                     'danger',
-                    $offline
+                    $offline,
+                    (string) $mesinQ->max('id')
                 ));
             }
         }
@@ -230,7 +284,8 @@ class StaffNotificationService
         string $body,
         string $url,
         string $kind,
-        int $count
+        int $count,
+        ?string $sig = null
     ): array {
         $row = [
             'id' => $id,
@@ -239,6 +294,7 @@ class StaffNotificationService
             'url' => self::urlWithDismiss($url, $id),
             'kind' => $kind,
             'count' => $count,
+            'sig' => $sig,
         ];
         $row['fingerprint'] = self::fingerprint($row);
 
@@ -266,11 +322,11 @@ class StaffNotificationService
      */
     private static function pushFeedbackReplyItem(Collection $items, User $user, string $routeName): void
     {
-        $count = Suggestion::query()
+        $replyQ = Suggestion::query()
             ->where('user_id', $user->id)
             ->whereNotNull('admin_replied_at')
-            ->whereNull('user_read_reply_at')
-            ->count();
+            ->whereNull('user_read_reply_at');
+        $count = $replyQ->count();
 
         if ($count > 0) {
             $items->push(self::item(
@@ -279,7 +335,8 @@ class StaffNotificationService
                 'Buka halaman Saran & Masukan.',
                 route($routeName),
                 'info',
-                $count
+                $count,
+                (string) $replyQ->max('id')
             ));
         }
     }

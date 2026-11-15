@@ -162,8 +162,11 @@ class AuthSecurityTest extends TestCase
         $user = User::where('nitk_nidn', 'LAB-SEC3')->first();
         $this->assertFalse((bool) $user->is_admin);
         $this->assertSame('laboran', $user->role);
-        // Laboran biasa tetap ditolak backend pada aksi khusus admin.
-        $this->get('/admin/users')->assertStatus(403);
+        // Laboran boleh membaca daftar akun (perm users.view) tetapi tidak
+        // berubah jadi admin — mutasi akun tetap admin.only dan tertolak.
+        $this->get('/admin/users')->assertOk();
+        $this->post('/admin/users', ['nama_lengkap' => 'X', 'nitk_nidn' => 'SEC-X1', 'role' => 'mahasiswa'])
+            ->assertForbidden();
     }
 
     public function test_sesi_diregenerasi_setelah_login_dan_diinvalidasi_saat_logout(): void
@@ -337,7 +340,10 @@ class AuthSecurityTest extends TestCase
         $mahasiswa = $this->buatUser('mahasiswa', 'MHS-SEC9');
 
         $this->actingAs($admin)->get('/admin/users')->assertOk();
-        $this->actingAs($laboran)->get('/admin/users')->assertStatus(403);
+        // Laboran punya perm users.view → boleh membaca, tetapi mutasi tetap admin.only.
+        $this->actingAs($laboran)->get('/admin/users')->assertOk();
+        $this->actingAs($laboran)->post('/admin/users', ['nama_lengkap' => 'X', 'nitk_nidn' => 'SEC-X2', 'role' => 'mahasiswa'])
+            ->assertForbidden();
         $this->actingAs($dosen)->get('/admin/users')->assertStatus(403);
         $this->actingAs($mahasiswa)->get('/admin/users')->assertStatus(403);
 
@@ -360,7 +366,8 @@ class AuthSecurityTest extends TestCase
             );
             $this->assertSame($role, $props['role_page']);
 
-            $this->actingAs($laboran)->get("/admin/users/{$role}")->assertStatus(403);
+            // Laboran users.view → halaman per-role boleh dibaca; mutasi tetap admin.only.
+            $this->actingAs($laboran)->get("/admin/users/{$role}")->assertOk();
             $this->actingAs($dosen)->get("/admin/users/{$role}")->assertStatus(403);
             $this->actingAs($mahasiswa)->get("/admin/users/{$role}")->assertStatus(403);
         }

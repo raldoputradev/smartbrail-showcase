@@ -220,7 +220,7 @@ export default function PhoneMockup({
   autoRotate = true,
   logoMark,
 }) {
-  const markSrc = logoMark || `${import.meta.env.BASE_URL}branding/brail-mark.png`;
+  const markSrc = logoMark || `${import.meta.env.BASE_URL}branding/brail-mark.webp`;
   const ref = useRef(null);
   const [screenIdx, setScreenIdx] = useState(0);
   const mx = useMotionValue(0);

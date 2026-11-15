@@ -6,6 +6,7 @@ use App\Models\Announcement;
 use App\Observers\AnnouncementObserver;
 use App\View\Composers\NotificationComposer;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -28,5 +29,8 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Announcement::observe(AnnouncementObserver::class);
+
+        // Dashboard /pulse memuat metrik server & query — batasi ke admin penuh.
+        Gate::define('viewPulse', fn ($user) => $user->isAdmin());
     }
 }

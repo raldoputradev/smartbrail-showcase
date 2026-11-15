@@ -26,6 +26,8 @@ class RuanganPengajuanBerubah implements ShouldBroadcastNow
         public string $ruangan,
         public array $penerima,
         public string $deliveryId,
+        public int $ruanganId = 0,
+        public string $tanggal = '',
     ) {}
 
     /**
@@ -39,6 +41,9 @@ class RuanganPengajuanBerubah implements ShouldBroadcastNow
             ->all();
         // Laboran/admin juga dibangunkan — badge pengajuan & lonceng ikut segar.
         $channels[] = new PrivateChannel('absensi.staff.laboran');
+        // Semua pengguna portal — grid ketersediaan ikut segar saat slot berubah
+        // (pengajuan baru mengklaim slot, pembatalan/keputusan membebaskannya).
+        $channels[] = new PrivateChannel('ruangan.ketersediaan');
 
         return $channels;
     }
@@ -55,6 +60,8 @@ class RuanganPengajuanBerubah implements ShouldBroadcastNow
             'pengajuan_id' => $this->pengajuanId,
             'status' => $this->status,
             'ruangan' => $this->ruangan,
+            'ruangan_id' => $this->ruanganId,
+            'tanggal' => $this->tanggal,
         ];
     }
 }

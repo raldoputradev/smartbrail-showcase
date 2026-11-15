@@ -249,9 +249,15 @@ class UserProfileController extends Controller
 
 
 
-        $filename = 'user-' . $user->id . '-' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+        $filename = 'user-' . $user->id . '-' . Str::random(10) . '.webp';
 
-        $file->move($directory, $filename);
+        if (! $this->storePhotoAsWebp($file, $directory . '/' . $filename)) {
+
+            $filename = 'user-' . $user->id . '-' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+
+            $file->move($directory, $filename);
+
+        }
 
 
 
@@ -264,6 +270,56 @@ class UserProfileController extends Controller
 
 
         return back()->with('success', 'Foto profil berhasil diperbarui.');
+
+    }
+
+
+
+    /** Re-encode foto ke WebP maks 512px (buang EXIF/metadata). */
+    private function storePhotoAsWebp(\Illuminate\Http\UploadedFile $file, string $target): bool
+    {
+
+        if (! function_exists('imagewebp')) {
+
+            return false;
+
+        }
+
+        $src = @imagecreatefromstring((string) @file_get_contents($file->getRealPath()));
+
+        if (! $src) {
+
+            return false;
+
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+        $max = 512;
+
+        if (max($w, $h) > $max) {
+
+            $r = $max / max($w, $h);
+
+            $dst = imagecreatetruecolor((int) round($w * $r), (int) round($h * $r));
+
+            imagealphablending($dst, false);
+
+            imagesavealpha($dst, true);
+
+            imagecopyresampled($dst, $src, 0, 0, 0, 0, (int) round($w * $r), (int) round($h * $r), $w, $h);
+
+            imagedestroy($src);
+
+            $src = $dst;
+
+        }
+
+        $ok = imagewebp($src, $target, 80);
+
+        imagedestroy($src);
+
+        return (bool) $ok;
 
     }
 

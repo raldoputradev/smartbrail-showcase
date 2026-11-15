@@ -41,7 +41,13 @@ export default function Team({ team, user, branding }: Props) {
     const brandLogo = branding?.logo_url || asset('branding/smartbrail-logo.jpg');
     const appName = branding?.app_name || 'SmartBrail';
     const [q, setQ] = useState('');
-    const [view, setView] = useState<'grid' | 'list'>('grid');
+    const [view, setView] = useState<'grid' | 'list'>(() => {
+        try { return localStorage.getItem('sb_team_view') === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
+    });
+    const changeView = (v: 'grid' | 'list') => {
+        setView(v);
+        try { localStorage.setItem('sb_team_view', v); } catch { /* */ }
+    };
     const [detail, setDetail] = useState<Member | null>(null);
     const [zoom, setZoom] = useState<string | null>(null);
 
@@ -121,7 +127,7 @@ export default function Team({ team, user, branding }: Props) {
                                 </div>
                                 <div className="flex rounded-[9px] bg-sb-surface2 p-1">
                                     {([['grid', LayoutGrid], ['list', List]] as const).map(([v, Icon]) => (
-                                        <button key={v} type="button" onClick={() => setView(v)}
+                                        <button key={v} type="button" onClick={() => changeView(v)}
                                             aria-pressed={view === v} aria-label={`Tampilan ${v}`}
                                             className={cn('rounded-[7px] p-1.5 transition',
                                                 view === v ? 'bg-sb-surface text-sb-primary shadow-sm' : 'text-sb-muted hover:text-sb-text')}>
@@ -132,31 +138,56 @@ export default function Team({ team, user, branding }: Props) {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <div className={cn(view === 'grid'
-                                ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
-                                : 'space-y-2')}>
-                                {filtered.map((m) => (
-                                    <button key={m.user_id} type="button" onClick={() => setDetail(m)}
-                                        className={cn(
-                                        'flex items-center gap-3 rounded-[12px] border p-3.5 text-left transition',
-                                        m.user_id === user.id ? 'border-sb-primary/40 bg-sb-primary-soft/50' : 'border-sb-border bg-sb-surface hover:border-sb-primary/30',
-                                        view === 'list' && 'py-2.5',
-                                    )}>
-                                        <Avatar nama={m.nama_lengkap} src={m.profile_photo_url} className="h-[42px] w-[42px]" />
-                                        <div className="min-w-0 flex-1">
-                                            <p className="truncate text-[13.5px] font-bold">
+                            {view === 'grid' ? (
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                    {filtered.map((m) => (
+                                        <button key={m.user_id} type="button" onClick={() => setDetail(m)}
+                                            className={cn(
+                                            'flex items-center gap-3 rounded-[12px] border p-3.5 text-left transition',
+                                            m.user_id === user.id ? 'border-sb-primary/40 bg-sb-primary-soft/50' : 'border-sb-border bg-sb-surface hover:border-sb-primary/30',
+                                        )}>
+                                            <Avatar nama={m.nama_lengkap} src={m.profile_photo_url} className="h-[42px] w-[42px]" />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="truncate text-[13.5px] font-bold">
+                                                    {m.nama_lengkap}{m.user_id === user.id && <span className="ml-1.5 text-[11px] font-semibold text-sb-primary">(Anda)</span>}
+                                                </p>
+                                                <p className="truncate text-[11.5px] text-sb-muted">
+                                                    {m.nitk_nidn ?? '—'}{m.kelas ? ` · ${m.kelas}` : ''}
+                                                </p>
+                                            </div>
+                                            <Badge tone={m.role === 'ketua' || m.role === 'wakil' ? 'warn' : 'neutral'}>
+                                                {roleLabel(m.role)}
+                                            </Badge>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="overflow-hidden rounded-[12px] border border-sb-border bg-sb-surface">
+                                    <div className="hidden grid-cols-[2rem_1fr_10rem_6rem] items-center gap-3 border-b border-sb-border bg-sb-surface2 px-4 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-sb-muted sm:grid">
+                                        <span>No</span><span>Nama</span><span>NIM · Kelas</span><span className="text-right">Peran</span>
+                                    </div>
+                                    {filtered.map((m, i) => (
+                                        <button key={m.user_id} type="button" onClick={() => setDetail(m)}
+                                            className={cn('flex w-full items-center gap-3 border-b border-sb-border px-4 py-2 text-left transition last:border-0 hover:bg-sb-surface2',
+                                                m.user_id === user.id && 'bg-sb-primary-soft/40')}>
+                                            <span className="hidden w-6 shrink-0 text-[11px] tabular-nums text-sb-muted sm:block">{i + 1}</span>
+                                            <Avatar nama={m.nama_lengkap} src={m.profile_photo_url} className="h-8 w-8" />
+                                            <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">
                                                 {m.nama_lengkap}{m.user_id === user.id && <span className="ml-1.5 text-[11px] font-semibold text-sb-primary">(Anda)</span>}
+                                                <span className="ml-2 text-[11px] font-normal text-sb-muted sm:hidden">{m.nitk_nidn ?? ''}</span>
                                             </p>
-                                            <p className="truncate text-[11.5px] text-sb-muted">
+                                            <p className="hidden w-40 shrink-0 truncate text-[12px] text-sb-muted sm:block">
                                                 {m.nitk_nidn ?? '—'}{m.kelas ? ` · ${m.kelas}` : ''}
                                             </p>
-                                        </div>
-                                        <Badge tone={m.role === 'ketua' || m.role === 'wakil' ? 'warn' : 'neutral'}>
-                                            {roleLabel(m.role)}
-                                        </Badge>
-                                    </button>
-                                ))}
-                            </div>
+                                            <span className="w-20 shrink-0 text-right">
+                                                <Badge tone={m.role === 'ketua' || m.role === 'wakil' ? 'warn' : 'neutral'}>
+                                                    {roleLabel(m.role)}
+                                                </Badge>
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             {filtered.length === 0 && (
                                 <p className="py-8 text-center text-[13px] text-sb-muted">
                                     {q ? 'Tidak ada anggota yang cocok dengan pencarian.' : 'Belum ada anggota yang terdaftar.'}

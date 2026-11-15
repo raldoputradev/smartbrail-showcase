@@ -4,6 +4,8 @@
  * Reconnect backoff eksponensial; cleanup menghentikan semuanya.
  */
 
+import { router } from '@inertiajs/react';
+
 export interface LiveConfig {
     key: string;
     host: string;
@@ -14,17 +16,45 @@ export interface LiveConfig {
 
 type Handler = (data: Record<string, unknown>) => void;
 
-const seen: string[] = [];
-
-function remember(id: unknown): boolean {
-    if (!id || typeof id !== 'string' || seen.includes(id)) return false;
-    seen.push(id);
-    if (seen.length > 400) seen.splice(0, seen.length - 400);
-    return true;
+/**
+ * Dedup delivery_id harus per-koneksi (bukan module-scope): satu halaman bisa
+ * membuka beberapa socket ke kanal yang sama (mis. AppShell + halaman) dan
+ * broadcast membawa delivery_id identik di tiap koneksi. Bila seen dipakai
+ * bersama, koneksi yang menerima lebih dulu akan menelan event untuk handler
+ * milik koneksi lain.
+ */
+function makeSeen() {
+    const seen: string[] = [];
+    return (id: unknown): boolean => {
+        if (!id || typeof id !== 'string' || seen.includes(id)) return false;
+        seen.push(id);
+        if (seen.length > 400) seen.splice(0, seen.length - 400);
+        return true;
+    };
 }
 
 function csrf(): string {
     return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
+}
+
+let pendingOnly = new Set<string>();
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Gabungkan reload realtime yang tiba berbarengan menjadi satu visit Inertia.
+ * Satu event broadcast bisa ditangani beberapa socket (shell + kanal bersama) —
+ * tanpa penggabungan, beberapa router.reload menembak bersamaan dan visit
+ * saling berpotongan (request dobel, UI reload bisa menempel).
+ */
+export function scheduleReload(only: string[]): void {
+    only.forEach((p) => pendingOnly.add(p));
+    if (pendingTimer) return;
+    pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        const props = [...pendingOnly];
+        pendingOnly.clear();
+        router.reload({ only: props });
+    }, 250);
 }
 
 /** Subscribe channel privat; kembalikan fungsi unsubscribe/cleanup. */
@@ -35,6 +65,7 @@ export function subscribePrivate(
 ): () => void {
     const scheme = cfg.scheme === 'https' ? 'wss' : 'ws';
     const url = `${scheme}://${cfg.host}:${cfg.port}/app/${encodeURIComponent(cfg.key)}?protocol=7&client=simalas&version=1`;
+    const remember = makeSeen();
     let socket: WebSocket | null = null;
     let stopped = false;
     let attempt = 0;

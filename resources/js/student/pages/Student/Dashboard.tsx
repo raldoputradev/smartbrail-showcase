@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, usePage } from '@inertiajs/react';
-import { ArrowRight, CalendarDays, Clock3, DoorOpen, Fingerprint, Users } from 'lucide-react';
+import { ArrowRight, CalendarDays, Clock3, DoorOpen, Fingerprint, HelpCircle, Users } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Badge, toneFor } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,9 @@ export default function Dashboard(props: Props) {
     const user = auth.user!;
     const { todaySchedule, todayRecord, todayState, periodSummary: ps, recentRows, calendar, scheduleMeta, bms } = props;
     const next = bms.berikutnya;
+    // Hari tanpa kewajiban absensi — strip jadwal/masuk/pulang diganti penanda jelas.
+    const tanpaAbsensi = ['libur', 'tidak_wajib', 'sesi_nonaktif'].includes(todayState.kode);
+    const [infoAbsensi, setInfoAbsensi] = useState(false);
     // Mini-calendar dashboard: điều hướng tháng qua endpoint JSON, không reload trang.
     const [cal, setCal] = useState<CalendarData>(calendar);
     const [calBusy, setCalBusy] = useState(false);
@@ -88,12 +91,39 @@ export default function Dashboard(props: Props) {
                             <p className="text-[11px] font-bold uppercase tracking-wide text-sb-muted">Absensi hari ini</p>
                             <CardTitle className="mt-1 text-[17px]">{todaySchedule?.hari_nama}, {tanggalSingkat(todaySchedule?.tanggal)}</CardTitle>
                         </div>
-                        <Badge tone={todayState.tone === 'ok' ? 'ok' : todayState.tone === 'warn' ? 'warn' : 'info'}>
-                            {todayState.judul}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                            <Badge tone={todayState.tone === 'ok' ? 'ok' : todayState.tone === 'warn' ? 'warn' : 'info'}>
+                                {todayState.judul}
+                            </Badge>
+                            <button
+                                type="button"
+                                onClick={() => setInfoAbsensi((v) => !v)}
+                                aria-expanded={infoAbsensi}
+                                aria-label="Penjelasan kartu absensi"
+                                className={cn('rounded-full p-1 transition-colors', infoAbsensi ? 'text-sb-primary bg-sb-primary/10' : 'text-sb-muted hover:text-sb-text hover:bg-sb-hover')}
+                            >
+                                <HelpCircle size={15} />
+                            </button>
+                        </div>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col">
                         <p className="text-[13px] text-sb-text2">{todayState.keterangan}</p>
+                        {infoAbsensi && (
+                            <p className="mt-2 rounded-[10px] border border-sb-primary/25 bg-sb-primary/5 px-3 py-2 text-[12px] leading-relaxed text-sb-text2">
+                                Kartu ini merangkum kewajiban absensi hari ini. <b>Jadwal efektif</b> adalah jam sesi
+                                menurut aturan aktif ({scheduleMeta.active_label}); <b>Masuk/Pulang</b> adalah tap Anda
+                                di mesin fingerprint lab. Pada hari tanpa kewajiban, kartu menampilkan
+                                &ldquo;Tidak ada absensi&rdquo; dan tap tidak dinilai.
+                            </p>
+                        )}
+                        {tanpaAbsensi ? (
+                            <div className="mt-3 flex items-center justify-center gap-2 rounded-[10px] border border-dashed border-sb-border bg-sb-surface2 px-3 py-4 text-center">
+                                <div>
+                                    <p className="text-[13px] font-semibold">Tidak ada absensi</p>
+                                    <p className="mt-0.5 text-[11.5px] text-sb-muted">Tidak ada kewajiban tap masuk/pulang hari ini.</p>
+                                </div>
+                            </div>
+                        ) : (
                         <div className="mt-3 grid grid-cols-3 divide-x divide-sb-border rounded-[10px] border border-sb-border bg-sb-surface2 text-center">
                             {[
                                 ['Jadwal efektif', `${hhmm(todaySchedule?.jam_masuk)} – ${hhmm(todaySchedule?.jam_pulang)}`, todayState.sumber],
@@ -107,6 +137,7 @@ export default function Dashboard(props: Props) {
                                 </div>
                             ))}
                         </div>
+                        )}
                         <p className="mt-3 flex items-center gap-1.5 text-[12px] text-sb-muted">
                             <Fingerprint size={13} />
                             Sidik jari: {user.has_fingerprint ? 'terdaftar' : user.finger_id ? `ID #${user.finger_id} dialokasikan (belum rekam)` : 'belum dialokasikan'}

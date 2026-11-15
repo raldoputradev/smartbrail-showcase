@@ -191,7 +191,7 @@ class StudentPortalController extends Controller
         $terlambatCount = $periodRows->where('ketepatan_masuk_kode', 'terlambat')->count();
         $pulangCepatCount = $periodRows->where('ketepatan_pulang_kode', 'pulang_cepat')->count();
 
-        $periodRangeLabel = Carbon::parse($periodStart)->translatedFormat('d M Y') . ' – ' . $today->translatedFormat('d M Y');
+        $periodRangeLabel = self::dfmt(Carbon::parse($periodStart), 'd M Y', 'd/m/Y') . ' – ' . self::dfmt($today, 'd M Y', 'd/m/Y');
 
         // Calendar & Academic Agenda for selected/current month
         $monthParam = (string) $request->query('bulan', $today->format('Y-m'));
@@ -358,7 +358,7 @@ class StudentPortalController extends Controller
             ->values()
             ->map(fn (string $ym) => [
                 'value' => $ym,
-                'label' => Carbon::createFromFormat('Y-m', $ym)->translatedFormat('F Y'),
+                'label' => self::dfmt(Carbon::createFromFormat('Y-m', $ym), 'F Y', 'm/Y'),
             ])
             ->all();
 
@@ -384,7 +384,7 @@ class StudentPortalController extends Controller
         $oldestDate = $allRows->last()['tanggal'] ?? null;
         $newestDate = $allRows->first()['tanggal'] ?? null;
         $periodRangeLabel = ($oldestDate && $newestDate)
-            ? Carbon::parse($oldestDate)->translatedFormat('d M Y') . ' – ' . Carbon::parse($newestDate)->translatedFormat('d M Y')
+            ? self::dfmt(Carbon::parse($oldestDate), 'd M Y', 'd/m/Y') . ' – ' . self::dfmt(Carbon::parse($newestDate), 'd M Y', 'd/m/Y')
             : '365 hari terakhir';
 
         $summary = [
@@ -614,24 +614,44 @@ class StudentPortalController extends Controller
             return $this->notificationsFeed($request);
         }
 
-        $unreadOnly = $request->boolean('unread_only');
-        $feed = $this->callMobile($request, MobileDataController::class, 'notificationsFeed', [
-            'page' => max(1, (int) $request->query('page', 1)),
-            'per_page' => (int) $request->query('per_page', 10),
-            'unread_only' => $unreadOnly ? 1 : 0,
-        ]);
+        $filter = (string) $request->query('filter', $request->boolean('unread_only') ? 'unread' : 'all');
+        if (! in_array($filter, ['all', 'unread', 'announcement', 'suggestion_reply', 'pengajuan'], true)) {
+            $filter = 'all';
+        }
+        $page = max(1, (int) $request->query('page', 1));
 
         return view('student.notifications', array_merge(
             $this->sharedLayoutData($user),
             [
                 'user' => $user,
-                'notificationPage' => $feed,
-                'unreadOnly' => $unreadOnly,
-                'feed' => $feed,
-                'announcements' => $this->callMobile($request, MobileDataController::class, 'announcements', ['limit' => 50]),
-                'replies' => $this->callMobile($request, MobileDataController::class, 'suggestionReplies', ['limit' => 50]),
+                'state' => $this->buildStudentNotifications($user, $filter, $page, 12),
+                'filter' => $filter,
+                'page' => $page,
             ]
         ));
+    }
+
+    /** Simpan preferensi tampilan & notifikasi pengguna (kolom users.preferences). */
+    public function updatePreferences(Request $request): RedirectResponse|JsonResponse
+    {
+        $data = $request->validate([
+            'push_kategori' => 'sometimes|array',
+            'push_kategori.pengajuan' => 'boolean',
+            'push_kategori.pengumuman' => 'boolean',
+            'push_kategori.laporan' => 'boolean',
+            'digest_email' => 'sometimes|boolean',
+            'format_tanggal' => 'sometimes|in:teks,angka',
+        ]);
+
+        $user = $request->user();
+        $user->preferences = array_replace($user->preferences ?? [], $data);
+        $user->save();
+
+        if ($request->expectsJson()) {
+            return response()->json(['success' => true, 'preferences' => $user->preferences]);
+        }
+
+        return back()->with('success', 'Preferensi berhasil disimpan.');
     }
 
     public function notificationsFeed(Request $request): JsonResponse
@@ -925,7 +945,7 @@ class StudentPortalController extends Controller
                 'body' => 'Laporan ' . '#' . $suggestion->id . ' dari ' . ($request->user()->nama_lengkap ?? 'mahasiswa') . ' menunggu tinjauan.',
                 'url' => route('admin.suggestions.index', ['status' => 'baru']),
                 'tag' => 'saran-baru-' . $suggestion->id,
-            ]);
+            ], 'laporan');
         } catch (\Throwable $e) {
             // Web push opsional.
         }
@@ -1228,7 +1248,7 @@ class StudentPortalController extends Controller
                 'id' => $p->id,
                 'ruangan' => $p->ruangan?->nama ?? '—',
                 'tanggal' => $p->tanggal?->toDateString(),
-                'tanggal_human' => $p->tanggal ? Carbon::parse($p->tanggal)->timezone($tz)->translatedFormat('d M Y') : null,
+                'tanggal_human' => $p->tanggal ? self::dfmt(Carbon::parse($p->tanggal)->timezone($tz), 'd M Y', 'd/m/Y') : null,
                 'jam' => substr((string) $p->jam_mulai, 0, 5) . '–' . substr((string) $p->jam_selesai, 0, 5),
                 'status' => $p->statusEfektif(),
                 'status_label' => $statusLabel[$p->statusEfektif()] ?? $p->statusEfektif(),
@@ -1302,8 +1322,8 @@ class StudentPortalController extends Controller
         $jadwalKonsisten = AbsensiEffectiveSchedule::scheduleConsistentWithRecord($jadwal, $row);
 
         return array_merge($row, [
-            'tanggal_human' => Carbon::parse($tanggal)->translatedFormat('d M Y'),
-            'tanggal_hari' => Carbon::parse($tanggal)->translatedFormat('D, d M'),
+            'tanggal_human' => self::dfmt(Carbon::parse($tanggal), 'd M Y', 'd/m/Y'),
+            'tanggal_hari' => self::dfmt(Carbon::parse($tanggal), 'D, d M', 'D, d/m'),
             'jadwal_konsisten' => $jadwalKonsisten,
             'hari_nama' => $jadwal['hari_nama'],
             'jadwal_masuk' => $jadwal['jam_masuk'],
@@ -1325,6 +1345,8 @@ class StudentPortalController extends Controller
             'ketepatan_pulang_tone' => $penilaian['ketepatan_pulang_tone'],
             'ringkasan_ketepatan' => $penilaian['ringkasan_ketepatan'],
             'ringkasan_ketepatan_tone' => $penilaian['ringkasan_ketepatan_tone'],
+            'menit_terlambat_masuk' => $penilaian['menit_terlambat_masuk'],
+            'menit_terlambat_pulang' => $penilaian['menit_terlambat_pulang'],
             'menit_pulang_cepat' => $penilaian['menit_pulang_cepat'],
             'has_punctuality_note' => $penilaian['has_punctuality_note'],
         ]);
@@ -1446,7 +1468,7 @@ class StudentPortalController extends Controller
 
             $days[] = [
                 'tanggal' => $dStr,
-                'tanggal_human' => $cursor->translatedFormat('l, d F Y'),
+                'tanggal_human' => self::dfmt($cursor, 'l, d F Y', 'l, d/m/Y'),
                 'day_num' => (int) $cursor->day,
                 'dow' => (int) $cursor->dayOfWeek,
                 'hari_nama' => $resolved['hari_nama'],
@@ -1487,10 +1509,10 @@ class StudentPortalController extends Controller
 
         return [
             'month_value' => $yearMonth,
-            'month_label' => $startOfMonth->translatedFormat('F Y'),
+            'month_label' => self::dfmt($startOfMonth, 'F Y', 'm/Y'),
             // Alias kontrak frontend React (CalendarData): bulan/bulan_label dipakai Dashboard & kalender.
             'bulan' => $yearMonth,
-            'bulan_label' => $startOfMonth->translatedFormat('F Y'),
+            'bulan_label' => self::dfmt($startOfMonth, 'F Y', 'm/Y'),
             'prev' => $startOfMonth->copy()->subMonth()->format('Y-m'),
             'next' => $startOfMonth->copy()->addMonth()->format('Y-m'),
             'weeks_start' => $firstDowMondayIndex,
@@ -1590,7 +1612,7 @@ class StudentPortalController extends Controller
             'weekly' => $weekly,
             'upcoming_weekly' => $upcoming,
             'effective_from' => $effectiveFrom,
-            'effective_from_label' => $effectiveFrom ? Carbon::parse($effectiveFrom)->translatedFormat('d F Y') : null,
+            'effective_from_label' => $effectiveFrom ? self::dfmt(Carbon::parse($effectiveFrom), 'd F Y', 'd/m/Y') : null,
             'pending_weekly' => $pendingWeekly,
             'sesi_aktif' => $sesiAktif,
             'shift' => $shift,
@@ -1722,7 +1744,7 @@ class StudentPortalController extends Controller
                 'body' => (string) $a->isi,
                 'meta' => ($a->author?->nama_lengkap ?: 'Admin Laboran'),
                 'timestamp' => optional($ts)->toIso8601String(),
-                'time_human' => optional($ts)->timezone('Asia/Jakarta')->translatedFormat('d M Y, H:i') . ' WIB',
+                'time_human' => $ts ? self::dfmt($ts->timezone('Asia/Jakarta'), 'd M Y, H:i', 'd/m/Y, H:i') . ' WIB' : '—',
                 'is_read' => $readAt !== null,
                 'read_url' => route('mahasiswa.notifications.read', $a->id),
             ];
@@ -1756,7 +1778,7 @@ class StudentPortalController extends Controller
                 'body' => "Tanggapan Admin Laboran:\n" . $s->admin_reply . "\n\n———\nLaporan Anda (Referensi #{$s->id} — {$cleanSubjek}):\n" . $s->pesan,
                 'meta' => ($s->repliedBy?->nama_lengkap ?? 'Admin Laboran'),
                 'timestamp' => optional($ts)->toIso8601String(),
-                'time_human' => optional($ts)->timezone('Asia/Jakarta')->translatedFormat('d M Y, H:i') . ' WIB',
+                'time_human' => $ts ? self::dfmt($ts->timezone('Asia/Jakarta'), 'd M Y, H:i', 'd/m/Y, H:i') . ' WIB' : '—',
                 'is_read' => $s->user_read_reply_at !== null,
                 'read_url' => route('mahasiswa.suggestions.read', $s->id),
                 'action_url' => route('mahasiswa.suggestions'),
@@ -1781,7 +1803,7 @@ class StudentPortalController extends Controller
             $deciderName = $decider?->nama_lengkap ?? 'Petugas Lab';
             $deciderRole = $decider?->role === 'dosen' ? 'Dosen' : 'Laboran';
             $jam = substr((string) $p->jam_mulai, 0, 5) . '–' . substr((string) $p->jam_selesai, 0, 5);
-            $jadwal = optional($p->tanggal)->translatedFormat('d M Y') . ' · ' . $jam;
+            $jadwal = $p->tanggal ? self::dfmt($p->tanggal, 'd M Y', 'd/m/Y') : '—' . ' · ' . $jam;
             $ruangNama = $p->ruangan?->nama ?? 'Ruangan';
             $status = $p->status;
             $alasan = trim((string) $p->alasan_keputusan);
@@ -1828,7 +1850,7 @@ class StudentPortalController extends Controller
                 'body' => $excerpt,
                 'meta' => "{$deciderName} · {$deciderRole}",
                 'timestamp' => optional($ts)->toIso8601String(),
-                'time_human' => optional($ts)->timezone('Asia/Jakarta')->translatedFormat('d M Y, H:i') . ' WIB',
+                'time_human' => $ts ? self::dfmt($ts->timezone('Asia/Jakarta'), 'd M Y, H:i', 'd/m/Y, H:i') . ' WIB' : '—',
                 'is_read' => \App\Support\StaffNotificationService::isDismissed($user, ['id' => $key, 'count' => $ts->timestamp]),
                 'read_url' => route('mahasiswa.notifications.ops-read', ['key' => $key, 'fp' => $fp]),
                 'action_url' => route('mahasiswa.ruangan', ['tab' => 'riwayat']),
@@ -1860,7 +1882,7 @@ class StudentPortalController extends Controller
                     'body' => $excerpt,
                     'meta' => $ruangNama . ' · ' . $mulai . ' WIB',
                     'timestamp' => optional($ts)->toIso8601String(),
-                    'time_human' => 'Mulai ' . $p->mulaiAt()->timezone('Asia/Jakarta')->translatedFormat('d M Y, H:i') . ' WIB',
+                    'time_human' => 'Mulai ' . self::dfmt($p->mulaiAt()->timezone('Asia/Jakarta'), 'd M Y, H:i', 'd/m/Y, H:i') . ' WIB',
                     'is_read' => \App\Support\StaffNotificationService::isDismissed($user, ['id' => $key, 'count' => $p->mulaiAt()->timestamp]),
                     'read_url' => route('mahasiswa.notifications.ops-read', ['key' => $key, 'fp' => $fp]),
                     'action_url' => route('mahasiswa.ruangan', ['tab' => 'riwayat']),
@@ -1873,10 +1895,14 @@ class StudentPortalController extends Controller
             ->values();
 
         $unreadCount = $merged->where('is_read', false)->count();
+        $kindCounts = $merged->countBy('kind');
 
-        $filtered = $filter === 'unread'
-            ? $merged->where('is_read', false)->values()
-            : $merged;
+        $filtered = match ($filter) {
+            'unread' => $merged->where('is_read', false),
+            'announcement', 'suggestion_reply', 'pengajuan' => $merged->where('kind', $filter),
+            default => $merged,
+        };
+        $filtered = $filtered->values();
 
         $offset = ($page - 1) * $perPage;
         $sliced = $filtered->slice($offset, $perPage)->values()->all();
@@ -1885,6 +1911,12 @@ class StudentPortalController extends Controller
         return [
             'unread_count' => $unreadCount,
             'reply_unread_count' => $replyItems->where('is_read', false)->count(),
+            'total' => $merged->count(),
+            'counts' => [
+                'announcement' => (int) ($kindCounts['announcement'] ?? 0),
+                'suggestion_reply' => (int) ($kindCounts['suggestion_reply'] ?? 0),
+                'pengajuan' => (int) ($kindCounts['pengajuan'] ?? 0),
+            ],
             'has_more' => $hasMore,
             'items' => $sliced,
         ];
@@ -2007,5 +2039,13 @@ class StudentPortalController extends Controller
         }
 
         return $response->getData(true);
+    }
+
+    /** Format tanggal mengikuti preferensi viewer (format_tanggal: teks|angka). */
+    private static function dfmt(\DateTimeInterface $c, string $teks, string $angka): string
+    {
+        $u = request()->user();
+
+        return $u ? $u->dfmt($c, $teks, $angka) : Carbon::instance($c)->translatedFormat($teks);
     }
 }

@@ -38,4 +38,9 @@ class RuanganAccessEvent extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function petugas(): BelongsTo
+    {
+        return $this->belongsTo(RuanganPetugas::class, 'petugas_id');
+    }
 }
