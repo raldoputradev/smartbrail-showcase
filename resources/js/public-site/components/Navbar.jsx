@@ -71,7 +71,7 @@ export default function Navbar({ urls, variant = 'landing', apkAvailable = true 
             aria-hidden
           />
           <span className="flex min-w-0 flex-col leading-tight">
-            <span className="bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-[15px] font-extrabold italic tracking-tight text-transparent">
+            <span className="whitespace-nowrap bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text pr-1 text-[15px] font-extrabold italic tracking-tight text-transparent">
               SmartBrail
             </span>
             <span className="hidden truncate text-[11px] font-medium text-slate-500 sm:block">
