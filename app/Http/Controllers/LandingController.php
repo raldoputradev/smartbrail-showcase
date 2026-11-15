@@ -43,10 +43,10 @@ class LandingController extends Controller
         $mesinTerdaftar = MesinIot::where('is_active', true)->where('tipe', '!=', 'loker')->count();
 
         $stats = [
-            'total_pengguna'  => User::where('role', 'mahasiswa')->count(),
-            'pengguna_aktif'  => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
+            'total_pengguna'  => User::count(),
+            'pengguna_aktif'  => User::where('is_active', true)->count(),
             'pengguna_online' => self::onlineCount(),
-            'pengguna_baru_30d' => User::where('role', 'mahasiswa')->where('created_at', '>=', now()->subDays(30))->count(),
+            'pengguna_baru_30d' => User::where('created_at', '>=', now()->subDays(30))->count(),
             'mahasiswa'       => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
             'dosen'           => User::where('role', 'dosen')->where('is_active', true)->count(),
             'mesin'           => $mesinOnline,
