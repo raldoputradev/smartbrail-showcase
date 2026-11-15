@@ -204,26 +204,29 @@ class AccountImportTemplate
             ['Isi data pada sheet IMPORT_AKUN mulai dari baris 2. Jangan mengubah nama atau urutan header.'],
             [],
             ['CARA PAKAI'],
-            ['01', 'Satu baris mewakili satu akun/petugas. Baris berawalan "CONTOH" otomatis dilewati sistem.'],
-            ['02', 'Email, nomor HP, dan password TIDAK diisi di file ini — akun dibuat dengan PASSWORD SEMENTARA.'],
-            ['03', 'Pemilik akun login dengan password sementara lalu WAJIB mengganti password (mengamankan akun sendiri).'],
-            ['04', 'Kendala login atau akses ruangan dilaporkan ke laboran / dosen.'],
-            ['05', 'Simpan sebagai .xlsx atau CSV UTF-8 sebelum diunggah ke SmartBrail.'],
+            ['01 · Satu baris mewakili satu akun/petugas. Baris berawalan "CONTOH" otomatis dilewati sistem.'],
+            ['02 · Email, nomor HP, dan password TIDAK diisi di file ini — akun dibuat dengan PASSWORD SEMENTARA.'],
+            ['03 · Pemilik akun login dengan password sementara lalu WAJIB mengganti password (mengamankan akun sendiri).'],
+            ['04 · Kendala login atau akses ruangan dilaporkan ke laboran / dosen.'],
+            ['05 · Simpan sebagai .xlsx atau CSV UTF-8 sebelum diunggah ke SmartBrail.'],
+            [],
+            ['Sel kolom tertentu punya DROPDOWN (kelas, tim, angkatan, semester, shift, dll.) — pilih dari daftar,'],
+            ['atau ketik nilai lain langsung bila belum ada di daftar (dropdown hanya saran, bukan pembatas).'],
         ];
 
         $extra = match ($type) {
             'semua' => [
-                ['06', 'Isi TEPAT SATU kolom identitas per baris: nim = mahasiswa, nidn = dosen, nitk = laboran. Role disimpulkan otomatis.'],
-                ['07', 'Kolom kelas/tim/angkatan/semester/semester_type/shift wajib hanya untuk baris mahasiswa.'],
-                ['08', 'Kolom tim menerima nama proyek atau format "KODE | Nama" — daftar proyek ada di sheet DAFTAR_PBL.'],
+                ['06 · Isi TEPAT SATU kolom identitas per baris: nim = mahasiswa, nidn = dosen, nitk = laboran. Role disimpulkan otomatis.'],
+                ['07 · Kolom kelas/tim/angkatan/semester/semester_type/shift wajib hanya untuk baris mahasiswa.'],
+                ['08 · Kolom tim menerima nama proyek atau format "KODE | Nama" — daftar proyek ada di sheet DAFTAR_PBL.'],
             ],
             'mahasiswa' => [
-                ['06', 'Kolom tim menerima nama proyek atau format "KODE | Nama" — daftar proyek ada di sheet DAFTAR_PBL.'],
+                ['06 · Kolom tim menerima nama proyek atau format "KODE | Nama" — daftar proyek ada di sheet DAFTAR_PBL.'],
             ],
             'petugas' => [
-                ['06', 'Petugas/CS TIDAK mendapat akun web — akses ruangan lewat mesin (kredensial).'],
-                ['07', 'tipe_kredensial: pin, rfid, atau fingerprint. kredensial disimpan sebagai hash di server.'],
-                ['08', 'Jadwal ruangan petugas diatur setelah import di halaman Petugas Ruangan.'],
+                ['06 · Petugas/CS TIDAK mendapat akun web — akses ruangan lewat mesin (kredensial).'],
+                ['07 · tipe_kredensial: pin, rfid, atau fingerprint. kredensial disimpan sebagai hash di server.'],
+                ['08 · Jadwal ruangan petugas diatur setelah import di halaman Petugas Ruangan.'],
             ],
             default => [],
         };
@@ -252,32 +255,156 @@ class AccountImportTemplate
         $headers = array_keys(self::columns($type));
         $dataRows = array_merge([$headers], self::exampleRows($type));
 
+        [$choiceRows, $choices] = self::choiceLists($type);
+        $definedNames = [];
+
         $sheets = [
-            ['name' => 'PETUNJUK', 'rows' => self::guideRows($type), 'freeze' => false],
-            ['name' => 'IMPORT_AKUN', 'rows' => $dataRows, 'freeze' => true],
+            ['name' => 'PETUNJUK', 'rows' => self::guideRows($type), 'freeze' => false,
+             'widths' => [30, 12, 95]],
+            ['name' => 'IMPORT_AKUN', 'rows' => $dataRows, 'freeze' => true,
+             'widths' => self::importWidths($type),
+             'validations' => self::validations($type, $headers, $choices)],
         ];
+        if ($choiceRows !== null) {
+            $sheets[] = ['name' => 'PILIHAN', 'rows' => $choiceRows, 'freeze' => true,
+                'widths' => [26, 40, 30]];
+            foreach ($choices as $name => $def) {
+                $colRef = self::colRef($def['col']);
+                $lastRow = 1 + count($def['values']);
+                $definedNames[$name] = 'PILIHAN!$'.$colRef.'$2:$'.$colRef.'$'.$lastRow;
+            }
+        }
         if ($projects !== [] && in_array($type, ['mahasiswa', 'semua'], true)) {
             $sheets[] = [
                 'name' => 'DAFTAR_PBL',
                 'rows' => array_merge([['kode_pbl', 'nama_pbl', 'manpro', 'co_manpro', 'shift']], $projects),
                 'freeze' => true,
+                'widths' => [16, 46, 24, 24, 12],
             ];
         }
 
-        return self::workbookXml($sheets);
+        return self::workbookXml($sheets, $definedNames);
+    }
+
+    /** Lebar kolom (Excel units) untuk sheet IMPORT_AKUN per jenis. */
+    private static function importWidths(string $type): array
+    {
+        $widths = [
+            'nim' => 16, 'nidn' => 16, 'nitk' => 16, 'id' => 16,
+            'nama_lengkap' => 30, 'kelas' => 18, 'tim' => 34,
+            'angkatan' => 11, 'semester' => 11, 'semester_type' => 15,
+            'shift' => 10, 'program_studi' => 24, 'role' => 12,
+            'tipe_kredensial' => 16, 'kredensial' => 24,
+            'berlaku_mulai' => 15, 'berlaku_selesai' => 16,
+        ];
+
+        return array_map(
+            fn (string $col) => $widths[$col] ?? 18,
+            array_keys(self::columns($type))
+        );
+    }
+
+    /**
+     * Daftar pilihan panjang (kelas/tim/prodi) — diisi ke sheet PILIHAN
+     * lalu dirujuk kolom import lewat named range.
+     *
+     * @return array{0: ?list<list<string>>, 1: array<string, array{col: int, values: list<string>}>}
+     */
+    private static function choiceLists(string $type): array
+    {
+        if (! in_array($type, ['mahasiswa', 'semua'], true)) {
+            return [null, []];
+        }
+
+        $lists = [
+            'LstKelas' => \App\Support\MahasiswaProfileOptions::kelasOptions(),
+            'LstTim' => \App\Support\MahasiswaProfileOptions::pblTeamOptions(),
+            'LstProdi' => array_map(
+                fn (array $p) => trim($p['kode'].' - '.$p['nama'], ' -'),
+                \App\Support\MahasiswaProfileOptions::programStudiList()
+            ),
+        ];
+
+        $headers = ['kelas', 'tim_pbl', 'program_studi'];
+        $rows = [$headers];
+        $max = max(array_map('count', $lists));
+        $choices = [];
+        foreach (array_values($lists) as $col => $values) {
+            $choices[array_keys($lists)[$col]] = ['col' => $col, 'values' => $values];
+        }
+        for ($i = 0; $i < $max; $i++) {
+            $rows[] = array_map(fn (array $values) => $values[$i] ?? '', array_values($lists));
+        }
+
+        return [$rows, $choices];
+    }
+
+    /**
+     * Dropdown validasi per kolom (saran — nilai lain tetap boleh diketik).
+     *
+     * @param  list<string>  $headers
+     * @param  array<string, array{col: int, values: list<string>}>  $choices
+     * @return list<array{sqref: string, formula: string}>
+     */
+    private static function validations(string $type, array $headers, array $choices): array
+    {
+        $angkatan = implode(',', \App\Support\MahasiswaProfileOptions::angkatanYears());
+        $inline = [
+            'angkatan' => '"'.$angkatan.'"',
+            'semester' => '"1,2,3,4,5,6,7,8"',
+            'semester_type' => '"ganjil,genap"',
+            'shift' => '"pagi,malam"',
+            'tipe_kredensial' => '"pin,rfid,fingerprint"',
+            'role' => $type === 'semua' ? '"mahasiswa,dosen,laboran"' : '"'.$type.'"',
+        ];
+        $named = [
+            'kelas' => 'LstKelas',
+            'tim' => 'LstTim',
+            'program_studi' => 'LstProdi',
+        ];
+
+        $out = [];
+        foreach ($headers as $i => $h) {
+            $formula = null;
+            if (isset($named[$h], $choices[$named[$h]])) {
+                $formula = $named[$h];
+            } elseif (isset($inline[$h])) {
+                $formula = $inline[$h];
+            }
+            if ($formula === null) {
+                continue;
+            }
+            $col = self::colRef($i);
+            $out[] = ['sqref' => $col.'2:'.$col.'2000', 'formula' => $formula];
+        }
+
+        return $out;
     }
 
     /** Bangun workbook .xlsx minimalis multi-sheet dengan inline strings. */
-    private static function workbookXml(array $sheets): string
+    private static function workbookXml(array $sheets, array $definedNames = []): string
     {
-        $sheetXml = static function (array $rows, bool $freeze): string {
+        $sheetXml = static function (array $sheet): string {
             $out = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
-            if ($freeze) {
-                $out .= '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>';
+            if ($sheet['freeze']) {
+                $out .= '<sheetViews><sheetView workbookViewId="0">'
+                    .'<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+                    .'<selection pane="bottomLeft"/>'
+                    .'</sheetView></sheetViews>';
+            } else {
+                $out .= '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+            }
+            if (! empty($sheet['widths'])) {
+                $out .= '<cols>';
+                foreach ($sheet['widths'] as $i => $w) {
+                    $n = $i + 1;
+                    $out .= '<col min="'.$n.'" max="'.$n.'" width="'.$w.'" customWidth="1"/>';
+                }
+                $out .= '</cols>';
             }
             $out .= '<sheetData>';
-            foreach ($rows as $r => $row) {
+            foreach ($sheet['rows'] as $r => $row) {
                 $out .= '<row r="'.($r + 1).'">';
                 foreach ($row as $c => $v) {
                     $ref = self::colRef($c).($r + 1);
@@ -285,8 +412,19 @@ class AccountImportTemplate
                 }
                 $out .= '</row>';
             }
+            $out .= '</sheetData>';
 
-            return $out.'</sheetData></worksheet>';
+            if (! empty($sheet['validations'])) {
+                $out .= '<dataValidations count="'.count($sheet['validations']).'">';
+                foreach ($sheet['validations'] as $dv) {
+                    $out .= '<dataValidation type="list" allowBlank="1" showErrorMessage="0" sqref="'.$dv['sqref'].'">'
+                        .'<formula1>'.htmlspecialchars($dv['formula'], ENT_XML1).'</formula1>'
+                        .'</dataValidation>';
+                }
+                $out .= '</dataValidations>';
+            }
+
+            return $out.'</worksheet>';
         };
 
         $sheetTags = '';
@@ -299,13 +437,22 @@ class AccountImportTemplate
             $sheetTags .= '<sheet name="'.$name.'" sheetId="'.$n.'" r:id="rId'.$n.'"/>';
             $relTags .= '<Relationship Id="rId'.$n.'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'.$n.'.xml"/>';
             $typeTags .= '<Override PartName="/xl/worksheets/sheet'.$n.'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
-            $files['xl/worksheets/sheet'.$n.'.xml'] = $sheetXml($sheet['rows'], $sheet['freeze']);
+            $files['xl/worksheets/sheet'.$n.'.xml'] = $sheetXml($sheet);
         }
         $relTags .= '<Relationship Id="rId'.(count($sheets) + 1).'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>';
 
+        $defTags = '';
+        if ($definedNames !== []) {
+            $defTags = '<definedNames>';
+            foreach ($definedNames as $name => $ref) {
+                $defTags .= '<definedName name="'.$name.'">'.htmlspecialchars($ref, ENT_XML1).'</definedName>';
+            }
+            $defTags .= '</definedNames>';
+        }
+
         $files['xl/workbook.xml'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             .'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            .'<sheets>'.$sheetTags.'</sheets></workbook>';
+            .'<sheets>'.$sheetTags.'</sheets>'.$defTags.'</workbook>';
 
         $files['xl/_rels/workbook.xml.rels'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'.$relTags.'</Relationships>';
