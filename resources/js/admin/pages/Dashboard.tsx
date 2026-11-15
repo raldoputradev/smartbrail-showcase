@@ -75,9 +75,13 @@ export default function Dashboard(props: DashboardProps) {
         return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
     }, [props.feed.length, props.pengajuan.length, props.agenda_terdekat.length]);
 
-    const kpis = [
+    const kpis: {
+        key: string; label: string; value: number | string; sub: string;
+        subClass?: string; accent: string; icon: string; url: string; delta?: number;
+    }[] = [
         {
             key: 'users', label: 'Total Pengguna', value: props.stats.total_pengguna,
+            delta: props.stats.pengguna_baru_30d,
             sub: `${props.stats.pengguna_aktif} aktif · ${props.stats.pengguna_online ?? 0} online · ${props.stats.pengguna_pending} pending`,
             accent: '#0284c7', icon: 'users',
             url: props.is_admin ? route('admin.users') : route('admin.attendance'),
@@ -151,7 +155,12 @@ export default function Dashboard(props: DashboardProps) {
                                 <div className="ad-kpi__icon"><Icon /></div>
                                 <div>
                                     <span className="k">{k.label}</span>
-                                    <strong>{typeof k.value === 'number' ? k.value.toLocaleString('id-ID') : k.value}</strong>
+                                    <strong>
+                                        {typeof k.value === 'number' ? k.value.toLocaleString('id-ID') : k.value}
+                                        {!!k.delta && k.delta > 0 && (
+                                            <em className="ad-kpi__delta" title={`${k.delta} pengguna baru dalam 30 hari terakhir`}>+{k.delta}<i>· 30 hari</i></em>
+                                        )}
+                                    </strong>
                                     <small className={k.subClass ?? ''}>{k.sub}</small>
                                 </div>
                             </a>

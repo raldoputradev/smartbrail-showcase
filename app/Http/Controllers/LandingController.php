@@ -46,6 +46,7 @@ class LandingController extends Controller
             'total_pengguna'  => User::where('role', 'mahasiswa')->count(),
             'pengguna_aktif'  => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
             'pengguna_online' => self::onlineCount(),
+            'pengguna_baru_30d' => User::where('role', 'mahasiswa')->where('created_at', '>=', now()->subDays(30))->count(),
             'mahasiswa'       => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
             'dosen'           => User::where('role', 'dosen')->where('is_active', true)->count(),
             'mesin'           => $mesinOnline,

@@ -81,6 +81,7 @@ export interface DashboardStats {
     pengguna_aktif: number;
     pengguna_pending: number;
     pengguna_online: number;
+    pengguna_baru_30d: number;
     sidik_jari_terdaftar: number;
     ruangan_aktif: number;
     mesin_aktif: number;

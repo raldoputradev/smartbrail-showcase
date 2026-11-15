@@ -107,7 +107,7 @@ export default function Hero({ urls, stats, appVersion, apkAvailable = true }) {
             transition={{ duration: 0.5, delay: 0.3, ease }}
             className="mt-8 inline-flex items-stretch overflow-hidden rounded-2xl border border-blue-200/60 bg-white/80 shadow-sm backdrop-blur transition hover:shadow-md"
           >
-            <UserStat label="Total Pengguna" value={total} />
+            <UserStat label="Total Pengguna" value={total} delta={stats?.pengguna_baru_30d ?? 0} />
             <div className="w-px self-stretch bg-blue-200/60" />
             <UserStat label="Pengguna Aktif" value={aktif} accent />
             <div className="w-px self-stretch bg-blue-200/60" />
@@ -137,7 +137,7 @@ export default function Hero({ urls, stats, appVersion, apkAvailable = true }) {
   );
 }
 
-function UserStat({ label, value, accent = false, live = false }) {
+function UserStat({ label, value, accent = false, live = false, delta = 0 }) {
   return (
     <div className="px-6 py-4">
       <div
@@ -156,6 +156,11 @@ function UserStat({ label, value, accent = false, live = false }) {
       <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </div>
+      {delta > 0 && (
+        <div className="mt-1 text-[10px] font-bold text-emerald-600">
+          +{delta} baru · 30 hari
+        </div>
+      )}
     </div>
   );
 }

@@ -125,6 +125,7 @@ class AdminController extends Controller
                 'pengguna_aktif' => $s['user_aktif'],
                 'pengguna_pending' => $s['user_pending'],
                 'pengguna_online' => \App\Support\Presence::onlineUsers(),
+                'pengguna_baru_30d' => User::where('created_at', '>=', now()->subDays(30))->count(),
                 'sidik_jari_terdaftar' => (int) ($opsShortcuts['enroll_done'] ?? 0),
                 'ruangan_aktif' => (int) ($bms['ruangan_aktif'] ?? 0),
                 'mesin_aktif' => $s['mesin_aktif'],
