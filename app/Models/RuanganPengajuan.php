@@ -23,6 +23,13 @@ class RuanganPengajuan extends Model
 
     public const STATUS_AKTIF_MENUNGGU = [self::STATUS_DIAJUKAN, self::STATUS_MENUNGGU_PENERIMAAN];
 
+    /** Status yang menempel pada slot: menunggu keputusan + sudah disetujui. */
+    public const STATUS_MEMBLOKIR_SLOT = [
+        self::STATUS_DIAJUKAN,
+        self::STATUS_MENUNGGU_PENERIMAAN,
+        self::STATUS_DISETUJUI,
+    ];
+
     protected $fillable = [
         'ruangan_id', 'pengaju_id', 'pbl_project_id', 'pembimbing_id',
         'tujuan', 'tanggal', 'jam_mulai', 'jam_selesai', 'peserta', 'snapshot',

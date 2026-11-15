@@ -119,17 +119,17 @@ class RuanganBookingService
             $errors[] = 'Durasi peminjaman maksimal ' . intdiv($maksMenit, 60) . ' jam per pengajuan.';
         }
 
-        // Selaras dengan status slot 'dipesan': rentang yang sudah terpakai
-        // pengajuan disetujui/menunggu penerimaan tidak dapat diajukan lagi.
+        // Selaras dengan status slot 'dipesan': rentang yang sudah diklaim
+        // (diajukan/menunggu penerimaan/disetujui) tidak dapat diajukan tim lain.
         $bentrok = RuanganPengajuan::where('ruangan_id', $ruangan->id)
             ->whereDate('tanggal', $tanggal->toDateString())
-            ->whereIn('status', [RuanganPengajuan::STATUS_DISETUJUI, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN])
+            ->whereIn('status', RuanganPengajuan::STATUS_MEMBLOKIR_SLOT)
             ->when($abaikanPengajuanId, fn ($q) => $q->where('id', '!=', $abaikanPengajuanId))
             ->where('jam_mulai', '<', $selesai)
             ->where('jam_selesai', '>', $mulai)
             ->exists();
         if ($bentrok) {
-            $errors[] = 'Waktu bertabrakan dengan peminjaman yang sudah disetujui.';
+            $errors[] = 'Waktu sudah diklaim tim lain (disetujui atau menunggu keputusan) — pilih slot lain.';
         }
 
         // Jadwal petugas (cleaning service) dapat memblokir pemesanan.
@@ -197,15 +197,18 @@ class RuanganBookingService
         if ($alasan === null) {
             RuanganPengajuan::where('ruangan_id', $ruangan->id)
                 ->whereDate('tanggal', $tanggal->toDateString())
-                ->whereIn('status', [RuanganPengajuan::STATUS_DISETUJUI, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN])
+                ->whereIn('status', RuanganPengajuan::STATUS_MEMBLOKIR_SLOT)
                 ->with(['pengaju:id,nama_lengkap', 'project:id,nama,kode'])
-                ->get(['id', 'pengaju_id', 'pbl_project_id', 'jam_mulai', 'jam_selesai'])
+                ->get(['id', 'status', 'pengaju_id', 'pbl_project_id', 'jam_mulai', 'jam_selesai'])
                 ->each(function ($p) use (&$terhalang) {
+                    $nama = $p->project?->nama ?? $p->pengaju?->nama_lengkap ?? 'Tim lain';
                     $terhalang[] = [
                         'mulai' => substr((string) $p->jam_mulai, 0, 5),
                         'selesai' => substr((string) $p->jam_selesai, 0, 5),
                         'jenis' => 'dipesan',
-                        'info' => $p->project?->nama ?? $p->pengaju?->nama_lengkap ?? 'Tim lain',
+                        'info' => $p->status === RuanganPengajuan::STATUS_DIAJUKAN
+                            ? $nama . ' · menunggu'
+                            : $nama,
                     ];
                 });
             foreach (self::blokirPetugas($ruangan->id, $tanggal) as [$m, $s]) {
@@ -420,13 +423,13 @@ class RuanganBookingService
         $konflik = RuanganPengajuan::where('ruangan_id', $p->ruangan_id)
             ->where('id', '!=', $p->id)
             ->whereDate('tanggal', $p->tanggal)
-            ->whereIn('status', [RuanganPengajuan::STATUS_DISETUJUI, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN])
+            ->whereIn('status', RuanganPengajuan::STATUS_MEMBLOKIR_SLOT)
             ->where('jam_mulai', '<', $p->jam_selesai)
             ->where('jam_selesai', '>', $p->jam_mulai)
             ->exists();
 
         if ($konflik) {
-            throw ValidationException::withMessages(['konflik' => 'Waktu bertabrakan dengan pengajuan lain yang sudah disetujui/menunggu penerimaan.']);
+            throw ValidationException::withMessages(['konflik' => 'Waktu bertabrakan dengan pengajuan lain yang sudah mengklaim slot ini — putuskan pengajuan tersebut terlebih dahulu.']);
         }
     }
 
@@ -644,7 +647,7 @@ class RuanganBookingService
         $konflik = RuanganPengajuan::where('ruangan_id', $ruanganId)
             ->when($abaikanId, fn ($q) => $q->where('id', '!=', $abaikanId))
             ->whereDate('tanggal', $mulai->toDateString())
-            ->whereIn('status', [RuanganPengajuan::STATUS_DISETUJUI, RuanganPengajuan::STATUS_MENUNGGU_PENERIMAAN])
+            ->whereIn('status', RuanganPengajuan::STATUS_MEMBLOKIR_SLOT)
             ->where('jam_mulai', '<', $selesai->format('H:i'))
             ->where('jam_selesai', '>', $mulai->format('H:i'))
             ->exists();
