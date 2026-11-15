@@ -45,6 +45,7 @@ class LandingController extends Controller
         $stats = [
             'total_pengguna'  => User::where('role', 'mahasiswa')->count(),
             'pengguna_aktif'  => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
+            'pengguna_online' => self::onlineCount(),
             'mahasiswa'       => User::where('role', 'mahasiswa')->where('is_active', true)->count(),
             'dosen'           => User::where('role', 'dosen')->where('is_active', true)->count(),
             'mesin'           => $mesinOnline,
@@ -63,6 +64,7 @@ class LandingController extends Controller
                     'beranda' => route('beranda'),
                     'login' => route('login'),
                     'suggestions' => route('suggestions.store'),
+                    'online' => route('beranda.online'),
                     'helpdeskChat' => route('helpdesk.chat'),
                     'logoMark' => asset('branding/brail-mark.png').'?v='.@filemtime(public_path('branding/brail-mark.png')),
                     'logoLockup' => \App\Support\Branding::logoUrl(),
@@ -81,6 +83,23 @@ class LandingController extends Controller
                 'appVersion' => config('mobile.apk.version', '1.3.8'),
             ],
         ]);
+    }
+
+    /**
+     * Jumlah pengguna online — dipoll hero landing. Di-cache singkat supaya
+     * polling banyak pengunjung tidak memukul tabel sessions terus-menerus.
+     */
+    public function online(): \Illuminate\Http\JsonResponse
+    {
+        return response()->json(['online' => self::onlineCount()]);
+    }
+
+    private static function onlineCount(): int
+    {
+        return \Illuminate\Support\Facades\Cache::remember(
+            'landing:pengguna_online', 20,
+            fn () => \App\Support\Presence::onlineUsers()
+        );
     }
 
     /**

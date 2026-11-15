@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import FlipWords from './FlipWords';
 import PhoneMockup from './PhoneMockup';
@@ -10,7 +11,23 @@ const ease = [0.22, 1, 0.36, 1];
 export default function Hero({ urls, stats, appVersion, apkAvailable = true }) {
   const total = stats?.total_pengguna ?? stats?.mahasiswa ?? 0;
   const aktif = stats?.pengguna_aktif ?? stats?.mahasiswa ?? 0;
+  const [online, setOnline] = useState(stats?.pengguna_online ?? 0);
   const reduce = useReducedMotion();
+
+  // Polling ringan — angka "Pengguna Online" diperbarui tanpa reload.
+  useEffect(() => {
+    if (!urls?.online) return undefined;
+    let stopped = false;
+    const tick = () => {
+      fetch(urls.online, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && !stopped) setOnline(d.online ?? 0); })
+        .catch(() => {});
+    };
+    tick();
+    const t = setInterval(tick, 45000);
+    return () => { stopped = true; clearInterval(t); };
+  }, [urls?.online]);
 
   return (
     <section
@@ -93,6 +110,8 @@ export default function Hero({ urls, stats, appVersion, apkAvailable = true }) {
             <UserStat label="Total Pengguna" value={total} />
             <div className="w-px self-stretch bg-blue-200/60" />
             <UserStat label="Pengguna Aktif" value={aktif} accent />
+            <div className="w-px self-stretch bg-blue-200/60" />
+            <UserStat label="Pengguna Online" value={online} live />
           </motion.div>
 
           <motion.div
@@ -118,14 +137,20 @@ export default function Hero({ urls, stats, appVersion, apkAvailable = true }) {
   );
 }
 
-function UserStat({ label, value, accent = false }) {
+function UserStat({ label, value, accent = false, live = false }) {
   return (
     <div className="px-6 py-4">
       <div
-        className={`text-2xl font-extrabold tabular-nums ${
+        className={`flex items-center gap-2 text-2xl font-extrabold tabular-nums ${
           accent ? 'text-blue-600' : 'text-slate-900'
         }`}
       >
+        {live && (
+          <span
+            className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 animate-soft-pulse"
+            aria-hidden
+          />
+        )}
             <CountUp value={value} duration={1.8} />
       </div>
       <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

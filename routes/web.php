@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Route;
 
 // Landing page publik (pengenalan project) — URL bersih di root domain.
 Route::get('/', [LandingController::class, 'index'])->name('beranda');
+Route::get('/online', [LandingController::class, 'online'])->middleware('throttle:120,1')->name('beranda.online');
 Route::get('/beranda', fn () => redirect('/', 301));
 Route::view('/mobile/recaptcha', 'mobile.recaptcha')->name('mobile.recaptcha');
 Route::get('/download', [DownloadController::class, 'index'])->name('download');

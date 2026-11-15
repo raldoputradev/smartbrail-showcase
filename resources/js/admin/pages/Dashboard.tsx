@@ -78,7 +78,7 @@ export default function Dashboard(props: DashboardProps) {
     const kpis = [
         {
             key: 'users', label: 'Total Pengguna', value: props.stats.total_pengguna,
-            sub: `${props.stats.pengguna_aktif} aktif · ${props.stats.pengguna_pending} pending`,
+            sub: `${props.stats.pengguna_aktif} aktif · ${props.stats.pengguna_online ?? 0} online · ${props.stats.pengguna_pending} pending`,
             accent: '#0284c7', icon: 'users',
             url: props.is_admin ? route('admin.users') : route('admin.attendance'),
         },
