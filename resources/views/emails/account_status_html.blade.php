@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIoT SIMALAS — {{ $subtitle }}</title>
+    <title>SmartBrail — {{ $subtitle }}</title>
 </head>
 <body style="margin:0;padding:0;background:#0f1419;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(180deg,#0f1419 0%,#1a2332 100%);padding:40px 16px;">
@@ -12,7 +12,7 @@
     <tr>
         <td style="background:linear-gradient(135deg,{{ $approved ? '#065f46 0%,#10b981 55%,#34d399' : '#7f1d1d 0%,#dc2626 55%,#f87171' }} 100%);padding:32px 28px;text-align:center;">
             <div style="display:inline-block;background:rgba(255,255,255,.15);border-radius:12px;padding:10px 16px;margin-bottom:12px;">
-                <span style="font-size:13px;font-weight:700;letter-spacing:1.5px;color:#e0f2fe;text-transform:uppercase;">AIoT SIMALAS</span>
+                <span style="font-size:13px;font-weight:700;letter-spacing:1.5px;color:#e0f2fe;text-transform:uppercase;">SmartBrail</span>
             </div>
             <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;line-height:1.3;">{{ $headline }}</h1>
             <p style="margin:8px 0 0;color:#dbeafe;font-size:14px;line-height:1.5;">{{ $subtitle }}</p>
@@ -25,7 +25,7 @@
             </p>
             @if($approved)
                 <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.65;">
-                    Selamat! Pendaftaran akun Anda telah <strong>disetujui</strong> oleh admin laboran SIMALAS.
+                    Selamat! Pendaftaran akun Anda telah <strong>disetujui</strong> oleh admin laboran SmartBrail.
                     {{ $loginHint }}
                 </p>
                 <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:16px 18px;margin:0 0 8px;">
@@ -34,7 +34,7 @@
                 </div>
             @else
                 <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.65;">
-                    Maaf, pendaftaran akun Anda <strong>belum disetujui</strong> oleh admin laboran SIMALAS.
+                    Maaf, pendaftaran akun Anda <strong>belum disetujui</strong> oleh admin laboran SmartBrail.
                     @if(!empty($user->approval_note))
                         <br><br><strong>Alasan:</strong> {{ $user->approval_note }}
                     @endif
@@ -53,7 +53,7 @@
                 Dikirim: {{ $sentAt ?? '' }} &middot; Ref: {{ $refCode ?? '-' }}
             </p>
             <p style="margin:0;color:#94a3b8;font-size:11px;line-height:1.5;">
-                &copy; {{ date('Y') }} AIoT SIMALAS — Smart Lab System, Politeknik Negeri Batam
+                &copy; {{ date('Y') }} SmartBrail — Smart Laboratory System, Politeknik Negeri Batam
             </p>
         </td>
     </tr>

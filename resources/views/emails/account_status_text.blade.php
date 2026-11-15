@@ -1,13 +1,13 @@
-AIoT SIMALAS — {{ $subtitle }}
+SmartBrail — {{ $subtitle }}
 
 Yth. {{ $namaLengkap }},
 
 @if($approved)
-Selamat! Pendaftaran akun Anda telah DISETUJUI oleh admin laboran SIMALAS.
+Selamat! Pendaftaran akun Anda telah DISETUJUI oleh admin laboran SmartBrail.
 
 {{ $loginHint }}
 @else
-Maaf, pendaftaran akun Anda BELUM DISETUJUI oleh admin laboran SIMALAS.
+Maaf, pendaftaran akun Anda BELUM DISETUJUI oleh admin laboran SmartBrail.
 @if(!empty($user->approval_note))
 Alasan: {{ $user->approval_note }}
 @endif
@@ -17,4 +17,4 @@ Jika Anda merasa ini kesalahan, hubungi admin laboran untuk klarifikasi.
 
 ---
 Dikirim: {{ $sentAt ?? '' }} | Ref: {{ $refCode ?? '-' }}
-© {{ date('Y') }} AIoT SIMALAS — Politeknik Negeri Batam
+© {{ date('Y') }} SmartBrail — Politeknik Negeri Batam

@@ -233,10 +233,12 @@
         }
         /* Logo lockup SmartBrail (ikon S3 + wordmark) */
         .sidebar-brand-logo {
-            height: 28px;
-            width: auto;
+            height: 30px;
+            width: 30px;
             display: block;
             flex-shrink: 0;
+            border-radius: 9px;
+            box-shadow: 0 6px 18px -4px rgba(37,99,235,.55), 0 0 0 1px rgba(255,255,255,.12);
         }
         .dashboard-layout.sidebar-collapsed .sidebar-brand-logo {
             height: 22px;
@@ -1895,7 +1897,7 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <a href="{{ Auth::user()->role === 'dosen' ? route('dosen.dashboard') : route('admin.dashboard') }}" class="sidebar-brand">
-                    <img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/smartbrail-logo.png')) }}" alt="SmartBrail" class="sidebar-brand-logo">
+                    <img src="{{ \App\Support\Branding::logoUrlOr(asset('branding/smartbrail-mark.svg')) }}" alt="SmartBrail" class="sidebar-brand-logo">
                     <span class="sidebar-brand-text sidebar-brand-name">{{ \App\Support\Branding::appName() }}</span>
                     <div class="sidebar-brand-sub">Portal {{ ['admin' => 'Admin', 'laboran' => 'Laboran', 'dosen' => 'Dosen'][Auth::user()->role] ?? 'Staf' }}</div>
                 </a>
@@ -1934,7 +1936,7 @@
             </div>
 
             <div class="sidebar-footer">
-                <div class="sidebar-copy">SmartBrail v2.1.0 · by AIOT 2026</div>
+                <div class="sidebar-copy">SmartBrail v2.1.0 · by BRAIL 2026</div>
                 <button type="button" class="sidebar-user" id="sidebarProfileToggle" title="Lihat profil singkat">
                     <div class="sidebar-avatar">
                         @if(Auth::user()->profile_photo_url)

@@ -61,10 +61,6 @@ Route::middleware('guest')->group(function () {
     Route::get('/forgot-password', [AuthController::class, 'showAuthPage'])->name('forgot-password');
     Route::post('/forgot-password', [\App\Http\Controllers\PasswordResetLinkController::class, 'sendLink'])
         ->middleware('throttle:6,1')->name('forgot-password.post');
-    Route::get('/atur-ulang-password/selesai', [\App\Http\Controllers\PasswordResetLinkController::class, 'done'])->name('password.reset.done');
-    Route::get('/atur-ulang-password/{token}', [\App\Http\Controllers\PasswordResetLinkController::class, 'showForm'])->name('password.reset.form');
-    Route::post('/atur-ulang-password', [\App\Http\Controllers\PasswordResetLinkController::class, 'update'])
-        ->middleware('throttle:10,1')->name('password.reset.update');
     Route::get('/verify-otp', [AuthController::class, 'showAuthPage'])->name('verify-otp');
     Route::post('/verify-otp', [OTPController::class, 'verifyOtp'])->middleware('throttle:10,1')->name('verify-otp.post');
     Route::post('/resend-otp', [OTPController::class, 'resendOtp'])->middleware('throttle:5,1')->name('resend-otp.post');
@@ -72,6 +68,13 @@ Route::middleware('guest')->group(function () {
     Route::post('/reset-password', [OTPController::class, 'resetPassword'])->middleware('throttle:10,1')->name('reset-password.post');
     Route::post('/cancel-password-reset', [OTPController::class, 'cancelPasswordReset'])->middleware('throttle:10,1')->name('cancel-password-reset.post');
 });
+
+// Link atur ulang password dari email — token menjadi kredensialnya, jadi tetap
+// bisa diakses walau pengguna sedang login (jangan di dalam grup 'guest').
+Route::get('/atur-ulang-password/selesai', [\App\Http\Controllers\PasswordResetLinkController::class, 'done'])->name('password.reset.done');
+Route::get('/atur-ulang-password/{token}', [\App\Http\Controllers\PasswordResetLinkController::class, 'showForm'])->name('password.reset.form');
+Route::post('/atur-ulang-password', [\App\Http\Controllers\PasswordResetLinkController::class, 'update'])
+    ->middleware('throttle:10,1')->name('password.reset.update');
 
 // Aktivasi mandiri akun hasil import — tidak membuat sesi login; tetap terbuka saat registrasi ditutup.
 Route::prefix('aktivasi')->group(function () {

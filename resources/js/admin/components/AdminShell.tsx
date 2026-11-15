@@ -522,7 +522,7 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
         return () => clearInterval(t);
     }, []);
 
-    const logoSrc = branding?.logo_url || asset('branding/smartbrail-logo.png');
+    const logoSrc = branding?.logo_url || asset('branding/smartbrail-mark.svg');
     const appName = branding?.app_name || 'SmartBrail';
     const { theme, toggle } = useTheme();
     const [navOpen, setNavOpen] = useState(false);
@@ -577,7 +577,7 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
             <div className="ad-overlay" onClick={() => setNavOpen(false)} aria-hidden="true" />
             <aside className="ad-sidebar">
                 <div className="ad-sidebar__brand">
-                    <img src={logoSrc} alt={appName} className="ad-sidebar__logo" />
+                    <img src={logoSrc} alt={appName} className="ad-sidebar__logo ring-1 ring-white/15 shadow-[0_6px_18px_-4px_rgba(37,99,235,0.55)]" />
                     <div className="ad-sidebar__brand-txt">
                         <span className="ad-sidebar__brand-name">{appName}</span>
                         <div className="ad-sidebar__brand-sub">Portal {{ admin: 'Admin', laboran: 'Laboran', dosen: 'Dosen' }[user?.role ?? ''] ?? 'Staf'}</div>
@@ -602,7 +602,7 @@ export function AdminShell({ menu, notif, title, subtitle, actions, children }: 
                     ))}
                 </nav>
                 <CampusArt />
-                <div className="ad-sidebar__copy">SmartBrail v2.1.0 · by AIOT 2026</div>
+                <div className="ad-sidebar__copy">SmartBrail v2.1.0 · by BRAIL 2026</div>
                 <UserMenu user={user} onLogout={logout} logoutBusy={logoutBusy} />
                 <button type="button" className="ad-sidebar__logout" onClick={logout} disabled={logoutBusy}>
                     <LogOut style={{ width: 15, height: 15 }} /> <span>Logout</span>

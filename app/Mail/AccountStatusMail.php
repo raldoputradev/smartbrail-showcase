@@ -20,8 +20,8 @@ class AccountStatusMail extends Mailable
     {
         $approved = $this->status === 'approved';
         $subject = $approved
-            ? 'AIoT SIMALAS — Akun Anda Disetujui'
-            : 'AIoT SIMALAS — Status Pendaftaran Akun';
+            ? 'SmartBrail — Akun Anda Disetujui'
+            : 'SmartBrail — Status Pendaftaran Akun';
 
         $data = [
             'user' => $this->user,
@@ -30,7 +30,7 @@ class AccountStatusMail extends Mailable
             'namaLengkap' => $this->user->nama_lengkap,
             'headline' => $approved ? 'Akun Disetujui' : 'Pendaftaran Ditolak',
             'subtitle' => $approved
-                ? 'Anda sudah bisa login ke SIMALAS'
+                ? 'Anda sudah bisa login ke SmartBrail'
                 : 'Pendaftaran akun tidak disetujui admin',
             'loginHint' => $this->loginHint(),
             'sentAt' => now()->format('d M Y, H:i:s'),
@@ -42,17 +42,17 @@ class AccountStatusMail extends Mailable
             ->text('emails.account_status_text', $data)
             ->withSymfonyMessage(function ($message) {
                 $headers = $message->getHeaders();
-                $headers->addTextHeader('X-SIMALAS-Mail-Type', 'account_status_' . $this->status);
-                $headers->addTextHeader('X-Mailer', 'AIoT SIMALAS');
+                $headers->addTextHeader('X-SmartBrail-Mail-Type', 'account_status_' . $this->status);
+                $headers->addTextHeader('X-Mailer', 'SmartBrail');
             });
     }
 
     private function loginHint(): string
     {
         return match ($this->user->role) {
-            'mahasiswa' => 'Buka aplikasi mobile AIoT SIMALAS dan login dengan email serta kata sandi Anda.',
-            'dosen' => 'Buka panel web dosen SIMALAS dan login dengan email serta kata sandi Anda.',
-            default => 'Login ke SIMALAS dengan email dan kata sandi Anda.',
+            'mahasiswa' => 'Buka aplikasi mobile SmartBrail dan login dengan email serta kata sandi Anda.',
+            'dosen' => 'Buka panel web dosen SmartBrail dan login dengan email serta kata sandi Anda.',
+            default => 'Login ke SmartBrail dengan email dan kata sandi Anda.',
         };
     }
 }

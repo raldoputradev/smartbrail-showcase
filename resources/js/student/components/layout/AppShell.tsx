@@ -371,7 +371,7 @@ const navGroups = [navRuangan, navBantuan, navSegera];
 function Sidebar({ rail, onNavigate }: { rail: boolean; onNavigate?: () => void }) {
     const { branding } = usePage<SharedProps>().props;
     const { url } = usePage();
-    const brandLogo = branding?.logo_url || asset('branding/smartbrail-logo.jpg');
+    const brandLogo = branding?.logo_url || asset('branding/smartbrail-mark.svg');
     const appName = branding?.app_name || 'SmartBrail';
     // Satu grup terbuka dalam satu waktu; grup aktif mengikuti URL.
     const [openGroup, setOpenGroup] = useState<string | null>(() =>
@@ -395,7 +395,7 @@ function Sidebar({ rail, onNavigate }: { rail: boolean; onNavigate?: () => void 
             aria-label="Navigasi portal mahasiswa"
         >
             <div className="flex items-center gap-2.5 px-4 py-4">
-                <img src={brandLogo} alt="" className="h-9 w-9 rounded-[10px] object-cover" />
+                <img src={brandLogo} alt="" className="h-9 w-9 rounded-[12px] object-cover ring-1 ring-white/15 shadow-[0_6px_18px_-4px_rgba(37,99,235,0.55)]" />
                 {!rail && (
                     <span className="leading-tight">
                         <strong className="block text-[15px] font-extrabold italic tracking-wide bg-gradient-to-r from-sky-300 via-sky-400 to-blue-600 bg-clip-text text-transparent">{appName}</strong>
@@ -459,7 +459,7 @@ function Sidebar({ rail, onNavigate }: { rail: boolean; onNavigate?: () => void 
             {/* Footer sidebar — strip paling bawah di bawah ilustrasi gedung */}
             {!rail && (
                 <div className="absolute inset-x-0 bottom-0 flex h-8 items-center justify-center border-t border-white/10 bg-sb-navy/80 text-[10.5px] font-medium tracking-wide text-sb-sidebar-muted backdrop-blur-sm">
-                    by AIOT SmartBrail 2026
+                    by BRAIL · SmartBrail 2026
                 </div>
             )}
         </aside>

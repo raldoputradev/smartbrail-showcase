@@ -34,11 +34,11 @@ class OtpMail extends Mailable
     public function build(): static
     {
         $subject = match ($this->tipe) {
-            'password_reset' => 'AIoT SIMALAS — Kode OTP Reset Kata Sandi',
-            'resend'         => 'AIoT SIMALAS — Kode Verifikasi Baru',
-            'registration'   => 'AIoT SIMALAS — Verifikasi Email Registrasi',
-            'account_verify' => 'AIoT SIMALAS — Verifikasi Email Akun',
-            default          => 'AIoT SIMALAS — Kode Verifikasi',
+            'password_reset' => 'SmartBrail — Kode OTP Reset Kata Sandi',
+            'resend'         => 'SmartBrail — Kode Verifikasi Baru',
+            'registration'   => 'SmartBrail — Verifikasi Email Registrasi',
+            'account_verify' => 'SmartBrail — Verifikasi Email Akun',
+            default          => 'SmartBrail — Kode Verifikasi',
         };
 
         $data = $this->getViewData();
@@ -50,15 +50,15 @@ class OtpMail extends Mailable
                      ->text('emails.otp_text', $data)
                      ->withSymfonyMessage(function ($message) use ($tipe, $otpCode) {
                          $headers = $message->getHeaders();
-                         $headers->addTextHeader('X-SIMALAS-Mail-Type', $tipe);
-                         $headers->addTextHeader('X-Mailer', 'AIoT SIMALAS');
+                         $headers->addTextHeader('X-SmartBrail-Mail-Type', $tipe);
+                         $headers->addTextHeader('X-Mailer', 'SmartBrail');
                          $domain = parse_url((string) config('app.url'), PHP_URL_HOST) ?: 'simalas.local';
                          $unique = bin2hex(random_bytes(8)) . '.' . substr(sha1($otpCode . microtime(true)), 0, 12);
                          try {
                              $headers->remove('Message-ID');
                              $headers->addIdHeader('Message-ID', $unique . '@' . $domain);
                          } catch (\Throwable $e) {
-                             $headers->addTextHeader('X-SIMALAS-Ref', $unique);
+                             $headers->addTextHeader('X-SmartBrail-Ref', $unique);
                          }
                      });
     }
@@ -125,7 +125,7 @@ class OtpMail extends Mailable
     {
         return match ($this->tipe) {
             'password_reset' => 'Terima kasih. Gunakan kode verifikasi (OTP) berikut untuk melanjutkan proses penggantian kata sandi akun Anda:',
-            'registration', 'resend', 'account_verify' => 'Terima kasih telah mendaftar di AIoT SIMALAS. Gunakan kode verifikasi (OTP) berikut untuk menyelesaikan proses registrasi akun Anda:',
+            'registration', 'resend', 'account_verify' => 'Terima kasih telah mendaftar di SmartBrail. Gunakan kode verifikasi (OTP) berikut untuk menyelesaikan proses registrasi akun Anda:',
             default => 'Gunakan kode verifikasi (OTP) berikut untuk melanjutkan:',
         };
     }
@@ -147,7 +147,7 @@ class OtpMail extends Mailable
     {
         return match ($this->tipe) {
             'password_reset' => 'Apabila Anda tidak mengajukan permintaan reset kata sandi, abaikan email ini. Jangan bagikan kode OTP kepada siapa pun.',
-            'registration', 'resend', 'account_verify' => 'Apabila Anda tidak melakukan pendaftaran di AIoT SIMALAS, abaikan email ini. Jangan bagikan kode OTP kepada siapa pun demi keamanan akun Anda.',
+            'registration', 'resend', 'account_verify' => 'Apabila Anda tidak melakukan pendaftaran di SmartBrail, abaikan email ini. Jangan bagikan kode OTP kepada siapa pun demi keamanan akun Anda.',
             default => 'Jangan bagikan kode OTP kepada siapa pun.',
         };
     }

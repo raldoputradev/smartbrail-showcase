@@ -26,13 +26,13 @@ class PasswordResetLinkMail extends Mailable
             'refCode' => strtoupper(substr(sha1($this->resetUrl . microtime(true)), 0, 8)),
         ];
 
-        return $this->subject('AIoT SIMALAS — Atur Ulang Password Akun Anda')
+        return $this->subject('SmartBrail — Atur Ulang Password Akun Anda')
             ->view('emails.reset_link_html', $data)
             ->text('emails.reset_link_text', $data)
             ->withSymfonyMessage(function ($message) {
                 $headers = $message->getHeaders();
-                $headers->addTextHeader('X-SIMALAS-Mail-Type', 'password_reset_link');
-                $headers->addTextHeader('X-Mailer', 'AIoT SIMALAS');
+                $headers->addTextHeader('X-SmartBrail-Mail-Type', 'password_reset_link');
+                $headers->addTextHeader('X-Mailer', 'SmartBrail');
             });
     }
 }

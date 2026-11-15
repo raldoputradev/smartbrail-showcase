@@ -1,4 +1,4 @@
-AIoT SIMALAS — {{ $headline }}@if(!empty($isResend)) [PENGIRIMAN ULANG]@endif
+SmartBrail — {{ $headline }}@if(!empty($isResend)) [PENGIRIMAN ULANG]@endif
 
 Yth. {{ $namaLengkap }},
 
@@ -19,7 +19,7 @@ Lanjutkan verifikasi di browser:
 @if(!empty($mobileResumeHint))
 
 Melanjutkan di aplikasi mobile:
-Buka AIoT SIMALAS Mobile > tab Daftar > "Lanjutkan verifikasi OTP", masukkan email ini, lalu ketik kode OTP di atas.
+Buka SmartBrail Mobile > tab Daftar > "Lanjutkan verifikasi OTP", masukkan email ini, lalu ketik kode OTP di atas.
 @endif
 @if($warning)
 
@@ -29,4 +29,4 @@ Buka AIoT SIMALAS Mobile > tab Daftar > "Lanjutkan verifikasi OTP", masukkan ema
 Dikirim: {{ $sentAt ?? '' }}
 Referensi: {{ $refCode ?? '-' }}
 
-(c) {{ date('Y') }} AIoT SIMALAS — Smart Lab System, Politeknik Negeri Batam
+(c) {{ date('Y') }} SmartBrail — Smart Laboratory System, Politeknik Negeri Batam
