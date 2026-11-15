@@ -46,20 +46,31 @@ npm install
 
 Kalau `composer install` gagal soal versi PHP, lihat Troubleshooting #1.
 
-## 4. File `.env`
+## 4. Paket privat dari ketua tim (minta via WA/email — JANGAN di-commit)
 
-`.env` **tidak ada di repo** (sengaja, berisi rahasia). Dua sumber:
+Tiga hal ini tidak ada di repo dan wajib diminta ke ketua tim:
 
-- Minta file `.env` yang sudah jadi ke **ketua tim** (lewat WA/email — jangan commit), atau
-- `cp .env.example .env` lalu `php artisan key:generate` — tapi fitur yang butuh
-  API key eksternal (Gemini, dst) tidak akan jalan tanpa key asli.
+| Item | Bentuk | Wajib? |
+|---|---|---|
+| `.env` | file | **Ya** — semua kredensial + `APP_KEY` asli |
+| Database | file dump `.sql` | **Ya** — seluruh data aplikasi |
+| `storage/app/` | folder zip (foto/upload PBL, dsb.) | Disarankan — tanpa ini foto lama broken |
+
+> **PENTING — jangan jalankan `php artisan key:generate`** kalau kamu pakai
+> `.env` dari ketua tim. `APP_KEY` asli dipakai untuk mendekripsi data
+> terenkripsi di database (mis. PIN akses ruangan). Key baru = data itu
+> tidak bisa dibaca lagi.
+>
+> Sesuaikan **`APP_URL`** di `.env` dengan nama folder kamu. Contoh clone ke
+> `C:\xampp\htdocs\smartbrail` → `APP_URL=http://localhost/smartbrail/public`.
 
 ## 5. Database
 
 ```bash
-# Buat database kosong di phpMyAdmin (http://localhost/phpmyadmin)
-# lalu import file dump .sql dari ketua tim ke database itu.
-# Sesuaikan DB_* di .env dengan nama database + user MySQL kamu.
+# 1. Buka XAMPP Control Panel → Start Apache + MySQL
+# 2. Buka http://localhost/phpmyadmin → New → buat database (nama bebas)
+# 3. Tab Import → pilih file dump .sql dari ketua tim → Go
+# 4. Sesuaikan DB_DATABASE / DB_USERNAME / DB_PASSWORD di .env
 ```
 
 Alternatif cepat tanpa dump (struktur saja, data kosong):
@@ -72,8 +83,17 @@ php artisan migrate --seed   # hanya kalau diinstruksikan — tanya dulu
 
 ```bash
 npm run build                # compile frontend sekali (wajib pertama kali)
-php artisan serve            # buka http://localhost:8000
+php artisan storage:link     # symlink folder upload — wajib sekali
 ```
+
+Lalu cukup nyalakan **Apache + MySQL di XAMPP** dan buka:
+
+```
+http://localhost/<nama-folder-kamu>/public
+```
+
+(`php artisan serve` di `http://localhost:8000` juga bisa, tapi jalur XAMPP
+di atas sesuai cara tim menjalankannya.)
 
 Untuk development frontend dengan hot-reload:
 
