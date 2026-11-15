@@ -247,6 +247,7 @@ class AccountImportService
                             'nitk_nidn' => $user->nitk_nidn,
                             'nama_lengkap' => $user->nama_lengkap,
                             'role' => $user->role,
+                            'kelas' => (string) ($values['kelas'] ?? ''),
                             'kode' => $issued['code'],
                             'berlaku_sampai' => $issued['expires_at']->format('Y-m-d H:i'),
                         ];
@@ -264,7 +265,7 @@ class AccountImportService
                 }
 
                 $cards[] = $card;
-                $reason = 'Akun dibuat; login pertama memakai password sementara (wajib ganti password). Kendala login dilaporkan ke laboran/dosen.';
+                $reason = 'Akun dibuat; ID login + password sementara ada di file kartu aktivasi (login pertama wajib ganti password). Kendala login dilaporkan ke laboran/dosen.';
 
                 // Tautkan tim hasil import ke proyek PBL yang cocok (nama/kode) → PblTeamMember.
                 if ($createdUser && $createdUser->role === 'mahasiswa' && ($values['tim'] ?? '') !== '') {
@@ -383,9 +384,10 @@ class AccountImportService
                 ['Dilewati otomatis', (string) $t['dilewati']],
                 [],
                 ['Detail per baris ada di sheet BERHASIL_DIBUAT (akun jadi) dan TIDAK_DIBUAT (perlu perhatian).'],
+                ['Laporan ini sengaja TANPA password — ID login + password sementara ada di file kartu-aktivasi-*.xlsx (unduh sekali dari halaman hasil import).'],
             ]],
             ['name' => 'BERHASIL_DIBUAT', 'freeze' => true, 'widths' => [10, 16, 30, 12, 38, 62],
-                'rows' => array_merge([$header], $ok)],
+                'rows' => array_merge([$header], $ok, [[], ['', '', '', '', '', 'Kredensial masuk (ID login + password sementara) ada di file kartu aktivasi, bukan di laporan ini. Kendala login → laporkan ke laboran/dosen.']])],
             ['name' => 'TIDAK_DIBUAT', 'freeze' => true, 'widths' => [10, 16, 30, 12, 38, 62],
                 'rows' => array_merge([$header], $bad)],
         ]);
@@ -400,9 +402,14 @@ class AccountImportService
      */
     public function cardsXlsx(array $cards, array $loginUrls): string
     {
-        $rows = [['ID Login (NIM/NIDN/NITK)', 'Nama Lengkap', 'Role', 'Password Sementara', 'Berlaku Sampai', 'Halaman Login']];
+        usort($cards, fn ($a, $b) =>
+            [(string) ($a['kelas'] ?? ''), (string) $a['nama_lengkap']]
+            <=> [(string) ($b['kelas'] ?? ''), (string) $b['nama_lengkap']]);
+
+        $rows = [['Kelas', 'ID Login (NIM/NIDN/NITK)', 'Nama Lengkap', 'Role', 'Password Sementara', 'Berlaku Sampai', 'Halaman Login']];
         foreach ($cards as $card) {
             $rows[] = [
+                (string) ($card['kelas'] ?? ''),
                 (string) $card['nitk_nidn'],
                 (string) $card['nama_lengkap'],
                 (string) $card['role'],
@@ -413,14 +420,15 @@ class AccountImportService
         }
 
         return AccountImportTemplate::buildXlsx([
-            ['name' => 'PETUNJUK', 'widths' => [110], 'rows' => [
-                ['KARTU AKTIVASI SMARTBRAIL — RAHASIA, bagikan hanya ke pemilik akun masing-masing.'],
+            ['name' => 'PETUNJUK', 'widths' => [115], 'rows' => [
+                ['KARTU AKTIVASI SMARTBRAIL — memuat password sementara semua akun; bagikan hanya baris milik masing-masing pengguna (boleh dipilah per kelas).'],
                 [],
-                ['Satu baris = satu pengguna. Kirimkan ID Login + Password Sementara + Halaman Login ke orangnya.'],
+                ['Cara pakai: satu baris = satu pengguna. Sampaikan ID Login + Password Sementara + Halaman Login ke orangnya.'],
                 ['Pengguna login dengan password sementara lalu WAJIB mengganti password sendiri.'],
+                ['Kendala login (lupa/salah/gagal masuk): laporkan ke laboran/dosen/admin pengelola dengan menyebut ID Login dan pesan errornya.'],
                 ['Kode tidak ditampilkan lagi setelah file ini; simpan baik-baik atau buat ulang per akun dari menu Data Pengguna.'],
             ]],
-            ['name' => 'KARTU_AKTIVASI', 'freeze' => true, 'widths' => [24, 32, 12, 22, 20, 50], 'rows' => $rows],
+            ['name' => 'KARTU_AKTIVASI', 'freeze' => true, 'widths' => [14, 24, 32, 12, 22, 20, 50], 'rows' => $rows],
         ]);
     }
 
