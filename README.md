@@ -80,16 +80,18 @@ SmartBrail adalah platform operasional laboratorium yang menyatukan **hardware I
       <img src=".github/screenshots/student-dashboard-ai.png" alt="Portal Mahasiswa & Chatbot"><br>
       <sub><b>Portal Mahasiswa + Chatbot</b> — beranda, jadwal, dan asisten bawaan</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" align="center">
       <img src=".github/screenshots/student-room-request.jpg" alt="Ajukan Ruangan"><br>
       <sub><b>Ajukan Ruangan</b> — pilih jadwal & peserta tim, ajukan ke laboran</sub>
     </td>
-  </tr>
-  <tr>
     <td width="50%" align="center">
       <img src=".github/screenshots/student-room-history.jpg" alt="Riwayat Pengajuan"><br>
       <sub><b>Riwayat Pengajuan</b> — status keputusan laboran secara real-time</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" align="center">
       <img src=".github/screenshots/login-desktop.png" alt="Halaman Login"><br>
       <sub><b>Login Multi-peran</b> — admin, laboran, dosen, dan mahasiswa</sub>
