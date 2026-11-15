@@ -789,6 +789,44 @@ class AccountImportService
             $rows[$i]['reason'] = "{$who}; data tidak diubah.";
             $rows[$i]['values'] = [];
         }
+
+        // Peringatan nama sama + identitas beda — kemungkinan salah ketik NIM/NIDN.
+        // Tidak memblokir (nama kembar itu sah), hanya menandai agar admin memeriksa.
+        if ($type !== 'petugas') {
+            $names = [];
+            foreach ($rows as $row) {
+                if ($row['status'] === 'siap') {
+                    $n = mb_strtolower(trim($row['nama'] ?? ''));
+                    if ($n !== '') {
+                        $names[] = $n;
+                    }
+                }
+            }
+            if ($names !== []) {
+                $sameName = [];
+                foreach (array_chunk(array_unique($names), 500) as $chunk) {
+                    $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                    foreach (User::query()->whereRaw("LOWER(nama_lengkap) IN ({$placeholders})", $chunk)->get(['nitk_nidn', 'nama_lengkap', 'role']) as $u) {
+                        $sameName[mb_strtolower($u->nama_lengkap)][] = $u;
+                    }
+                }
+                foreach ($rows as $i => $row) {
+                    if ($row['status'] !== 'siap') {
+                        continue;
+                    }
+                    $idKey = mb_strtolower($row['identifier'] ?? '');
+                    $others = array_filter(
+                        $sameName[mb_strtolower(trim($row['nama'] ?? ''))] ?? [],
+                        fn ($u) => mb_strtolower($u->nitk_nidn) !== $idKey
+                    );
+                    if ($others === []) {
+                        continue;
+                    }
+                    $list = implode(', ', array_map(fn ($u) => "{$u->nitk_nidn} ({$u->role})", $others));
+                    $rows[$i]['reason'] .= " PERINGATAN: nama yang sama sudah terdaftar dengan identitas berbeda ({$list}) — pastikan bukan orang yang sama sebelum lanjut.";
+                }
+            }
+        }
     }
 
     private function userAttributes(string $type, array $values): array
