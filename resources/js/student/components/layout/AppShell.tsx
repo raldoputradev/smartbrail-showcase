@@ -161,7 +161,7 @@ function NotificationsBell() {
                     )}
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[330px]">
+            <DropdownMenuContent align="end" className="w-[330px] max-w-[calc(100vw-20px)]">
                 <div className="px-3 py-2 text-[12.5px] font-bold">Notifikasi</div>
                 <DropdownMenuSeparator />
                 <div className="max-h-[320px] overflow-y-auto sb-scroll">

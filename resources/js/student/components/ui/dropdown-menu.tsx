@@ -13,6 +13,7 @@ export function DropdownMenuContent({
         <DropdownMenuPrimitive.Portal>
             <DropdownMenuPrimitive.Content
                 sideOffset={sideOffset}
+                collisionPadding={10}
                 className={cn(
                     'z-50 min-w-[180px] overflow-hidden rounded-[12px] border border-sb-border bg-sb-surface p-1.5 shadow-sb-pop data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
                     className,
