@@ -32,8 +32,11 @@ class PasswordResetLinkController extends Controller
 
         $request->validate([
             'identifier' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ], [
-            'identifier.required' => 'Masukkan NIM atau email terdaftar Anda.',
+            'identifier.required' => 'Masukkan NIM atau username akun Anda.',
+            'email.required' => 'Masukkan email yang terikat pada akun.',
+            'email.email' => 'Format email tidak valid.',
         ]);
 
         if ($redirect = $this->validateRecaptcha($request, 'forgot')) {
@@ -41,11 +44,22 @@ class PasswordResetLinkController extends Controller
         }
 
         $identifier = trim((string) $request->input('identifier'));
+        $email = AccountEmailVerification::normalizeEmail((string) $request->input('email'));
         $user = $this->findByIdentifier($identifier);
 
-        // Cooldown 60 detik per email akun (tidak bocorkan keberadaan akun).
-        if ($user && filled($user->email)) {
-            $email = AccountEmailVerification::normalizeEmail($user->email);
+        // Pasangan identitas + email harus cocok. Satu pesan untuk semua
+        // kegagalan agar tidak menunjukkan bagian mana yang salah.
+        $pairMatch = $user && filled($user->email)
+            && AccountEmailVerification::normalizeEmail((string) $user->email) === $email;
+
+        if (! $pairMatch) {
+            return back()
+                ->withErrors(['email' => 'NIM/username dan email tidak cocok dengan akun mana pun. Periksa kembali keduanya.'])
+                ->withInput($request->only('identifier', 'email'));
+        }
+
+        // Cooldown 60 detik per email akun.
+        {
             $lastToken = DB::table('email_verification_tokens')
                 ->whereRaw('LOWER(email) = ?', [$email])
                 ->where('type', PasswordResetLink::TYPE)
@@ -71,7 +85,7 @@ class PasswordResetLinkController extends Controller
         return redirect()->route('login')
             ->with('auth_panel', 'forgot')
             ->with('reset_link_sent', true)
-            ->with('success', 'Jika akun Anda terdaftar dan memiliki email terikat, tautan "Atur Ulang Password" sudah dikirim ke email tersebut. Jika akun Anda belum memiliki email, minta bantuan admin/laboran.');
+            ->with('success', 'Tautan "Atur Ulang Password" sudah dikirim ke email yang terikat pada akun Anda. Periksa kotak masuk (dan folder spam).');
     }
 
     /** GET /atur-ulang-password/{token} — halaman khusus password baru + konfirmasi. */

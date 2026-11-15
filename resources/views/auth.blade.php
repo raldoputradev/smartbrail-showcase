@@ -263,7 +263,7 @@
                     <div class="card-header card-header--plain">
                         <div class="card-header-text">
                             <h2 data-id="Lupa Password" data-en="Forgot Password">Lupa Password</h2>
-                            <p data-id="Masukkan NIM atau email terdaftar. Tautan Atur Ulang Password dikirim ke email yang terikat pada akun Anda." data-en="Enter your NIM or registered email. A reset link is sent to the email bound to your account.">Masukkan NIM atau email terdaftar. Tautan "Atur Ulang Password" dikirim ke email yang terikat pada akun Anda.</p>
+                            <p data-id="Masukkan NIM/username dan email yang terikat pada akun Anda. Tautan Atur Ulang Password hanya dikirim bila keduanya cocok." data-en="Enter your student ID/username and the email bound to your account. The reset link is only sent if both match.">Masukkan NIM/username dan email yang terikat pada akun Anda. Tautan "Atur Ulang Password" hanya dikirim bila keduanya cocok.</p>
                         </div>
                     </div>
                     @if(session('reset_link_sent'))
@@ -272,12 +272,22 @@
                     <form method="POST" action="{{ route('forgot-password.post') }}">
                         @csrf
                         <div class="form-group">
-                            <label class="form-label" data-id="NIM atau Email" data-en="NIM or Email">NIM atau Email</label>
+                            <label class="form-label" data-id="NIM / Username" data-en="ID / Username">NIM / Username</label>
                             <input type="text" name="identifier" class="form-input"
-                                placeholder="NIM atau email terdaftar"
-                                data-id-placeholder="NIM atau email terdaftar"
-                                data-en-placeholder="NIM or registered email" value="{{ old('identifier') }}" required autocomplete="username" maxlength="255">
+                                placeholder="NIM atau username akun"
+                                data-id-placeholder="NIM atau username akun"
+                                data-en-placeholder="Student ID or account username" value="{{ old('identifier') }}" required autocomplete="username" maxlength="255">
                             @error('identifier')
+                                <p class="form-error">{{ $message }}</p>
+                            @enderror
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" data-id="Email Terdaftar" data-en="Registered Email">Email Terdaftar</label>
+                            <input type="email" name="email" class="form-input"
+                                placeholder="Email yang terikat pada akun"
+                                data-id-placeholder="Email yang terikat pada akun"
+                                data-en-placeholder="Email bound to the account" value="{{ old('email') }}" required autocomplete="email" maxlength="255">
+                            @error('email')
                                 <p class="form-error">{{ $message }}</p>
                             @enderror
                         </div>
@@ -341,16 +351,16 @@
 
             window.simalasI18n = {
                 id: {
-                    confirmForgotTitle:  'Kirim Kode OTP?',
-                    confirmForgotText:   'Kode OTP akan dikirim ke email yang Anda masukkan.',
-                    confirmForgotBtn:    'Ya, Kirim OTP',
+                    confirmForgotTitle:  'Kirim Tautan Reset?',
+                    confirmForgotText:   'Tautan atur ulang password dikirim ke email Anda bila NIM/username dan email cocok.',
+                    confirmForgotBtn:    'Ya, Kirim Tautan',
                     confirmResetTitle:   'Simpan Password Baru?',
                     confirmResetText:    'Password Anda akan diubah. Pastikan Anda mengingat password baru.',
                     confirmResetBtn:     'Ya, Simpan',
                     cancel:              'Batal',
                     successTitle:        'Berhasil!',
                     errorTitle:          'Oops!',
-                    loaderOtp:           'Mengirim kode OTP',
+                    loaderOtp:           'Memeriksa akun & mengirim tautan',
                     loaderReset:         'Menyimpan password',
                     loginLabelMhs:       'NIM',
                     loginPhMhs:          'Masukkan NIM',
@@ -363,16 +373,16 @@
                     loginHintLab:        'Akses portal admin laboran: manajemen pengguna, perangkat, dan absensi.',
                 },
                 en: {
-                    confirmForgotTitle:  'Send OTP Code?',
-                    confirmForgotText:   'An OTP code will be sent to the email you entered.',
-                    confirmForgotBtn:    'Yes, Send OTP',
+                    confirmForgotTitle:  'Send Reset Link?',
+                    confirmForgotText:   'A password reset link is sent to your email if the ID and email match.',
+                    confirmForgotBtn:    'Yes, Send Link',
                     confirmResetTitle:   'Save New Password?',
                     confirmResetText:    'Your password will be changed. Make sure to remember it.',
                     confirmResetBtn:     'Yes, Save',
                     cancel:              'Cancel',
                     successTitle:        'Success!',
                     errorTitle:          'Oops!',
-                    loaderOtp:           'Sending OTP code',
+                    loaderOtp:           'Checking account & sending link',
                     loaderReset:         'Saving password',
                     loginLabelMhs:       'Student ID (NIM)',
                     loginPhMhs:          'Enter NIM',
