@@ -132,6 +132,13 @@ Route::middleware(['auth', 'approved', 'no.back'])->group(function () {
     Route::post('/profile/password/reset-link', [\App\Http\Controllers\PasswordResetLinkController::class, 'sendLinkForSelf'])
         ->middleware('throttle:5,1')->name('profile.password.reset-link');
 
+    // Web Push (VAPID) — subscribe/unsubscribe notifikasi browser, semua role.
+    Route::prefix('push')->group(function () {
+        Route::get('/vapid-key', [\App\Http\Controllers\PushSubscriptionController::class, 'vapidKey'])->name('push.vapid');
+        Route::post('/subscribe', [\App\Http\Controllers\PushSubscriptionController::class, 'store'])->name('push.subscribe');
+        Route::post('/unsubscribe', [\App\Http\Controllers\PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
+    });
+
     // Notifikasi pengumuman (admin / dosen)
     Route::prefix('notifications')->group(function () {
         Route::get('/feed', [NotificationController::class, 'feed'])->name('notifications.feed');

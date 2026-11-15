@@ -1444,3 +1444,14 @@ perm ai_assistant,view): upload staged JPG/PNG/WebP + TXT/MD/CSV/LOG maks 4MB ke
 - LandingController: logoMark→brail-mark.png, logoLockup→Branding::logoUrl(), statistik mesin difilter tipe!=loker. HelpdeskAiService: semua teks brand → SmartBrail + jawaban portal mahasiswa web diperbarui.
 - Popup sukses auto-dismiss 4,5dtk: dialog pengajuan mahasiswa (RoomRequest) + modal hasil aksi admin (PengajuanRuangan).
 - Verifikasi: tsc 0 error, build ✓, view:cache OK, GET / → 200 konten SmartBrail.
+
+## 2026-11-15 — Web Push (VAPID) semua role
+
+- Paket `minishlink/web-push` v11; konfigurasi `services.webpush` dari env `VAPID_SUBJECT/PUBLIC_KEY/PRIVATE_KEY` (private key hanya di `.env` server).
+- Tabel `push_subscriptions` (user_id, endpoint unik, keys p256dh/auth, encoding, user_agent).
+- Endpoint auth `/push/vapid-key`, `/push/subscribe`, `/push/unsubscribe` — semua role.
+- `App\Services\WebPushService::sendToUsers()` fail-soft; subscription 404/410 dihapus.
+- Dipanggil dari: `RuanganBookingService::siarkan` (pemohon+peserta; staf saat status `diajukan`), `AnnouncementObserver` (pengumuman), `SuggestionController::pushSuggestionReply`, `StudentPortalController` saran baru → staf.
+- Service worker `public/sw-push.js`; helper `public/js/webpush.js` (window.SbPush).
+- UI toggle: `partials/push-toggle.blade.php` (halaman notifikasi mahasiswa + dosen), komponen `PushToggle` React di `AntrianNotifikasi` (admin/laboran).
+- Belum diverifikasi end-to-end di browser; VAPID key produksi diisi saat deploy.

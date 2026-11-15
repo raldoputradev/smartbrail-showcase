@@ -59,6 +59,13 @@ class AnnouncementObserver
             'type' => $this->pushType($announcement),
             'announcement_id' => (string) $announcement->id,
         ]);
+
+        app(\App\Services\WebPushService::class)->sendToUsers($userIds, [
+            'title' => $title,
+            'body' => $body,
+            'url' => '/mahasiswa/notifikasi',
+            'tag' => 'pengumuman-' . $announcement->id,
+        ]);
     }
 
     /**

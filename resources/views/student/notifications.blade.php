@@ -19,6 +19,8 @@
             </div>
         </header>
 
+        @include('partials.push-toggle')
+
         {{-- Filter Tabs & Tandai Semua Dibaca --}}
         <div class="sp-notif-filter-bar">
             <div class="sp-notif-tabs" role="tablist">

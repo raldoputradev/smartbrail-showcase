@@ -343,8 +343,19 @@ class SuggestionController extends Controller
 
     private function pushSuggestionReply(Suggestion $suggestion, string $reply): void
     {
+        if (! $suggestion->user_id) {
+            return;
+        }
+
+        app(\App\Services\WebPushService::class)->sendToUsers([$suggestion->user_id], [
+            'title' => 'Balasan Admin Laboran',
+            'body' => Str::limit('Re: ' . ($suggestion->subjek ?: 'Laporan Anda') . ' — "' . trim(strip_tags($reply)) . '"', 120),
+            'url' => '/mahasiswa/notifikasi',
+            'tag' => 'saran-' . $suggestion->id,
+        ]);
+
         $push = app(MobilePushService::class);
-        if (! $push->isConfigured() || ! $suggestion->user_id) {
+        if (! $push->isConfigured()) {
             return;
         }
 

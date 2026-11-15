@@ -9,6 +9,8 @@
 @endsection
 
 @section('content')
+    @include('partials.push-toggle')
+
     <div class="card animate-in">
         <div class="card-body" style="display:grid;gap:12px;">
             @forelse($opsItems as $item)

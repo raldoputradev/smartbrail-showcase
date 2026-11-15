@@ -915,6 +915,21 @@ class StudentPortalController extends Controller
             // Broadcast opsional.
         }
 
+        try {
+            $staffIds = \App\Models\User::query()
+                ->whereIn('role', ['laboran', 'admin'])
+                ->where('is_active', true)
+                ->pluck('id');
+            app(\App\Services\WebPushService::class)->sendToUsers($staffIds, [
+                'title' => 'Saran & masukan baru',
+                'body' => 'Laporan ' . '#' . $suggestion->id . ' dari ' . ($request->user()->nama_lengkap ?? 'mahasiswa') . ' menunggu tinjauan.',
+                'url' => route('admin.suggestions.index', ['status' => 'baru']),
+                'tag' => 'saran-baru-' . $suggestion->id,
+            ]);
+        } catch (\Throwable $e) {
+            // Web push opsional.
+        }
+
         $ticketRef = '#' . $suggestion->id;
         $msg = "Laporan/saran {$ticketRef} berhasil dikirim ke Admin Laboran.";
 

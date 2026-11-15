@@ -5,6 +5,7 @@ import {
     Eye, Filter, HelpCircle, Hourglass, Layers, Search, Send, X,
 } from 'lucide-react';
 import { AdminShell } from '@admin/components/AdminShell';
+import { PushToggle } from '@admin/components/PushToggle';
 import { asset } from '@admin/lib/asset';
 import { cn } from '@admin/lib/utils';
 import type { AntrianNotifikasiProps, NotifQueueItem, SharedProps } from '@admin/types';
@@ -93,6 +94,8 @@ export default function AntrianNotifikasi(props: AntrianNotifikasiProps) {
                     </div>
                 ))}
             </section>
+
+            <PushToggle />
 
             <div className="ad-nq-tabrow">
                 <div className="ad-rg-tabs">

@@ -603,6 +603,37 @@ class RuanganBookingService
         } catch (\Throwable $e) {
             Log::warning('Broadcast pengajuan ruangan gagal', ['id' => $p->id, 'error' => $e->getMessage()]);
         }
+
+        try {
+            [$judul, $isi] = match ($p->status) {
+                RuanganPengajuan::STATUS_DISETUJUI => ['Pengajuan ruangan disetujui', ($p->ruangan?->nama ?? 'Ruangan') . ' · ' . $p->tanggal?->format('d M Y') . ' ' . substr((string) $p->jam_mulai, 0, 5) . '–' . substr((string) $p->jam_selesai, 0, 5) . ' — sudah bisa dipakai.'],
+                RuanganPengajuan::STATUS_DITOLAK => ['Pengajuan ruangan ditolak', ($p->ruangan?->nama ?? 'Ruangan') . ($p->alasan_keputusan ? ' — ' . Str::limit($p->alasan_keputusan, 80) : '')],
+                RuanganPengajuan::STATUS_DIBATALKAN => ['Persetujuan ruangan dicabut', ($p->ruangan?->nama ?? 'Ruangan') . ($p->alasan_keputusan ? ' — ' . Str::limit($p->alasan_keputusan, 80) : '')],
+                default => ['Pengajuan ruangan diperbarui', ($p->ruangan?->nama ?? 'Ruangan') . ' — status: ' . $p->status],
+            };
+            app(\App\Services\WebPushService::class)->sendToUsers($penerima, [
+                'title' => $judul,
+                'body' => $isi,
+                'url' => '/mahasiswa/ruangan',
+                'tag' => 'ruangan-' . $p->id,
+            ]);
+
+            // Pengajuan baru → kabari staf (laboran + admin) agar cepat ditinjau.
+            if ($p->status === RuanganPengajuan::STATUS_DIAJUKAN) {
+                $staffIds = User::query()
+                    ->whereIn('role', ['laboran', 'admin'])
+                    ->where('is_active', true)
+                    ->pluck('id');
+                app(\App\Services\WebPushService::class)->sendToUsers($staffIds, [
+                    'title' => 'Pengajuan ruangan baru',
+                    'body' => ($p->pengaju?->nama_lengkap ?? 'Pemohon') . ' mengajukan ' . ($p->ruangan?->nama ?? 'ruangan') . ' · ' . $p->tanggal?->format('d M Y'),
+                    'url' => route('admin.pengajuan.index'),
+                    'tag' => 'pengajuan-baru-' . $p->id,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WebPush pengajuan ruangan gagal', ['id' => $p->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /** Pastikan slot bebas dari pengajuan disetujui/menunggu-penerimaan lain (di dalam transaksi+lock). */
