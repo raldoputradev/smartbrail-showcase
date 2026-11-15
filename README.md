@@ -145,7 +145,7 @@ public/js,css/  Aset shell Blade & chart
 
 ## Kolaborasi
 
-Repo kerja bersifat **private** — kontribusi melalui fork + pull request (lihat [CONTRIBUTING.md](CONTRIBUTING.md)). Histori commit di repo ini menampilkan progres pengerjaan nyata.
+Repo kerja bersifat **private** — anggota tim ditambahkan sebagai collaborator, lalu berkontribusi melalui branch + pull request (lihat [CONTRIBUTING.md](CONTRIBUTING.md)). Panduan menjalankan proyek di lokal: [SETUP.md](SETUP.md). Histori commit di repo ini menampilkan progres pengerjaan nyata.
 
 ---
 

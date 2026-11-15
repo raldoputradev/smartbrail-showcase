@@ -1,8 +1,8 @@
 # Contributing — SmartBrail
 
 ## Alur kerja
-1. Fork repo ini (private) ke akun Anda.
-2. Buat branch: `feat/nama-fitur` atau `fix/nama-bug`.
+1. Terima undangan **collaborator** dari pemilik repo (repo private tidak bisa di-fork di akun personal).
+2. `git pull origin main`, lalu buat branch: `feat/nama-fitur` atau `fix/nama-bug`. Setup lokal: lihat [SETUP.md](SETUP.md).
 3. Commit dengan prefix: `feat:` / `fix:` / `ui:` / `docs:` / `chore:` — Bahasa Indonesia, singkat.
 4. Buka Pull Request ke `main` milik `raldoputradev/smartbrail`.
 5. Tunggu review & approval pemilik — jangan push langsung ke `main`.
