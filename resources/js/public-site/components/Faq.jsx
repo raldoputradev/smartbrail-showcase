@@ -8,16 +8,16 @@ const FAQS = [
     a: 'Unduh aplikasi mobile, isi data diri & akademik, verifikasi OTP email, lalu tunggu persetujuan admin laboratorium.',
   },
   {
-    q: 'Apakah bisa login di website ini sebagai mahasiswa?',
-    a: 'Tidak. Website publik ini hanya untuk pengenalan project dan unduh APK. Mahasiswa menggunakan aplikasi mobile.',
+    q: 'Apakah mahasiswa punya portal web?',
+    a: 'Ya. Mahasiswa bisa login portal web SmartBrail untuk absensi, jadwal, pengajuan ruangan tim PBL, dan bantuan — selain aplikasi mobile.',
   },
   {
-    q: 'Bagaimana cara instal APK di Android?',
-    a: 'Unduh file APK dari halaman unduh, buka dari notifikasi unduhan, lalu izinkan instalasi dari sumber tidak dikenal jika diminta.',
+    q: 'Apakah aplikasi mobile sudah bisa diunduh?',
+    a: 'Belum — rilis mobile menyusul. Sementara gunakan portal web SmartBrail yang berfungsi penuh di browser HP maupun laptop.',
   },
   {
-    q: 'Di mana dosen dan laboran login?',
-    a: 'Portal web khusus staff (admin/dosen) di URL terpisah yang tidak ditampilkan di halaman publik ini.',
+    q: 'Di mana admin, dosen, dan laboran login?',
+    a: 'Mereka login di portal web SmartBrail yang sama — tampilan dashboard menyesuaikan peran masing-masing.',
   },
   {
     q: 'Berapa lama menunggu persetujuan akun setelah OTP?',
@@ -28,8 +28,8 @@ const FAQS = [
     a: 'Cek folder spam/promosi, pastikan email benar, tunggu 1–2 menit, lalu gunakan tombol kirim ulang OTP di aplikasi.',
   },
   {
-    q: 'Apakah SIMALAS bisa dipakai di iPhone?',
-    a: 'Saat ini hanya tersedia untuk Android. Versi iOS belum dirilis — pantau pengumuman laboratorium.',
+    q: 'Apakah SmartBrail bisa dipakai di iPhone?',
+    a: 'Portal web bisa dibuka di browser mana pun. Aplikasi mobile saat ini Android — versi iOS belum dirilis.',
   },
   {
     q: 'Bagaimana cara enroll sidik jari pertama kali?',
@@ -44,12 +44,16 @@ const FAQS = [
     a: 'Buka aplikasi → Lupa Password → masukkan email → verifikasi OTP → buat password baru.',
   },
   {
+    q: 'Bagaimana cara mahasiswa memakai ruangan lab?',
+    a: 'Melalui tim PBL — ajukan ruangan di portal/app dengan jadwal & peserta. Laboran menyetujui, lalu akses berlaku sesuai jadwal.',
+  },
+  {
     q: 'Apakah data sidik jari aman?',
     a: 'Template sidik jari disimpan terenkripsi di server. Komunikasi mesin ESP32 dilindungi kunci autentikasi perangkat.',
   },
   {
-    q: 'Versi aplikasi bagaimana cara update-nya?',
-    a: 'Unduh APK terbaru dari halaman unduh resmi SIMALAS. Aplikasi juga memberi notifikasi jika ada pembaruan penting.',
+    q: 'Bagaimana cara update aplikasi?',
+    a: 'Unduh APK terbaru dari halaman unduh resmi SmartBrail. Aplikasi juga memberi notifikasi jika ada pembaruan penting.',
   },
 ];
 
@@ -110,7 +114,7 @@ export default function Faq() {
       <div className="mx-auto max-w-6xl px-5 lg:px-8">
         <Reveal>
           <div className="mb-10 text-center lg:text-left">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-400">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400">
               FAQ
             </span>
             <h2 className="mt-3 text-3xl font-extrabold text-slate-900 dark:text-white">
@@ -125,19 +129,19 @@ export default function Faq() {
               <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">Masih ada pertanyaan?</h3>
               <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                 Tim kami siap membantu terkait registrasi, absensi, dan penggunaan aplikasi mobile
-                SIMALAS.
+                SmartBrail.
               </p>
               <div className="mt-5 flex flex-col gap-2.5">
                 <a
                   href="#hubungi"
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-rose-600/20 transition hover:from-rose-500 hover:to-orange-400"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-blue-600/20 transition hover:from-blue-500 hover:to-cyan-400"
                 >
                   Hubungi via Sosmed →
                 </a>
                 <button
                   type="button"
                   onClick={() => window.dispatchEvent(new CustomEvent('simalas:open-helpdesk'))}
-                  className="inline-flex w-full items-center justify-center rounded-xl border-2 border-rose-500 bg-white px-4 py-3 text-sm font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-400 dark:bg-transparent dark:text-rose-300 dark:hover:bg-white/5"
+                  className="inline-flex w-full items-center justify-center rounded-xl border-2 border-blue-500 bg-white px-4 py-3 text-sm font-bold text-blue-600 transition hover:bg-blue-50 dark:border-blue-400 dark:bg-transparent dark:text-blue-300 dark:hover:bg-white/5"
                 >
                   Tanya AI Helpdesk →
                 </button>

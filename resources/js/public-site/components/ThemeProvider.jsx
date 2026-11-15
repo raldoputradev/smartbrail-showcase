@@ -6,7 +6,7 @@ const ThemeContext = createContext({ theme: 'light', toggle: () => {} });
 export function ThemeProvider({ children }) {
   return (
     <ThemeContext.Provider value={{ theme: 'light', toggle: () => {} }}>
-      <div className="min-h-screen bg-gradient-to-b from-orange-50/80 via-rose-50/40 to-slate-100 text-slate-800">
+      <div className="min-h-screen bg-gradient-to-b from-cyan-50/80 via-blue-50/40 to-slate-100 text-slate-800">
         {children}
       </div>
     </ThemeContext.Provider>

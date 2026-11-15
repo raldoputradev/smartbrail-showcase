@@ -2,11 +2,11 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 
 const WORDS = [
-  'AIoT SIMALAS',
-  'Laboratorium Pintar',
+  'SmartBrail',
   'Absensi Biometrik',
-  'Akses Ruangan IoT',
-  'Terintegrasi AIoT',
+  'Akses Ruangan Pintar',
+  'Manajemen PBL',
+  'Portal Multi-Peran',
 ];
 
 const HOLD_MS = 3200;
@@ -69,7 +69,7 @@ function FlipChars({ word, mode }) {
         <motion.span
           key={`${i}-${ch === ' ' ? 'sp' : ch}`}
           variants={letterVariants}
-          className="inline-block bg-gradient-to-r from-rose-600 via-rose-500 to-orange-500 bg-clip-text font-extrabold text-transparent"
+          className="inline-block bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 bg-clip-text font-extrabold text-transparent"
           style={{
             transformOrigin: '50% 58%',
             transformStyle: 'preserve-3d',
@@ -107,7 +107,7 @@ export default function FlipWords() {
 
   if (reduceMotion) {
     return (
-      <span className="mt-1 block bg-gradient-to-r from-rose-600 to-orange-500 bg-clip-text text-transparent">
+      <span className="mt-1 block bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
         {WORDS[0]}
       </span>
     );

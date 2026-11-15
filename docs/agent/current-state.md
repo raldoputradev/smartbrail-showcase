@@ -1435,3 +1435,12 @@ perm ai_assistant,view): upload staged JPG/PNG/WebP + TXT/MD/CSV/LOG maks 4MB ke
 - Identitas git lokal: noreply GitHub. Ruleset protect-main 403 (perlu GitHub Pro untuk private) — proteksi praktis lewat model Fork+PR.
 - CONTRIBUTING.md + .github/pull_request_template.md ditambahkan (aturan fork→PR, prefix commit, larangan secrets).
 - Keputusan lengkap: decisions.md #12.
+
+## Update 2026-11 — GitHub dual-repo + redesain landing publik
+
+- Git baseline: `smartbrail` (private/origin) + `smartbrail-showcase` (public/showcase). gh CLI login `raldoputradev`. CONTRIBUTING + PR template + .gitignore (scripts/ & nul dikecualikan — berisi kredensial produksi). README showcase + galeri 10 screenshot di .github/screenshots/.
+- Catch-up commit menyinkronkan seluruh pekerjaan S7 ke dua repo (baseline awal ternyata snapshot lama).
+- Landing publik (React public-site) di-redesign penuh ke brand SmartBrail: tema rose/orange → biru/cyan; semua teks AIoT SIMALAS → SmartBrail; fokus konten bergeser dari loker+absensi ke absensi biometrik + akses ruangan berbasis izin + PBL + portal multi-peran + notifikasi realtime + asisten AI (FlipWords, Hero, TickerBand, About, Features +icon Users/Sparkle, HowItWorks 10 langkah baru, Faq +portal mahasiswa web, ChatWidget, Navbar/Footer/CtaBanner/TrustBadges/SocialContact/InstallGuide/DownloadPage, meta landing+download blade).
+- LandingController: logoMark→brail-mark.png, logoLockup→Branding::logoUrl(), statistik mesin difilter tipe!=loker. HelpdeskAiService: semua teks brand → SmartBrail + jawaban portal mahasiswa web diperbarui.
+- Popup sukses auto-dismiss 4,5dtk: dialog pengajuan mahasiswa (RoomRequest) + modal hasil aksi admin (PengajuanRuangan).
+- Verifikasi: tsc 0 error, build ✓, view:cache OK, GET / → 200 konten SmartBrail.

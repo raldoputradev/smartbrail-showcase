@@ -17,22 +17,23 @@ export default function LandingPage({
   urls,
   map,
   appVersion,
+  apkAvailable = false,
 }) {
   return (
     <>
-      <Navbar urls={urls} />
+      <Navbar urls={urls} apkAvailable={apkAvailable} />
       <main>
-        <Hero urls={urls} stats={stats} appVersion={appVersion} />
+        <Hero urls={urls} stats={stats} appVersion={appVersion} apkAvailable={apkAvailable} />
         <TickerBand />
         <About />
         <HowItWorks />
         <Features />
         <Faq />
         <Contact map={map} />
-        <CtaBanner urls={urls} />
+        <CtaBanner urls={urls} apkAvailable={apkAvailable} />
       </main>
       <SocialContact />
-      <Footer urls={urls} />
+      <Footer urls={urls} apkAvailable={apkAvailable} />
       <ScrollToTop />
       <ChatWidget urls={urls} />
     </>

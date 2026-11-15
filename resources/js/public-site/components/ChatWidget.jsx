@@ -16,7 +16,7 @@ function helpdeskUrl() {
 }
 
 const SUGGESTIONS = [
-  'Apa itu AIoT SIMALAS?',
+  'Apa itu SmartBrail?',
   'Cara unduh & instal APK?',
   'Mahasiswa login di mana?',
   'Bagaimana enroll sidik jari?',
@@ -28,8 +28,8 @@ function Avatar({ role }) {
     <div
       className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border ${
         isUser
-          ? 'border-orange-200 bg-gradient-to-br from-rose-100 to-orange-100 text-rose-600'
-          : 'border-rose-200 bg-white text-orange-500 shadow-sm'
+          ? 'border-cyan-200 bg-gradient-to-br from-blue-100 to-cyan-100 text-blue-600'
+          : 'border-blue-200 bg-white text-cyan-500 shadow-sm'
       }`}
       aria-hidden
     >
@@ -59,7 +59,7 @@ export default function ChatWidget({ urls }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'Selamat datang di AI Helpdesk SIMALAS. Saya siap membantu seputar absensi, akses ruangan, unduh APK, OTP, dan cara menggunakan aplikasi.',
+      text: 'Selamat datang di Asisten SmartBrail. Saya siap membantu seputar absensi, akses ruangan, unduh APK, OTP, dan cara menggunakan aplikasi.',
     },
   ]);
   const endRef = useRef(null);
@@ -161,9 +161,9 @@ export default function ChatWidget({ urls }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.96 }}
             transition={{ duration: 0.22 }}
-            className="flex h-[min(78vh,620px)] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl border border-rose-200/70 bg-white shadow-2xl"
+            className="flex h-[min(78vh,620px)] w-[min(94vw,440px)] flex-col overflow-hidden rounded-2xl border border-blue-200/70 bg-white shadow-2xl"
           >
-            <div className="bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-4 text-white">
+            <div className="bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-4 text-white">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-white/15">
@@ -175,18 +175,18 @@ export default function ChatWidget({ urls }) {
                     </svg>
                   </div>
                   <div>
-                    <p className="text-base font-extrabold leading-tight">AI Helpdesk SIMALAS</p>
-                    <p className="mt-1 text-sm text-rose-100">
+                    <p className="text-base font-extrabold leading-tight">Asisten SmartBrail</p>
+                    <p className="mt-1 text-sm text-blue-100">
                       {aiEnabled === false
                         ? 'Mode FAQ (isi GEMINI_API_KEY untuk AI penuh)'
-                        : 'Online · Tanya seputar AIoT SIMALAS'}
+                        : 'Online · Tanya seputar SmartBrail'}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="rounded-lg p-1.5 text-lg leading-none text-rose-100 transition hover:bg-white/15 hover:text-white"
+                  className="rounded-lg p-1.5 text-lg leading-none text-blue-100 transition hover:bg-white/15 hover:text-white"
                   aria-label="Tutup chat"
                 >
                   ✕
@@ -194,7 +194,7 @@ export default function ChatWidget({ urls }) {
               </div>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-orange-50/40 to-white p-4 sm:p-5">
+            <div className="flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-cyan-50/40 to-white p-4 sm:p-5">
               {messages.map((m, i) => {
                 const isUser = m.role === 'user';
                 return (
@@ -204,19 +204,19 @@ export default function ChatWidget({ urls }) {
                   >
                     <Avatar role={m.role} />
                     <div className={`max-w-[80%] ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
-                      <span className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isUser ? 'text-right text-rose-500' : 'text-orange-600'}`}>
+                      <span className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isUser ? 'text-right text-blue-500' : 'text-cyan-600'}`}>
                         {isUser ? 'Anda' : 'Asisten AI'}
                       </span>
                       <div
                         className={`rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
                           isUser
-                            ? 'rounded-br-md bg-gradient-to-r from-rose-600 to-orange-500 text-white'
-                            : 'rounded-bl-md border border-rose-100 bg-white text-slate-700 shadow-sm'
+                            ? 'rounded-br-md bg-gradient-to-r from-blue-600 to-cyan-500 text-white'
+                            : 'rounded-bl-md border border-blue-100 bg-white text-slate-700 shadow-sm'
                         }`}
                       >
                         {m.text}
                         {m.role === 'assistant' && m.source === 'gemini' && (
-                          <span className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-orange-600">
+                          <span className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-cyan-600">
                             Gemini AI
                           </span>
                         )}
@@ -233,7 +233,7 @@ export default function ChatWidget({ urls }) {
               {busy && (
                 <div className="flex items-end gap-2.5">
                   <Avatar role="assistant" />
-                  <p className="rounded-2xl rounded-bl-md border border-rose-100 bg-white px-4 py-3 text-sm font-medium text-orange-600 shadow-sm">
+                  <p className="rounded-2xl rounded-bl-md border border-blue-100 bg-white px-4 py-3 text-sm font-medium text-cyan-600 shadow-sm">
                     Asisten mengetik…
                   </p>
                 </div>
@@ -241,7 +241,7 @@ export default function ChatWidget({ urls }) {
               <div ref={endRef} />
             </div>
 
-            <div className="border-t border-rose-100 bg-white p-3.5 sm:p-4">
+            <div className="border-t border-blue-100 bg-white p-3.5 sm:p-4">
               <div className="mb-2.5 flex flex-wrap gap-2">
                 {SUGGESTIONS.map((s) => (
                   <button
@@ -249,7 +249,7 @@ export default function ChatWidget({ urls }) {
                     type="button"
                     disabled={busy}
                     onClick={() => send(s)}
-                    className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-orange-50 hover:text-orange-700 disabled:opacity-50"
+                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-cyan-50 hover:text-cyan-700 disabled:opacity-50"
                   >
                     {s}
                   </button>
@@ -268,12 +268,12 @@ export default function ChatWidget({ urls }) {
                   disabled={busy}
                   maxLength={500}
                   placeholder="Tulis pertanyaan…"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[15px] outline-none ring-rose-400 focus:bg-white focus:ring-2"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[15px] outline-none ring-blue-400 focus:bg-white focus:ring-2"
                 />
                 <button
                   type="submit"
                   disabled={busy || !input.trim()}
-                  className="rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-5 py-3 text-[15px] font-bold text-white disabled:opacity-50"
+                  className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-5 py-3 text-[15px] font-bold text-white disabled:opacity-50"
                 >
                   Kirim
                 </button>
@@ -296,7 +296,7 @@ export default function ChatWidget({ urls }) {
               <button
                 type="button"
                 onClick={dismissHint}
-                className="absolute -right-2 -top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-bold text-slate-500 shadow-md transition hover:border-rose-200 hover:text-rose-600"
+                className="absolute -right-2 -top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-bold text-slate-500 shadow-md transition hover:border-blue-200 hover:text-blue-600"
                 aria-label="Tutup petunjuk bantuan"
               >
                 ✕
@@ -305,22 +305,22 @@ export default function ChatWidget({ urls }) {
               <button
                 type="button"
                 onClick={toggleChat}
-                className="relative w-full rounded-2xl border border-rose-200/80 bg-white px-5 py-4 text-left shadow-xl shadow-slate-900/15 transition hover:border-rose-300 hover:shadow-2xl"
+                className="relative w-full rounded-2xl border border-blue-200/80 bg-white px-5 py-4 text-left shadow-xl shadow-slate-900/15 transition hover:border-blue-300 hover:shadow-2xl"
               >
-                <p className="bg-gradient-to-r from-rose-600 to-orange-500 bg-clip-text text-lg font-semibold italic leading-snug text-transparent sm:text-xl">
+                <p className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-lg font-semibold italic leading-snug text-transparent sm:text-xl">
                   Butuh bantuan?
                 </p>
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Ada pertanyaan seputar SIMALAS
+                  Ada pertanyaan seputar SmartBrail
                 </p>
                 <span
-                  className="absolute -right-1.5 bottom-5 h-3.5 w-3.5 rotate-45 rounded-sm border-b border-r border-rose-200/80 bg-white"
+                  className="absolute -right-1.5 bottom-5 h-3.5 w-3.5 rotate-45 rounded-sm border-b border-r border-blue-200/80 bg-white"
                   aria-hidden
                 />
               </button>
 
               <span
-                className="absolute -right-4 bottom-6 h-2 w-2 rounded-full bg-rose-500"
+                className="absolute -right-4 bottom-6 h-2 w-2 rounded-full bg-blue-500"
                 aria-hidden
               />
             </motion.div>
@@ -332,12 +332,12 @@ export default function ChatWidget({ urls }) {
           onClick={toggleChat}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.96 }}
-          className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-600 to-orange-500 text-white shadow-lg shadow-rose-600/35 transition hover:from-rose-500 hover:to-orange-400"
+          className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-600/35 transition hover:from-blue-500 hover:to-cyan-400"
           aria-label={open ? 'Tutup bantuan' : 'Buka AI helpdesk'}
           aria-expanded={open}
         >
           {!open && hintOpen && (
-            <span className="absolute inset-0 animate-ping rounded-full bg-rose-400/35" aria-hidden />
+            <span className="absolute inset-0 animate-ping rounded-full bg-blue-400/35" aria-hidden />
           )}
           {open ? (
             <svg viewBox="0 0 24 24" className="relative h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>

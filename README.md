@@ -33,6 +33,16 @@ SmartBrail adalah platform operasional laboratorium yang menyatukan **hardware I
 <table>
   <tr>
     <td width="50%" align="center">
+      <img src=".github/screenshots/landing-hero.png" alt="Landing Page SmartBrail"><br>
+      <sub><b>Landing Page</b> — wajah publik platform, tema biru SmartBrail</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/landing-features.png" alt="Fitur SmartBrail"><br>
+      <sub><b>Fitur Publik</b> — absensi, akses ruangan, PBL, portal multi-peran</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
       <img src=".github/screenshots/admin-pusat-kendali.png" alt="Pusat Kendali"><br>
       <sub><b>Pusat Kendali</b> — pengguna online, mesin bermasalah, antrian, aktivitas PBL</sub>
     </td>
@@ -52,6 +62,20 @@ SmartBrail adalah platform operasional laboratorium yang menyatukan **hardware I
     </td>
   </tr>
   <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/admin-mesin.png" alt="Manajemen Mesin IoT"><br>
+      <sub><b>Manajemen Mesin</b> — registrasi ESP32, binding ruangan, status koneksi</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/laboran-dashboard.png" alt="Dashboard Laboran"><br>
+      <sub><b>Dashboard Laboran</b> — aktivitas IoT, antrian pengajuan, status sistem</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/screenshots/dosen-dashboard.png" alt="Dashboard Dosen"><br>
+      <sub><b>Dashboard Dosen</b> — rekap kehadiran, tim PBL bimbingan, kalender akademik</sub>
+    </td>
     <td width="50%" align="center">
       <img src=".github/screenshots/student-dashboard-ai.png" alt="Portal Mahasiswa & Chatbot"><br>
       <sub><b>Portal Mahasiswa + Chatbot</b> — beranda, jadwal, dan asisten bawaan</sub>

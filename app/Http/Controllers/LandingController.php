@@ -39,8 +39,8 @@ class LandingController extends Controller
         }
 
         // Mesin yang BENAR-BENAR online = aktif & punya heartbeat dalam ambang waktu.
-        $mesinOnline   = MesinIot::online()->count();
-        $mesinTerdaftar = MesinIot::where('is_active', true)->count();
+        $mesinOnline   = MesinIot::online()->where('tipe', '!=', 'loker')->count();
+        $mesinTerdaftar = MesinIot::where('is_active', true)->where('tipe', '!=', 'loker')->count();
 
         $stats = [
             'total_pengguna'  => User::where('role', 'mahasiswa')->count(),
@@ -56,14 +56,16 @@ class LandingController extends Controller
         return view('landing', [
             'pageProps' => [
                 'stats' => $stats,
+                'apkAvailable' => (bool) config('mobile.apk.available', false),
                 'team' => LandingPageData::teamMembers(),
                 'urls' => [
                     'download' => route('download'),
                     'beranda' => route('beranda'),
+                    'login' => route('login'),
                     'suggestions' => route('suggestions.store'),
                     'helpdeskChat' => route('helpdesk.chat'),
-                    'logoMark' => asset('branding/aiot-simalas-mark-s.png').'?v=4',
-                    'logoLockup' => asset('branding/aiot-simalas-logo-lockup-s.png').'?v=4',
+                    'logoMark' => asset('branding/brail-mark.png').'?v='.@filemtime(public_path('branding/brail-mark.png')),
+                    'logoLockup' => \App\Support\Branding::logoUrl(),
                 ],
                 'flash' => [
                     'success' => session('suggest_success'),

@@ -1,21 +1,21 @@
 function CheckIcon() {
   return (
     <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" aria-hidden>
-      <circle cx="10" cy="10" r="10" className="fill-rose-500/15 dark:fill-rose-400/20" />
+      <circle cx="10" cy="10" r="10" className="fill-blue-500/15 dark:fill-blue-400/20" />
       <path
         d="M6 10.2l2.4 2.4L14 7.2"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="text-rose-600 dark:text-rose-400"
+        className="text-blue-600 dark:text-blue-400"
       />
     </svg>
   );
 }
 
 const BADGES = [
-  { label: 'Situs Resmi SIMALAS', sub: 'iotsimalas.my.id' },
+  { label: 'Situs Resmi SmartBrail', sub: 'BRAIL Polibatam' },
   { label: 'Koneksi HTTPS Aman', sub: 'Terenkripsi SSL/TLS' },
   { label: 'APK Terverifikasi Server', sub: 'Unduhan langsung dari VPS resmi' },
   { label: 'Verifikasi OTP Email', sub: 'Keamanan akun mahasiswa' },
@@ -29,7 +29,7 @@ export default function TrustBadges({ compact = false }) {
         {BADGES.slice(0, 3).map((b) => (
           <span
             key={b.label}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 transition hover:text-rose-700 dark:text-slate-300"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 transition hover:text-blue-700 dark:text-slate-300"
           >
             <CheckIcon />
             {b.label}
@@ -40,9 +40,9 @@ export default function TrustBadges({ compact = false }) {
   }
 
   return (
-    <div className="rounded-2xl border border-rose-200/80 bg-rose-50/60 p-4 dark:border-rose-500/20 dark:bg-rose-500/5 sm:p-5">
+    <div className="rounded-2xl border border-blue-200/80 bg-blue-50/60 p-4 dark:border-blue-500/20 dark:bg-blue-500/5 sm:p-5">
       <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-600 to-orange-500 text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 text-white">
           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor" aria-hidden>
             <path
               fillRule="evenodd"
@@ -52,9 +52,9 @@ export default function TrustBadges({ compact = false }) {
           </svg>
         </span>
         <div>
-          <p className="text-sm font-bold text-rose-900 dark:text-rose-100">Terverifikasi & Terpercaya</p>
-          <p className="text-xs text-rose-700/80 dark:text-rose-300/70">
-            Platform resmi laboratorium AIoT Polibatam
+          <p className="text-sm font-bold text-blue-900 dark:text-blue-100">Terverifikasi & Terpercaya</p>
+          <p className="text-xs text-blue-700/80 dark:text-blue-300/70">
+            Platform resmi laboratorium BRAIL Polibatam
           </p>
         </div>
       </div>

@@ -19,7 +19,7 @@ const STEPS = [
   },
   {
     title: 'Buka aplikasi',
-    desc: 'Setelah terpasang, buka AIoT SIMALAS dari launcher. Pastikan perangkat terhubung internet (Wi‑Fi atau data).',
+    desc: 'Setelah terpasang, buka SmartBrail dari launcher. Pastikan perangkat terhubung internet (Wi‑Fi atau data).',
   },
   {
     title: 'Daftar akun mahasiswa',
@@ -50,7 +50,7 @@ export default function InstallGuide() {
           Panduan Instalasi Lengkap
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-slate-600 dark:text-slate-300">
-          Ikuti langkah berikut dari unduh hingga siap login di aplikasi AIoT SIMALAS.
+          Ikuti langkah berikut dari unduh hingga siap login di aplikasi SmartBrail.
         </p>
       </Reveal>
 
@@ -58,7 +58,7 @@ export default function InstallGuide() {
         {STEPS.map((step, i) => (
           <Reveal key={step.title} delay={i * 0.04}>
             <li className="flex gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 dark:border-white/10 dark:bg-[#1c2540]">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-600 to-orange-500 text-sm font-extrabold text-white">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-sm font-extrabold text-white">
                 {i + 1}
               </span>
               <div>
@@ -73,14 +73,14 @@ export default function InstallGuide() {
       </ol>
 
       <Reveal className="mt-10" delay={0.1}>
-        <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-6 dark:border-rose-500/20 dark:bg-rose-500/10">
-          <h3 className="text-sm font-bold uppercase tracking-wide text-rose-800 dark:text-rose-200">
+        <div className="rounded-2xl border border-blue-200/80 bg-blue-50/80 p-6 dark:border-blue-500/20 dark:bg-blue-500/10">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-blue-800 dark:text-blue-200">
             Tips tambahan
           </h3>
           <ul className="mt-3 space-y-2">
             {TIPS.map((tip) => (
-              <li key={tip} className="flex gap-2 text-sm text-rose-900/90 dark:text-rose-100/90">
-                <span className="text-orange-600 dark:text-orange-400">•</span>
+              <li key={tip} className="flex gap-2 text-sm text-blue-900/90 dark:text-blue-100/90">
+                <span className="text-cyan-600 dark:text-cyan-400">•</span>
                 {tip}
               </li>
             ))}

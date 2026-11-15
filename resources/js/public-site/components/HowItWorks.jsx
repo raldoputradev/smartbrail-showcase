@@ -4,60 +4,60 @@ import { Reveal, SectionHeader } from './Reveal';
 const STEPS = [
   {
     n: '1',
-    title: 'Unduh Aplikasi',
-    desc: 'Download APK dari halaman unduh resmi SIMALAS, lalu instal di perangkat Android.',
+    title: 'Buka Portal / App',
+    desc: 'Akses SmartBrail lewat portal web — aplikasi mobile menyusul saat dirilis resmi.',
   },
   {
     n: '2',
-    title: 'Daftar & Verifikasi OTP',
-    desc: 'Mahasiswa mendaftar di app, verifikasi email OTP, lalu menunggu persetujuan admin.',
+    title: 'Login atau Registrasi',
+    desc: 'Mahasiswa masuk lewat portal web atau app — akun baru bisa diimport admin atau registrasi mandiri.',
   },
   {
     n: '3',
-    title: 'Absen & Akses Ruangan',
-    desc: 'Enroll sidik jari di mesin ESP32, tap absensi, dan akses ruangan pintar dari aplikasi.',
+    title: 'Enroll Sidik Jari',
+    desc: 'Daftarkan sidik jari pertama kali di mesin ESP32 laboratorium sebelum absensi rutin.',
   },
   {
     n: '4',
-    title: 'Enroll Sidik Jari',
-    desc: 'Daftarkan sidik jari pertama kali di mesin ESP32-S3 laboratorium sebelum absensi rutin.',
+    title: 'Tap Absensi',
+    desc: 'Tap sidik jari di mesin — status hadir, terlambat, dan pulang tercatat otomatis.',
   },
   {
     n: '5',
-    title: 'Pengumuman Lab',
-    desc: 'Baca pengumuman resmi laboratorium langsung dari aplikasi — selalu terbaru.',
+    title: 'Ajukan Ruangan',
+    desc: 'Tim PBL mengajukan pemakaian ruangan dengan jadwal dan peserta — dari portal atau app.',
   },
   {
     n: '6',
-    title: 'Riwayat Absensi',
-    desc: 'Pantau histori tap absensi harian dan status kehadiran Anda kapan saja.',
+    title: 'Persetujuan Laboran',
+    desc: 'Laboran menyetujui, menolak, atau menawarkan jadwal pengganti — pemohon diberi tahu.',
   },
   {
     n: '7',
-    title: 'Profil Akademik',
-    desc: 'Kelola data diri, NIM, semester, dan informasi akademik di satu tempat.',
+    title: 'Akses Teraudit',
+    desc: 'Setiap percobaan buka pintu tercatat — akses hanya berlaku sesuai izin yang disetujui.',
   },
   {
     n: '8',
-    title: 'Lupa Password',
-    desc: 'Reset kata sandi lewat OTP email jika lupa login — tanpa bantuan admin.',
+    title: 'Tim PBL',
+    desc: 'Pantau tim PBL Anda — anggota, ketua, pembimbing, dan progres proyek.',
   },
   {
     n: '9',
-    title: 'CAPTCHA Keamanan',
-    desc: 'Verifikasi CAPTCHA saat registrasi untuk melindungi dari pendaftaran otomatis.',
+    title: 'Notifikasi Real-time',
+    desc: 'Pengumuman, balasan laporan, dan keputusan ruangan langsung masuk tanpa reload.',
   },
   {
     n: '10',
-    title: 'Notifikasi Penting',
-    desc: 'Terima update status akun, pengumuman, dan informasi lab secara real-time.',
+    title: 'Asisten AI',
+    desc: 'Tanya apa saja seputar portal — chatbot bantuan paham bahasa santai dan typo.',
   },
 ];
 
 function StepCard({ step }) {
   return (
     <div className="w-[280px] shrink-0 snap-center rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm select-none dark:border-white/10 dark:bg-[#1c2540]">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-sm font-extrabold text-rose-600">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-sm font-extrabold text-blue-600">
         {step.n}
       </div>
       <h3 className="text-base font-bold text-slate-900">{step.title}</h3>
@@ -170,7 +170,7 @@ export default function HowItWorks() {
         <Reveal>
           <SectionHeader
             eyebrow="Cara Pakai"
-            title="Panduan lengkap aplikasi SIMALAS"
+            title="Panduan lengkap SmartBrail"
             subtitle="Semua langkah onboarding dan fitur dalam satu alur — geser manual atau biarkan slide berjalan otomatis."
           />
         </Reveal>

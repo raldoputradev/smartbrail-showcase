@@ -37,7 +37,7 @@ export default function ScrollToTop() {
           exit={{ opacity: 0, y: 12, scale: 0.9 }}
           transition={{ duration: 0.2 }}
           onClick={scrollUp}
-          className="fixed bottom-24 right-5 z-[150] flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-200/70 bg-white text-rose-600 shadow-lg shadow-rose-900/10 transition hover:bg-orange-50 hover:text-orange-600"
+          className="fixed bottom-24 right-5 z-[150] flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-200/70 bg-white text-blue-600 shadow-lg shadow-blue-900/10 transition hover:bg-cyan-50 hover:text-cyan-600"
           aria-label="Kembali ke atas"
           title="Kembali ke atas"
         >

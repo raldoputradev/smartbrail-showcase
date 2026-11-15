@@ -9,7 +9,7 @@ export default function MapEmbed({ map, tall = false }) {
     url || `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
   return (
-    <div className="mt-8 overflow-hidden rounded-2xl border border-rose-200/60 bg-slate-100 shadow-sm">
+    <div className="mt-8 overflow-hidden rounded-2xl border border-blue-200/60 bg-slate-100 shadow-sm">
       <iframe
         title={label || 'Lokasi BRAIL Polibatam'}
         src={src}
@@ -18,7 +18,7 @@ export default function MapEmbed({ map, tall = false }) {
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen
       />
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-rose-100 bg-white px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-blue-100 bg-white px-4 py-3 sm:px-5">
         <p className="text-xs text-slate-600 sm:text-sm">
           <span className="font-semibold text-slate-900">{label}</span>
           <br />
@@ -28,7 +28,7 @@ export default function MapEmbed({ map, tall = false }) {
           href={mapsHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-lg bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-rose-500 hover:to-orange-400"
+          className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:from-blue-500 hover:to-cyan-400"
         >
           Buka Maps
         </a>

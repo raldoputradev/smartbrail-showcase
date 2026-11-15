@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Reveal } from './Reveal';
 
-export default function CtaBanner({ urls }) {
+export default function CtaBanner({ urls, apkAvailable = true }) {
   return (
     <section className="py-16">
       <div className="mx-auto max-w-6xl px-5 lg:px-8">
@@ -22,14 +22,15 @@ export default function CtaBanner({ urls }) {
                 Siap pakai laboratorium pintar?
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-slate-600">
-                Unduh aplikasi mobile SIMALAS sekarang — registrasi mahasiswa, absensi
-                biometrik, dan akses ruangan pintar dalam satu app.
+                {apkAvailable
+                  ? 'Unduh aplikasi mobile SmartBrail — registrasi mahasiswa, absensi biometrik, dan akses ruangan pintar dalam satu app.'
+                  : 'Masuk portal SmartBrail — absensi, pengajuan ruangan, tim PBL, dan bantuan dalam satu tempat.'}
               </p>
               <a
-                href={urls.download}
-                className="btn-unduh-attention mt-8 inline-flex rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-rose-500/25 transition hover:-translate-y-0.5 hover:from-rose-500 hover:to-orange-400"
+                href={apkAvailable ? urls.download : urls.login}
+                className="btn-unduh-attention mt-8 inline-flex rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:from-blue-500 hover:to-cyan-400"
               >
-                Unduh Sekarang
+                {apkAvailable ? 'Unduh Sekarang' : 'Masuk Portal'}
               </a>
             </div>
           </motion.div>

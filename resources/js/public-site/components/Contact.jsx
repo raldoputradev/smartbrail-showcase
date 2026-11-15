@@ -7,7 +7,7 @@ export default function Contact({ map }) {
       <div className="mx-auto max-w-6xl px-5 lg:px-8">
         <Reveal>
           <div className="mx-auto max-w-3xl text-center">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-rose-600">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">
               Kontak
             </span>
             <h2 className="mt-3 text-3xl font-extrabold text-slate-900 sm:text-4xl">
@@ -21,7 +21,7 @@ export default function Contact({ map }) {
               href={map?.url || `https://www.google.com/maps/search/?api=1&query=${map?.lat ?? 1.118671},${map?.lng ?? 104.04845}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 inline-flex text-sm font-semibold text-orange-600 hover:text-rose-600 hover:underline"
+              className="mt-4 inline-flex text-sm font-semibold text-cyan-600 hover:text-blue-600 hover:underline"
             >
               Buka di Google Maps →
             </a>

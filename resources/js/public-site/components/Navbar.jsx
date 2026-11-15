@@ -10,7 +10,7 @@ const LINKS = [
   { href: '#kontak', id: 'kontak', label: 'Kontak' },
 ];
 
-export default function Navbar({ urls, variant = 'landing' }) {
+export default function Navbar({ urls, variant = 'landing', apkAvailable = true }) {
   const home = urls?.beranda || '/';
   const [menuOpen, setMenuOpen] = useState(false);
   const activeSection = useScrollSpy(
@@ -51,7 +51,7 @@ export default function Navbar({ urls, variant = 'landing' }) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-rose-200/50 bg-[#fff8f6]/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-blue-200/50 bg-[#f0f7ff]/90 backdrop-blur-xl">
       <div
         className={`mx-auto grid h-[72px] w-full max-w-[1440px] items-center gap-4 px-4 sm:px-6 lg:px-10 xl:px-12 ${
           variant === 'landing'
@@ -62,20 +62,20 @@ export default function Navbar({ urls, variant = 'landing' }) {
         {/* Kiri: logo */}
         <a href={home} className="group flex min-w-0 items-center justify-self-start gap-3">
           <img
-            src={urls?.logoLockup || urls?.logoMark || `${import.meta.env.BASE_URL}branding/aiot-simalas-logo-lockup-s.png`}
-            alt="AIoT SIMALAS"
+            src={urls?.logoLockup || urls?.logoMark || `${import.meta.env.BASE_URL}branding/app-logo.png`}
+            alt="SmartBrail"
             className="h-12 w-auto max-w-[min(42vw,180px)] object-contain sm:h-14"
           />
           <span
-            className="hidden h-10 w-px shrink-0 bg-rose-200 lg:block"
+            className="hidden h-10 w-px shrink-0 bg-blue-200 lg:block"
             aria-hidden
           />
           <span className="hidden min-w-0 flex-col leading-tight lg:flex">
-            <span className="truncate text-[13px] font-bold tracking-wide text-slate-800">
-              BRAIL
+            <span className="bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-[15px] font-extrabold italic tracking-tight text-transparent">
+              SmartBrail
             </span>
             <span className="truncate text-[11px] font-medium text-slate-500">
-              Politeknik Negeri Batam
+              BRAIL · Politeknik Negeri Batam
             </span>
           </span>
         </a>
@@ -96,13 +96,13 @@ export default function Navbar({ urls, variant = 'landing' }) {
                   onClick={isHome ? goHome : undefined}
                   className={`relative rounded-lg px-3 py-2 text-sm font-medium transition xl:px-3.5 ${
                     isActive
-                      ? 'text-rose-600'
+                      ? 'text-blue-600'
                       : 'text-slate-600 hover:bg-white hover:text-slate-900'
                   }`}
                 >
                   {l.label}
                   <span
-                    className={`absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-gradient-to-r from-rose-600 to-orange-500 transition-all duration-300 ${
+                    className={`absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 transition-all duration-300 ${
                       isActive ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0'
                     }`}
                     aria-hidden
@@ -116,19 +116,19 @@ export default function Navbar({ urls, variant = 'landing' }) {
         {/* Kanan: CTA + hamburger */}
         <div className="flex shrink-0 items-center justify-self-end gap-2">
           <a
-            href={variant === 'download' ? home : urls.download}
-            className={`hidden rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-rose-600/25 transition hover:-translate-y-0.5 hover:from-rose-500 hover:to-orange-400 md:inline-flex${
+            href={variant === 'download' ? home : (apkAvailable ? urls.download : urls.login)}
+            className={`hidden rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-600/25 transition hover:-translate-y-0.5 hover:from-blue-500 hover:to-cyan-400 md:inline-flex${
               variant === 'landing' ? ' btn-unduh-attention' : ''
             }`}
           >
-            {variant === 'download' ? 'Kembali ke Beranda' : 'Unduh Sekarang'}
+            {variant === 'download' ? 'Kembali ke Beranda' : (apkAvailable ? 'Unduh Sekarang' : 'Masuk Portal')}
           </a>
 
           {variant === 'landing' && (
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200/80 bg-white text-slate-700 shadow-sm transition hover:border-rose-300 hover:text-rose-600 md:hidden"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-blue-200/80 bg-white text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-600 md:hidden"
               aria-label={menuOpen ? 'Tutup menu' : 'Buka menu'}
               aria-expanded={menuOpen}
               aria-controls="mobile-nav"
@@ -157,7 +157,7 @@ export default function Navbar({ urls, variant = 'landing' }) {
           />
           <div
             id="mobile-nav"
-            className="absolute left-0 right-0 top-full z-50 border-b border-rose-200/60 bg-[#fff8f6] px-5 pb-5 pt-2 shadow-xl md:hidden"
+            className="absolute left-0 right-0 top-full z-50 border-b border-blue-200/60 bg-[#f0f7ff] px-5 pb-5 pt-2 shadow-xl md:hidden"
           >
             <nav className="flex flex-col gap-1" aria-label="Navigasi mobile">
               {LINKS.map((l) => {
@@ -173,7 +173,7 @@ export default function Navbar({ urls, variant = 'landing' }) {
                     }}
                     className={`rounded-xl px-4 py-3 text-[15px] font-semibold transition ${
                       isActive
-                        ? 'bg-gradient-to-r from-rose-50 to-orange-50 text-rose-700'
+                        ? 'bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700'
                         : 'text-slate-700 hover:bg-white'
                     }`}
                   >
@@ -182,11 +182,11 @@ export default function Navbar({ urls, variant = 'landing' }) {
                 );
               })}
               <a
-                href={urls.download}
+                href={apkAvailable ? urls.download : urls.login}
                 onClick={closeMenu}
-                className="btn-unduh-attention mt-2 inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-rose-600/25"
+                className="btn-unduh-attention mt-2 inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-blue-600/25"
               >
-                Unduh Sekarang
+                {apkAvailable ? 'Unduh Sekarang' : 'Masuk Portal'}
               </a>
             </nav>
           </div>

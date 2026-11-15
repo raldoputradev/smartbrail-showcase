@@ -52,7 +52,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
     >
       <DraggableShape
         constraintsRef={constraintsRef}
-        className={`rounded-full border-2 border-rose-400/55 bg-white/40 shadow-sm ${
+        className={`rounded-full border-2 border-blue-400/55 bg-white/40 shadow-sm ${
           sparse ? '-right-6 top-10 h-24 w-24' : 'left-[4%] top-[16%] h-36 w-36'
         }`}
         idle={{
@@ -63,13 +63,13 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
           },
         }}
       >
-        <span className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-orange-400/45" />
+        <span className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-cyan-400/45" />
       </DraggableShape>
 
       {!sparse && (
         <DraggableShape
           constraintsRef={constraintsRef}
-          className="left-[10%] top-[28%] h-20 w-20 rounded-full border border-dashed border-orange-400/65 bg-orange-50/50"
+          className="left-[10%] top-[28%] h-20 w-20 rounded-full border border-dashed border-cyan-400/65 bg-cyan-50/50"
           idle={{
             animate: { rotate: -360 },
             transition: { duration: 20, repeat: Infinity, ease: 'linear' },
@@ -79,7 +79,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
 
       <DraggableShape
         constraintsRef={constraintsRef}
-        className={`rounded-2xl border-2 border-rose-400/55 bg-gradient-to-br from-rose-100/80 to-orange-100/60 shadow-sm ${
+        className={`rounded-2xl border-2 border-blue-400/55 bg-gradient-to-br from-blue-100/80 to-cyan-100/60 shadow-sm ${
           sparse ? 'right-[8%] bottom-12 h-14 w-14' : 'right-[10%] top-[12%] h-16 w-16'
         }`}
         idle={{
@@ -90,7 +90,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
 
       <DraggableShape
         constraintsRef={constraintsRef}
-        className={`rounded-xl bg-gradient-to-br from-orange-500/75 to-rose-500/70 shadow-md ${
+        className={`rounded-xl bg-gradient-to-br from-cyan-500/75 to-blue-500/70 shadow-md ${
           sparse ? 'left-[10%] top-14 h-8 w-8' : 'right-[22%] top-[30%] h-10 w-10'
         }`}
         idle={{
@@ -106,7 +106,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
         <>
           <DraggableShape
             constraintsRef={constraintsRef}
-            className="bottom-[14%] right-[6%] h-28 w-28 rounded-full border-2 border-orange-400/55 bg-white/30"
+            className="bottom-[14%] right-[6%] h-28 w-28 rounded-full border-2 border-cyan-400/55 bg-white/30"
             idle={{
               animate: { rotate: -360, scale: [1, 1.04, 1] },
               transition: {
@@ -117,7 +117,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
           />
           <DraggableShape
             constraintsRef={constraintsRef}
-            className="bottom-[26%] left-[18%] h-0 w-0 border-l-[20px] border-r-[20px] border-b-[34px] border-l-transparent border-r-transparent border-b-rose-400/60"
+            className="bottom-[26%] left-[18%] h-0 w-0 border-l-[20px] border-r-[20px] border-b-[34px] border-l-transparent border-r-transparent border-b-blue-400/60"
             idle={{
               animate: { rotate: [0, 18, -12, 0], y: [0, -12, 0] },
               transition: { duration: 9, repeat: Infinity, ease: 'easeInOut' },
@@ -128,7 +128,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
 
       <DraggableShape
         constraintsRef={constraintsRef}
-        className="left-[44%] top-[10%] h-3.5 w-3.5 rounded-full bg-rose-500 shadow"
+        className="left-[44%] top-[10%] h-3.5 w-3.5 rounded-full bg-blue-500 shadow"
         idle={{
           animate: { y: [0, -10, 0], opacity: [0.55, 1, 0.55] },
           transition: { duration: 4, repeat: Infinity, ease: 'easeInOut' },
@@ -136,7 +136,7 @@ export default function FloatingShapes({ className = '', variant = 'full' }) {
       />
       <DraggableShape
         constraintsRef={constraintsRef}
-        className="left-[50%] top-[18%] h-2.5 w-2.5 rounded-full bg-orange-500 shadow"
+        className="left-[50%] top-[18%] h-2.5 w-2.5 rounded-full bg-cyan-500 shadow"
         idle={{
           animate: { y: [0, 8, 0], opacity: [0.45, 1, 0.45] },
           transition: { duration: 3.6, repeat: Infinity, ease: 'easeInOut', delay: 0.4 },

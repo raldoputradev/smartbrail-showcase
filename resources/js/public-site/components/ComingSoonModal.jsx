@@ -24,7 +24,7 @@ export default function ComingSoonModal({ open, onClose, title = 'Fitur ini', de
             transition={{ duration: 0.22 }}
             className="fixed left-1/2 top-1/2 z-[201] w-[min(92vw,400px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#1c2540]"
           >
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-200">
               <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                 <path d="M12 8v4l3 3M12 22a10 10 0 100-20 10 10 0 000 20z" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -39,7 +39,7 @@ export default function ComingSoonModal({ open, onClose, title = 'Fitur ini', de
             <button
               type="button"
               onClick={onClose}
-              className="mt-6 w-full rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 py-3 text-sm font-bold text-white transition hover:from-rose-500 hover:to-orange-400"
+              className="mt-6 w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 py-3 text-sm font-bold text-white transition hover:from-blue-500 hover:to-cyan-400"
             >
               Mengerti
             </button>

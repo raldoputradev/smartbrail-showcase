@@ -9,7 +9,7 @@ export default function Team({ team }) {
         <Reveal>
           <SectionHeader
             eyebrow="Tim"
-            title="Orang-orang di balik SIMALAS"
+            title="Orang-orang di balik SmartBrail"
             subtitle="Tim multidisiplin electrical, software, mobile, vision, dan komunikasi di Polibatam."
           />
         </Reveal>

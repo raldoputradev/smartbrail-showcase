@@ -1,26 +1,26 @@
 const ITEMS = [
-  { icon: '◆', text: 'Absensi biometrik ESP32-S3' },
-  { icon: '◆', text: 'Akses ruangan pintar terintegrasi' },
-  { icon: '◆', text: 'Aplikasi mobile mahasiswa' },
+  { icon: '◆', text: 'Absensi biometrik ESP32' },
+  { icon: '◆', text: 'Akses ruangan berbasis izin' },
+  { icon: '◆', text: 'Manajemen tim PBL' },
   { icon: '◆', text: 'BRAIL Polibatam' },
-  { icon: '◆', text: 'HTTPS & APK terverifikasi' },
-  { icon: '◆', text: 'OTP email & keamanan akun' },
-  { icon: '◆', text: 'Portal dosen & laboran' },
+  { icon: '◆', text: 'Portal admin · laboran · dosen · mahasiswa' },
   { icon: '◆', text: 'Notifikasi real-time' },
+  { icon: '◆', text: 'Asisten AI bawaan' },
+  { icon: '◆', text: 'Audit akses tercatat' },
 ];
 
 function TickerRow({ items }) {
   const track = [...items, ...items];
 
   return (
-    <div className="overflow-hidden border-y border-rose-800/20 bg-gradient-to-r from-rose-700 via-rose-600 to-orange-600 dark:border-rose-400/10 dark:from-rose-900 dark:via-rose-800 dark:to-orange-800">
+    <div className="overflow-hidden border-y border-blue-800/20 bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-600 dark:border-blue-400/10 dark:from-blue-900 dark:via-blue-800 dark:to-cyan-800">
       <div className="flex w-max gap-10 py-3 animate-ticker">
         {track.map((item, i) => (
           <span
             key={`${item.text}-${i}`}
             className="inline-flex shrink-0 items-center gap-2 px-2 text-xs font-bold uppercase tracking-[0.12em] text-white sm:text-sm"
           >
-            <span className="text-orange-200" aria-hidden>
+            <span className="text-cyan-200" aria-hidden>
               {item.icon}
             </span>
             {item.text}

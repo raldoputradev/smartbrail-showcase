@@ -67,53 +67,73 @@ function IconShield({ className }) {
   );
 }
 
+function IconUsers({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M4 20c0-3 2.2-5 5-5s5 2 5 5" strokeLinecap="round" />
+      <path d="M15.5 5.6a3 3 0 0 1 0 4.8" strokeLinecap="round" />
+      <path d="M17 15.4c2 .7 3.5 2.4 3.5 4.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSparkle({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path d="M12 3.5l1.8 5 5 1.8-5 1.8-1.8 5-1.8-5-5-1.8 5-1.8 1.8-5z" strokeLinejoin="round" />
+      <path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 const FEATURES = [
   {
     title: 'Absensi Sidik Jari',
     desc: 'Tap biometrik ESP32-S3 terhubung real-time ke server Laravel.',
     Icon: IconFingerprint,
-    tone: 'from-rose-500 to-orange-500',
-    glow: 'group-hover:shadow-rose-500/25',
+    tone: 'from-blue-500 to-cyan-500',
+    glow: 'group-hover:shadow-blue-500/25',
     iconColor: 'text-white',
   },
   {
-    title: 'Akses Ruangan Pintar',
-    desc: 'Kelola akses ruangan laboratorium lewat aplikasi mobile.',
+    title: 'Akses Ruangan Berbasis Izin',
+    desc: 'Pengajuan ruangan tim → persetujuan laboran, setiap akses teraudit.',
     Icon: IconLock,
-    tone: 'from-orange-500 to-amber-500',
-    glow: 'group-hover:shadow-orange-500/25',
+    tone: 'from-cyan-500 to-sky-500',
+    glow: 'group-hover:shadow-cyan-500/25',
     iconColor: 'text-white',
   },
   {
-    title: 'Aplikasi Mahasiswa',
-    desc: 'Registrasi, OTP, profil, pengumuman, dan riwayat absensi di satu app.',
-    Icon: IconSmartphone,
-    tone: 'from-fuchsia-500 to-rose-500',
-    glow: 'group-hover:shadow-fuchsia-500/25',
+    title: 'Manajemen PBL',
+    desc: 'Tim project-based learning, pembimbing, progres, dan jejak aktivitas.',
+    Icon: IconUsers,
+    tone: 'from-indigo-500 to-blue-500',
+    glow: 'group-hover:shadow-indigo-500/25',
     iconColor: 'text-white',
   },
   {
-    title: 'Dashboard Dosen & Laboran',
-    desc: 'Rekap absensi, laporan, dan monitoring mesin via portal staff terpisah.',
+    title: 'Portal Multi-Peran',
+    desc: 'Dashboard berbeda untuk admin, laboran, dosen, dan mahasiswa.',
     Icon: IconDashboard,
-    tone: 'from-rose-600 to-red-500',
-    glow: 'group-hover:shadow-rose-600/25',
+    tone: 'from-blue-600 to-blue-500',
+    glow: 'group-hover:shadow-blue-600/25',
     iconColor: 'text-white',
   },
   {
     title: 'Notifikasi Real-time',
-    desc: 'Push notification pengumuman dan update penting laboratorium.',
+    desc: 'Pengumuman, keputusan ruangan, dan update PBL langsung terkirim.',
     Icon: IconBell,
-    tone: 'from-amber-500 to-orange-600',
-    glow: 'group-hover:shadow-amber-500/25',
+    tone: 'from-sky-500 to-cyan-600',
+    glow: 'group-hover:shadow-sky-500/25',
     iconColor: 'text-white',
   },
   {
-    title: 'Keamanan Terenkripsi',
-    desc: 'API key mesin, template sidik jari, dan sesi login diamankan.',
-    Icon: IconShield,
-    tone: 'from-orange-600 to-rose-600',
-    glow: 'group-hover:shadow-orange-600/25',
+    title: 'Asisten AI Bawaan',
+    desc: 'Copilot kontekstual tiap peran + chatbot bantuan mahasiswa.',
+    Icon: IconSparkle,
+    tone: 'from-cyan-600 to-blue-600',
+    glow: 'group-hover:shadow-cyan-600/25',
     iconColor: 'text-white',
   },
 ];
@@ -127,19 +147,19 @@ export default function Features() {
           <SectionHeader
             eyebrow="Fitur"
             title="Semua yang kamu butuhkan"
-            subtitle="Ekosistem lengkap untuk laboratorium pintar berbasis AIoT di Polibatam."
+            subtitle="Ekosistem lengkap untuk laboratorium pintar di BRAIL Polibatam."
           />
         </Reveal>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f, i) => (
             <Reveal key={f.title} delay={i * 0.05}>
-              <article className="group h-full cursor-pointer rounded-2xl border border-slate-200/80 bg-[#fff8f6] p-6 transition duration-300 hover:-translate-y-1 hover:border-rose-200 hover:bg-white hover:shadow-xl">
+              <article className="group h-full cursor-pointer rounded-2xl border border-slate-200/80 bg-[#f0f7ff] p-6 transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:bg-white hover:shadow-xl">
                 <div
                   className={`mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${f.tone} shadow-md transition duration-300 ${f.glow} group-hover:scale-110 group-hover:shadow-lg`}
                 >
                   <f.Icon className={`h-7 w-7 ${f.iconColor}`} />
                 </div>
-                <h3 className="font-bold text-slate-900 transition group-hover:text-rose-700">
+                <h3 className="font-bold text-slate-900 transition group-hover:text-blue-700">
                   {f.title}
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">{f.desc}</p>

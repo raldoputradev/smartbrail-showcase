@@ -42,7 +42,7 @@ function ScreenHome({ logoMark }) {
         <div className="mb-5 flex items-center gap-3">
           <img src={logoMark} alt="" className="h-12 w-12 rounded-2xl bg-white p-1 object-contain" />
           <div>
-            <div className="text-base font-bold">AIoT SIMALAS</div>
+            <div className="text-base font-bold">SmartBrail</div>
             <div className="text-[11px] text-slate-400">Aplikasi Mahasiswa</div>
           </div>
         </div>
@@ -220,7 +220,7 @@ export default function PhoneMockup({
   autoRotate = true,
   logoMark,
 }) {
-  const markSrc = logoMark || `${import.meta.env.BASE_URL}branding/aiot-simalas-mark-s.png`;
+  const markSrc = logoMark || `${import.meta.env.BASE_URL}branding/brail-mark.png`;
   const ref = useRef(null);
   const [screenIdx, setScreenIdx] = useState(0);
   const mx = useMotionValue(0);
@@ -301,7 +301,7 @@ export default function PhoneMockup({
                   type="button"
                   onClick={() => setScreenIdx(i)}
                   className={`h-1.5 rounded-full transition-all ${
-                    i === screenIdx ? 'w-4 bg-rose-400' : 'w-1.5 bg-white/30'
+                    i === screenIdx ? 'w-4 bg-blue-400' : 'w-1.5 bg-white/30'
                   }`}
                   aria-label={s.label}
                 />

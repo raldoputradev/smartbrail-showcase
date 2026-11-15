@@ -18,6 +18,7 @@ export default function DownloadPage({
   apkSizeMb,
   urls,
   appVersion,
+  apkAvailable = true,
 }) {
   const reduce = useReducedMotion();
   const mouseX = useMotionValue(0);
@@ -44,7 +45,7 @@ export default function DownloadPage({
         onMouseMove={onMouseMove}
       >
         {/* Atmospheric base */}
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-orange-50 via-[#fff8f6] to-rose-100/80" />
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-cyan-50 via-[#f0f7ff] to-blue-100/80" />
 
         {/* Soft mesh blobs */}
         <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
@@ -58,7 +59,7 @@ export default function DownloadPage({
           className="pointer-events-none absolute inset-0 -z-10 opacity-[0.22]"
           style={{
             backgroundImage:
-              'linear-gradient(to right, #fdba74 1px, transparent 1px), linear-gradient(to bottom, #fda4af 1px, transparent 1px)',
+              'linear-gradient(to right, #7dd3fc 1px, transparent 1px), linear-gradient(to bottom, #93c5fd 1px, transparent 1px)',
             backgroundSize: '56px 56px',
             maskImage: 'radial-gradient(ellipse 80% 70% at 50% 30%, black 20%, transparent 75%)',
             WebkitMaskImage:
@@ -84,15 +85,15 @@ export default function DownloadPage({
             transition={{ duration: 0.55 }}
             className="text-center"
           >
-            <span className="inline-flex items-center gap-2 rounded-full border border-rose-200/80 bg-white/80 px-3 py-1 text-xs font-bold text-rose-700 shadow-sm backdrop-blur">
+            <span className="inline-flex items-center gap-2 rounded-full border border-blue-200/80 bg-white/80 px-3 py-1 text-xs font-bold text-blue-700 shadow-sm backdrop-blur">
               <span
-                className={`inline-block h-1.5 w-1.5 rounded-full bg-rose-500 ${reduce ? '' : 'animate-soft-pulse'}`}
+                className={`inline-block h-1.5 w-1.5 rounded-full bg-blue-500 ${reduce ? '' : 'animate-soft-pulse'}`}
                 aria-hidden
               />
               APLIKASI MOBILE
             </span>
             <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
-              Unduh AIoT SIMALAS
+              Unduh SmartBrail
             </h1>
             <p className="mx-auto mt-3 max-w-lg text-slate-600">
               Aplikasi Android untuk mahasiswa — absensi biometrik, akses ruangan, dan pengumuman
@@ -101,7 +102,7 @@ export default function DownloadPage({
           </motion.div>
 
           <Reveal className="mt-12">
-            <div className="rounded-3xl border border-rose-200/70 bg-white/90 p-6 shadow-xl shadow-rose-900/10 backdrop-blur-md sm:p-8">
+            <div className="rounded-3xl border border-blue-200/70 bg-white/90 p-6 shadow-xl shadow-blue-900/10 backdrop-blur-md sm:p-8">
               <div className="flex flex-col items-center gap-10 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex w-full justify-center lg:w-auto lg:shrink-0">
                   <PhoneMockup
@@ -118,18 +119,18 @@ export default function DownloadPage({
                     {apkSizeMb && <Chip label={`${apkSizeMb} MB`} />}
                   </div>
                   {changelog && (
-                    <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50/90 p-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wide text-orange-700">
+                    <div className="mt-5 rounded-2xl border border-cyan-100 bg-cyan-50/90 p-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wide text-cyan-700">
                         Apa yang baru
                       </h3>
                       <p className="mt-2 text-sm leading-relaxed text-slate-700">{changelog}</p>
                     </div>
                   )}
                   <div className="mt-6">
-                    {apkExists ? (
+                    {apkAvailable && apkExists ? (
                       <a
                         href={apkUrl}
-                        className="btn-unduh-attention inline-flex rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-rose-600/30 transition hover:-translate-y-0.5 hover:from-rose-500 hover:to-orange-400"
+                        className="btn-unduh-attention inline-flex rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/30 transition hover:-translate-y-0.5 hover:from-blue-500 hover:to-cyan-400"
                       >
                         Unduh Sekarang
                       </a>
@@ -139,12 +140,12 @@ export default function DownloadPage({
                         disabled
                         className="rounded-xl bg-slate-300 px-8 py-3.5 text-sm font-bold text-slate-600"
                       >
-                        APK belum tersedia
+                        Segera hadir
                       </button>
                     )}
                   </div>
                   <p className="mt-5 text-xs leading-relaxed text-slate-500">
-                    File resmi dari server SIMALAS. Jika browser memblokir, izinkan unduhan dan buka
+                    File resmi dari server SmartBrail. Jika browser memblokir, izinkan unduhan dan buka
                     dari folder Unduhan perangkat Anda.
                   </p>
                   <div className="mt-6">
@@ -155,9 +156,11 @@ export default function DownloadPage({
             </div>
           </Reveal>
 
-          <div className="relative z-10 mt-16">
-            <InstallGuide />
-          </div>
+          {apkAvailable && (
+            <div className="relative z-10 mt-16">
+              <InstallGuide />
+            </div>
+          )}
         </main>
       </div>
 

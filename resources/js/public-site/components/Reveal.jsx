@@ -77,7 +77,7 @@ export function Reveal({ children, className = '', delay = 0 }) {
 export function SectionHeader({ eyebrow, title, subtitle }) {
   return (
     <div className="mx-auto mb-12 max-w-2xl text-center">
-      <span className="text-xs font-bold uppercase tracking-[0.2em] text-rose-600">
+      <span className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">
         {eyebrow}
       </span>
       <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">

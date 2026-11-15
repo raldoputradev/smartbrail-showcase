@@ -19,7 +19,7 @@ class HelpdeskAiService
         $message = trim(Str::limit($message, 2500, ''));
         if ($message === '' && $image === null) {
             return [
-                'reply' => 'Halo! 👋 Ketik aja pertanyaanmu soal AIoT SIMALAS ya~',
+                'reply' => 'Halo! 👋 Ketik aja pertanyaanmu soal SmartBrail ya~',
                 'source' => 'faq',
             ];
         }
@@ -264,7 +264,7 @@ class HelpdeskAiService
             }
         }
 
-        return 'AIoT SIMALAS itu sistem lab pintar di BRAIL Polibatam 🔥 absensi sidik jari ESP32, akses ruangan IoT, plus app mobile mahasiswa. '
+        return 'SmartBrail itu sistem lab pintar di BRAIL Polibatam 🔥 absensi sidik jari ESP32, akses ruangan IoT, plus app mobile mahasiswa. '
             .'Coba tanya: cara unduh APK, login mahasiswa, enroll sidik jari, atau lokasi lab ya ✨ '
             .'(Biar makin natural, admin bisa isi GEMINI_API_KEY di server.)';
     }
@@ -272,7 +272,7 @@ class HelpdeskAiService
     private function systemPrompt(): string
     {
         return <<<'TXT'
-Kamu adalah CS / helpdesk AI resmi AIoT SIMALAS (Smart Laboratory Management System) di Politeknik Negeri Batam, BRAIL.
+Kamu adalah CS / helpdesk AI resmi SmartBrail (Smart Laboratory Management System) di Politeknik Negeri Batam, BRAIL.
 
 GAYA NGOMONG (WAJIB):
 - Santai, gaul, ramah kayak temen kampus — bukan robot kaku / formal bertele-tele.
@@ -282,9 +282,9 @@ GAYA NGOMONG (WAJIB):
 - Jangan kaku kayak dokumen resmi. Tetap sopan, jangan kasar / toxic / SARA.
 
 TOPIK:
-- Hanya bahas SIMALAS: absensi biometrik, akses ruangan pintar, app mobile mahasiswa, portal dosen/laboran, unduh APK, OTP, enroll sidik jari, lokasi lab, siapa pengembang.
-- Kalau ditanya “kamu siapa”: bilang kamu asisten AI helpdesk AIoT SIMALAS yang siap bantu.
-- Kalau di luar topik: tolak santai + arahkan balik ke SIMALAS.
+- Hanya bahas SmartBrail: absensi biometrik, akses ruangan pintar, app mobile mahasiswa, portal dosen/laboran, unduh APK, OTP, enroll sidik jari, lokasi lab, siapa pengembang.
+- Kalau ditanya “kamu siapa”: bilang kamu asisten AI helpdesk SmartBrail yang siap bantu.
+- Kalau di luar topik: tolak santai + arahkan balik ke SmartBrail.
 
 Kepanjangan BRAIL (WAJIB benar):
 - BRAIL = Barelang Robotics and Artificial Intelligence Lab.
@@ -292,7 +292,7 @@ Kepanjangan BRAIL (WAJIB benar):
 - Cukup sebut “BRAIL” atau “BRAIL Polibatam” (jangan “BRAIL Lab” — Lab sudah termasuk di kepanjangan).
 
 Fakta pengembang:
-- Dikerjakan oleh tim AIoT SIMALAS di bawah BRAIL, Politeknik Negeri Batam.
+- Dikerjakan oleh tim SmartBrail di bawah BRAIL, Politeknik Negeri Batam.
 - Jangan sebut nama individu kecuali user minta eksplisit.
 - Jangan mengarang daftar anggota.
 
@@ -314,19 +314,19 @@ TXT;
         return [
             [
                 'keys' => ['siapa kamu', 'kamu siapa', 'who are you', 'asisten'],
-                'a' => 'Haii! 👋 Aku asisten AI helpdesk AIoT SIMALAS. Tinggal tanya aja soal absensi sidik jari, akses ruangan, unduh APK, atau cara pakai sistem di BRAIL Polibatam~ ✨',
+                'a' => 'Haii! 👋 Aku asisten AI helpdesk SmartBrail. Tinggal tanya aja soal absensi sidik jari, akses ruangan, unduh APK, atau cara pakai sistem di BRAIL Polibatam~ ✨',
             ],
             [
                 'keys' => ['siapa yang bikin', 'siapa pembuat', 'siapa develop', 'developer', 'pengembang', 'dibuat siapa', 'yang kerjakan', 'dibuat oleh siapa', 'tim aiot'],
-                'a' => 'Yang bikin AIoT SIMALAS adalah tim AIoT SIMALAS di bawah BRAIL (Barelang Robotics and Artificial Intelligence Lab), Politeknik Negeri Batam 🛠️ Mulai dari app mobile, portal web, API, sampe mesin IoT-nya!',
+                'a' => 'Yang bikin SmartBrail adalah tim SmartBrail di bawah BRAIL (Barelang Robotics and Artificial Intelligence Lab), Politeknik Negeri Batam 🛠️ Mulai dari app mobile, portal web, API, sampe mesin IoT-nya!',
             ],
             [
                 'keys' => ['brail', 'kepanjangan brail', 'arti brail', 'barelang'],
-                'a' => 'BRAIL kepanjangannya Barelang Robotics and Artificial Intelligence Lab di Polibatam 🤖 Itu lab tempat AIoT SIMALAS dikembangkan. Bukan “Brain and AI Lab” ya 😉',
+                'a' => 'BRAIL kepanjangannya Barelang Robotics and Artificial Intelligence Lab di Polibatam 🤖 Itu lab tempat SmartBrail dikembangkan. Bukan “Brain and AI Lab” ya 😉',
             ],
             [
                 'keys' => ['apa itu', 'simalas', 'aiot', 'project', 'proyek', 'tentang'],
-                'a' => 'AIoT SIMALAS = platform lab pintar di BRAIL Polibatam 🔥 Ada absensi sidik jari ESP32, akses ruangan IoT, sama app mobile mahasiswa. Dosen & laboran kelola lewat portal web staff.',
+                'a' => 'SmartBrail = platform lab pintar di BRAIL Polibatam 🔥 Ada absensi sidik jari ESP32, akses ruangan IoT, sama app mobile mahasiswa. Dosen & laboran kelola lewat portal web staff.',
             ],
             [
                 'keys' => ['unduh', 'download', 'apk', 'instal', 'install'],
@@ -334,7 +334,7 @@ TXT;
             ],
             [
                 'keys' => ['mahasiswa', 'login mhs', 'aplikasi'],
-                'a' => 'Mahasiswa login-nya di aplikasi mobile SIMALAS (Android), bukan di website publik ya 📱 Website cuma buat kenalan project + unduh APK.',
+                'a' => 'Mahasiswa bisa login di portal web SmartBrail atau aplikasi mobile (Android) 📱 Website publik ini buat kenalan project + unduh APK.',
             ],
             [
                 'keys' => ['dosen', 'laboran', 'admin', 'portal'],

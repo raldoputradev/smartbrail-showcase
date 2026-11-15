@@ -9,8 +9,12 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class DownloadController extends Controller
 {
-    public function index(): View
+    public function index(): View|\Illuminate\Http\RedirectResponse
     {
+        if (! config('mobile.apk.available', false)) {
+            return redirect()->route('beranda');
+        }
+
         $apk = config('mobile.apk');
         $filename = (string) ($apk['filename'] ?? 'AIoT-SIMALAS-Mobile.apk');
         $path = public_path('downloads/'.$filename);
@@ -25,13 +29,14 @@ class DownloadController extends Controller
                 'changelog' => $apk['changelog'] ?? '',
                 'apkUrl' => route('download.apk'),
                 'apkExists' => File::exists($path),
+                'apkAvailable' => (bool) config('mobile.apk.available', false),
                 'apkSizeMb' => $sizeMb,
                 'urls' => [
                     'beranda' => route('beranda'),
                     'download' => route('download'),
                     'helpdeskChat' => route('helpdesk.chat'),
-                    'logoMark' => asset('branding/aiot-simalas-mark-s.png').'?v=4',
-                    'logoLockup' => asset('branding/aiot-simalas-logo-lockup-s.png').'?v=4',
+                    'logoMark' => asset('branding/brail-mark.png').'?v='.@filemtime(public_path('branding/brail-mark.png')),
+                    'logoLockup' => \App\Support\Branding::logoUrl(),
                 ],
                 'appVersion' => config('mobile.apk.version', '1.3.10'),
             ],
@@ -40,6 +45,10 @@ class DownloadController extends Controller
 
     public function apk(): BinaryFileResponse|Response
     {
+        if (! config('mobile.apk.available', false)) {
+            abort(404, 'Aplikasi mobile belum dirilis untuk periode ini.');
+        }
+
         $filename = (string) config('mobile.apk.filename', 'AIoT-SIMALAS-Mobile.apk');
         $path = public_path('downloads/'.$filename);
 

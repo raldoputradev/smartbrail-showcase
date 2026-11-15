@@ -10,6 +10,8 @@ return [
     | version_code harus naik setiap rilis (1.2.1+4 → version_code 4).
     */
     'apk' => [
+        // Matikan distribusi APK sementara (fokus portal web). Set true saat rilis mobile siap.
+        'available' => filter_var(env('MOBILE_APK_AVAILABLE', false), FILTER_VALIDATE_BOOL),
         'version' => env('MOBILE_APK_VERSION', '1.3.16'),
         'version_code' => (int) env('MOBILE_APK_VERSION_CODE', 19),
         'min_version_code' => (int) env('MOBILE_APK_MIN_VERSION_CODE', 4),
