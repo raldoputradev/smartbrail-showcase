@@ -40,6 +40,20 @@ function statusLabel(p: Pengajuan): string {
     return STATUS_LABEL[p.status_efektif] ?? p.status_efektif;
 }
 
+const STATUS_STAMP: Record<string, { label: string; cls: string }> = {
+    disetujui: { label: 'Disetujui', cls: '' },
+    selesai: { label: 'Disetujui', cls: '' },
+    ditolak: { label: 'Ditolak', cls: 'sb-stamp--danger' },
+    dibatalkan: { label: 'Dibatalkan', cls: 'sb-stamp--muted' },
+    kedaluwarsa: { label: 'Kedaluwarsa', cls: 'sb-stamp--warn' },
+};
+
+function StatusStamp({ status }: { status: string }) {
+    const s = STATUS_STAMP[status];
+    if (!s) return null;
+    return <span className={`sb-stamp ${s.cls}`} aria-hidden>{s.label}</span>;
+}
+
 const BOOKING_STEPS = ['Dikirim', 'Persetujuan Laboran', 'Disetujui', 'Datang ke Ruangan'] as const;
 
 /** Jumlah langkah yang sudah selesai untuk suatu status efektif; -1 = berakhir tanpa persetujuan. */
@@ -774,9 +788,7 @@ function RiwayatTab({ pengajuan }: { pengajuan: Pengajuan[] }) {
                 <DialogContent title={`Pengajuan #${detail?.id}`} description={detail ? statusLabel(detail) : ''}>
                     {detail && (
                         <div className="relative space-y-4 px-5 py-4">
-                            {(detail.status_efektif === 'disetujui' || detail.status_efektif === 'selesai') && (
-                                <span className="sb-stamp" aria-hidden>Disetujui</span>
-                            )}
+                            <StatusStamp status={detail.status_efektif} />
                             <Stepper status={detail.status_efektif} />
                             <dl className="grid grid-cols-2 gap-2.5 text-[12.5px]">
                                 {[

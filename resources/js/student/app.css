@@ -138,18 +138,22 @@
         to { opacity: 1; transform: none; }
     }
 
-    /* Cap "DISETUJUI" — efek stempel saat dialog pengajuan dibuka (ulang) */
+    /* Cap status (DISETUJUI/DITOLAK/dst.) — kartu tampil dulu, stempel ter-cap ~0,5 dtk kemudian */
     .sb-stamp {
+        --stamp-color: var(--color-sb-ok);
         position: absolute; top: 58px; right: 20px; z-index: 5;
         padding: 6px 15px; pointer-events: none; user-select: none;
-        border: 3px solid var(--color-sb-ok); border-radius: 8px;
-        color: var(--color-sb-ok); background: color-mix(in srgb, var(--color-sb-ok) 7%, transparent);
+        border: 3px solid var(--stamp-color); border-radius: 8px;
+        color: var(--stamp-color); background: color-mix(in srgb, var(--stamp-color) 7%, transparent);
         font-size: 15px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase;
         transform: rotate(-12deg);
-        box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-sb-ok) 40%, transparent);
+        box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--stamp-color) 40%, transparent);
         opacity: .92;
-        animation: sb-stamp-in .55s cubic-bezier(.2, 1.7, .4, 1) .1s both;
+        animation: sb-stamp-in .55s cubic-bezier(.2, 1.7, .4, 1) .5s both;
     }
+    .sb-stamp--danger { --stamp-color: var(--color-sb-danger); }
+    .sb-stamp--warn { --stamp-color: var(--color-sb-warn); }
+    .sb-stamp--muted { --stamp-color: var(--color-sb-muted); }
     @keyframes sb-stamp-in {
         0% { opacity: 0; transform: rotate(-12deg) scale(1.9); }
         55% { opacity: 1; transform: rotate(-12deg) scale(.94); }
